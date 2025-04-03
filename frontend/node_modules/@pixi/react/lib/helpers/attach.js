@@ -1,0 +1,19 @@
+'use strict';
+
+var pixi_js = require('pixi.js');
+
+"use strict";
+function attach(parentInstance, childInstance, targetIndex) {
+  if (childInstance instanceof pixi_js.Filter) {
+    childInstance.__pixireact.parent = parentInstance;
+    if (typeof targetIndex === "number") {
+      parentInstance.__pixireact.filters.splice(targetIndex, 0, childInstance);
+    } else {
+      parentInstance.__pixireact.filters.push(childInstance);
+    }
+    parentInstance.filters = parentInstance.__pixireact.filters;
+  }
+}
+
+exports.attach = attach;
+//# sourceMappingURL=attach.js.map

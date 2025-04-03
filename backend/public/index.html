@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIBES Network Visualizer</title>
+  <style>
+    body {
+      background-color: #000;
+      color: #00ff41;
+      font-family: 'Courier New', monospace;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+      overflow: hidden;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      text-shadow: 0 0 10px #00ff41;
+    }
+    
+    p {
+      font-size: 1.2rem;
+      margin-bottom: 2rem;
+      max-width: 600px;
+    }
+    
+    .status {
+      padding: 1rem;
+      border: 1px solid #00ff41;
+      border-radius: 4px;
+      margin-bottom: 2rem;
+    }
+    
+    .glow {
+      text-shadow: 0 0 5px #00ff41, 0 0 10px #00ff41;
+    }
+    
+    .connection-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+    
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 10px;
+      background-color: red;
+    }
+    
+    .connected {
+      background-color: #00ff41;
+      box-shadow: 0 0 10px #00ff41;
+    }
+    
+    .scanline {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 999;
+      pointer-events: none;
+      background: linear-gradient(
+        to bottom,
+        transparent 50%,
+        rgba(0, 0, 0, 0.05) 51%
+      );
+      background-size: 100% 4px;
+    }
+    
+    @keyframes flicker {
+      0% { opacity: 1; }
+      10% { opacity: 0.8; }
+      20% { opacity: 1; }
+      40% { opacity: 0.9; }
+      60% { opacity: 1; }
+      70% { opacity: 0.8; }
+      80% { opacity: 1; }
+      100% { opacity: 1; }
+    }
+    
+    .flicker {
+      animation: flicker 2s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="scanline"></div>
+  <h1 class="glow">VIBES Network Visualizer</h1>
+  <p>Backend server is running. Connect to the WebSocket at <code>ws://localhost:8080/ws</code> to receive real-time network packet data.</p>
+  
+  <div class="status">
+    <h2>Server Status</h2>
+    <p>WebSocket server running on port 8080</p>
+    <p>Simulating network traffic</p>
+    <div class="connection-status">
+      <div class="status-indicator" id="status-light"></div>
+      <span id="connection-text">Checking connection...</span>
+    </div>
+  </div>
+  
+  <div>
+    <p class="flicker">The frontend application should connect to this backend to visualize network traffic.</p>
+    <p>If you're seeing this page, the backend is working correctly!</p>
+  </div>
+
+  <script>
+    // Simple WebSocket test
+    const statusLight = document.getElementById('status-light');
+    const connectionText = document.getElementById('connection-text');
+    
+    function connectWebSocket() {
+      const ws = new WebSocket('ws://localhost:8080/ws');
+      
+      ws.onopen = function() {
+        statusLight.classList.add('connected');
+        connectionText.textContent = 'Connected to WebSocket';
+        console.log('Connected to WebSocket');
+      };
+      
+      ws.onclose = function() {
+        statusLight.classList.remove('connected');
+        connectionText.textContent = 'Disconnected from WebSocket';
+        console.log('Disconnected from WebSocket');
+        
+        // Try to reconnect after a delay
+        setTimeout(connectWebSocket, 3000);
+      };
+      
+      ws.onerror = function(error) {
+        statusLight.classList.remove('connected');
+        connectionText.textContent = 'WebSocket connection error';
+        console.error('WebSocket error:', error);
+      };
+      
+      ws.onmessage = function(event) {
+        console.log('Received packet:', event.data);
+        // Flash the status light to show activity
+        statusLight.style.opacity = 0.5;
+        setTimeout(() => {
+          statusLight.style.opacity = 1;
+        }, 100);
+      };
+    }
+    
+    // Initialize the WebSocket connection
+    connectWebSocket();
+  </script>
+</body>
+</html> 

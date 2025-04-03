@@ -1,0 +1,364 @@
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+/* Base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #000;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  font-display: swap; /* Prevent FOIT */
+  overflow: hidden;
+}
+
+/* Try direct import with full path */
+@import url('./styles/components.css');
+
+/* Critical UI Component Styles */
+/* Settings Panel */
+.settings-panel {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  padding: 20px;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  z-index: 1000;
+  width: 300px; /* Fixed width */
+}
+
+.settings-panel h2 {
+  margin: 0 0 20px 0;
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.settings-panel h3 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.button-group button {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #00ff00;
+  color: #00ff00;
+  padding: 10px 20px;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 4px;
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: relative;
+  overflow: hidden;
+}
+
+.button-group button:hover {
+  background: rgba(0, 255, 0, 0.2);
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+}
+
+.button-group button.active {
+  background: #00ff00;
+  color: #000;
+  box-shadow: 0 0 15px #00ff00;
+}
+
+/* Pulsing effect for "Real" button to draw attention */
+.button-group button:last-child:not(.active) {
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(0, 255, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 255, 0, 0); }
+}
+
+.interface-select {
+  margin-top: 15px;
+  border: 2px solid #00ff00;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+  animation: highlight-border 2s infinite;
+}
+
+@keyframes highlight-border {
+  0% { box-shadow: 0 0 5px #00ff00; }
+  50% { box-shadow: 0 0 15px #00ff00; }
+  100% { box-shadow: 0 0 5px #00ff00; }
+}
+
+.interface-select h3 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+  color: #00ff00;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.interface-select select {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid #00ff00;
+  color: #00ff00;
+  padding: 12px;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  height: 45px;
+  outline: none;
+  cursor: pointer;
+  appearance: none; /* Remove default OS styling */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #00ff00 50%),
+                    linear-gradient(135deg, #00ff00 50%, transparent 50%);
+  background-position: calc(100% - 15px) center, calc(100% - 10px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.interface-select select:focus {
+  box-shadow: 0 0 10px #00ff00;
+}
+
+.interface-select select option {
+  background: #000;
+  color: #00ff00;
+  padding: 10px;
+}
+
+/* Stats Panel */
+.stats-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  padding: 20px;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  z-index: 1000;
+  width: 300px; /* Fixed width */
+}
+
+.stats-panel h2 {
+  margin: 0 0 20px 0;
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* Status Bar */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.8);
+  border-top: 1px solid #00ff00;
+  padding: 10px 20px;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 1000;
+  height: 40px; /* Fixed height */
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status.connecting::before {
+  background: #ffff00;
+  animation: pulse 1s infinite;
+}
+
+.status.connected::before {
+  background: #00ff00;
+}
+
+.status.disconnected::before {
+  background: #ff0000;
+}
+
+.status.error::before {
+  background: #ff0000;
+  animation: pulse 1s infinite;
+}
+
+.error {
+  color: #ff0000;
+}
+
+/* App container */
+.app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Canvas container */
+.canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* Ensure canvas is behind UI panels */
+}
+
+/* CRT effect */
+.crt-effect {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+  z-index: 2;
+  pointer-events: none;
+  animation: flicker 0.15s infinite;
+  will-change: opacity; /* Performance optimization */
+}
+
+@keyframes flicker {
+  0% { opacity: 0.97; }
+  50% { opacity: 1; }
+  100% { opacity: 0.98; }
+}
+
+@tailwind base;
+.crt::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    rgba(0, 0, 0, 0.2) 100%
+  );
+  pointer-events: none;
+  z-index: 99;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-primary);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary);
+}
+
+/* Animation keyframes */
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.flicker {
+  animation: flicker 2s linear infinite;
+}
+
+/* Scanline effect */
+.scanline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 50%,
+    rgba(0, 0, 0, 0.05) 50%
+  );
+  background-size: 100% 4px;
+  z-index: 10;
+  pointer-events: none;
+  animation: scanline 8s linear infinite;
+  will-change: transform; /* Performance optimization */
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* Debug styles - temporary */
+.settings-panel, .stats-panel, .status-bar {
+  border: 3px solid #ff0000 !important; /* Red border to help locate */
+}
+
+/* Error bar */
+.error-bar {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.9);
+  border: 2px solid #ff0000;
+  padding: 20px;
+  color: #ff0000;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  z-index: 2000;
+  max-width: 80%;
+  text-align: center;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 30px rgba(255, 0, 0, 0.8); }
+  100% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
+} 
