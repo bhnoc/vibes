@@ -173,16 +173,17 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.9);
   border-top: 1px solid #00ff00;
-  padding: 10px 20px;
+  padding: 8px 20px;
   color: #00ff00;
   font-family: 'VT323', monospace;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  z-index: 1000;
-  height: 40px; /* Fixed height */
+  z-index: 999;
+  height: 36px;
+  backdrop-filter: blur(4px);
 }
 
 .status {
@@ -235,8 +236,10 @@ body {
   top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
+  height: calc(100% - 36px); /* FIXED: Account for status bar height */
   z-index: 1; /* Ensure canvas is behind UI panels */
+  overflow: hidden; /* FIXED: Prevent scrollbars */
+  padding-bottom: 36px; /* FIXED: Add padding to prevent overlap with status bar */
 }
 
 /* CRT effect */

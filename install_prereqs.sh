@@ -51,22 +51,39 @@ print_header "Installing basic build tools"
 sudo apt-get install -y build-essential curl wget git unzip
 
 # Install Go
-print_header "Installing Go 1.19"
+print_header "Installing Go 1.24.4"
 if command -v go &> /dev/null; then
   GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
   print_step "Go $GO_VERSION is already installed"
   
   # Compare versions (basic check)
-  if [[ "$(echo -e "$GO_VERSION\n1.19" | sort -V | head -n 1)" != "1.19" ]]; then
-    print_warning "Your Go version might be too old. Version 1.19+ is recommended."
-    print_step "Proceeding with existing installation..."
+  if [[ "$(echo -e "$GO_VERSION\n1.24.4" | sort -V | head -n 1)" != "1.24.4" ]]; then
+    print_warning "Your Go version is older than 1.24.4. Attempting upgrade..."
+    
+    print_step "Downloading Go 1.24.4..."
+    wget -O /tmp/go1.24.4.linux-amd64.tar.gz https://golang.org/dl/go1.24.4.linux-amd64.tar.gz
+    
+    print_step "Removing old Go installation..."
+    sudo rm -rf /usr/local/go
+    
+    print_step "Installing Go 1.24.4..."
+    sudo tar -C /usr/local -xzf /tmp/go1.24.4.linux-amd64.tar.gz
+    
+    # Add Go to PATH if not already there
+    if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
+      echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
+    fi
+    
+    # Also add to current session
+    export PATH=$PATH:/usr/local/go/bin
+    print_step "Go upgrade complete"
   fi
 else
-  print_step "Downloading Go 1.19..."
-  wget -O /tmp/go1.19.linux-amd64.tar.gz https://golang.org/dl/go1.19.linux-amd64.tar.gz
+  print_step "Downloading Go 1.24.4..."
+  wget -O /tmp/go1.24.4.linux-amd64.tar.gz https://golang.org/dl/go1.24.4.linux-amd64.tar.gz
   
   print_step "Installing Go..."
-  sudo tar -C /usr/local -xzf /tmp/go1.19.linux-amd64.tar.gz
+  sudo tar -C /usr/local -xzf /tmp/go1.24.4.linux-amd64.tar.gz
   
   # Add Go to PATH if not already there
   if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
@@ -163,8 +180,12 @@ fi
 
 print_step "Installing Go dependencies"
 cd backend
-go get -u github.com/gorilla/websocket
-go get -u github.com/google/gopacket
+go mod tidy
+# Try installing websocket package with fallback to GOPROXY
+go get github.com/gorilla/websocket@latest || \
+GOPROXY=https://proxy.golang.org,direct go install github.com/gorilla/websocket@latest || \
+echo "Warning: Could not install gorilla/websocket package. You may need to install it manually."
+go install github.com/google/gopacket@latest
 cd ..
 
 print_step "Installing frontend dependencies"

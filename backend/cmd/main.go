@@ -41,6 +41,7 @@ type Client struct {
 	conn         *websocket.Conn
 	send         chan []byte
 	disconnected chan struct{} // Channel to signal client disconnection
+	stopForwarder chan struct{} // Channel to signal packet forwarder to stop
 }
 
 // ClientManager handles multiple client connections
@@ -67,6 +68,7 @@ func NewClient(conn *websocket.Conn) *Client {
 		conn:         conn,
 		send:         make(chan []byte, 256),
 		disconnected: make(chan struct{}), // Initialize the disconnected channel
+		stopForwarder: make(chan struct{}), // Initialize the stop forwarder channel
 	}
 }
 
@@ -80,7 +82,13 @@ func (manager *ClientManager) Start() {
 		case client := <-manager.unregister:
 			if _, ok := manager.clients[client]; ok {
 				delete(manager.clients, client)
-				close(client.send)
+				// Signal the packet forwarder to stop first
+				close(client.stopForwarder)
+				// Give a brief moment for the forwarder to stop, then close send channel
+				go func() {
+					time.Sleep(50 * time.Millisecond) // Brief delay to let forwarder exit
+					close(client.send)
+				}()
 				log.Printf("Client disconnected. Total clients: %d", len(manager.clients))
 			}
 		case message := <-manager.broadcast:
@@ -198,25 +206,50 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	startTime := time.Now()
 	
 	go func() {
+		defer log.Printf("Packet forwarder exiting for %s", client.conn.RemoteAddr())
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Packet forwarder recovered from panic for %s: %v", client.conn.RemoteAddr(), r)
+			}
+		}()
+		
 		for packet := range captureSystem.GetPacketChannel() {
+			// Check if we should stop *before* trying to process/send
 			select {
+			case <-client.stopForwarder:
+				log.Printf("Packet forwarder received stop signal before processing packet for %s.", client.conn.RemoteAddr())
+				return
 			case <-packetForwarder:
+				log.Printf("Packet forwarder received manual stop signal before processing packet for %s.", client.conn.RemoteAddr())
 				return
 			default:
-				if packetJSON, err := packet.ToJSON(); err == nil {
-					client.send <- packetJSON
+				// Proceed
+			}
+
+			if packetJSON, err := packet.ToJSON(); err == nil {
+				// Try to send, but also listen for the stop signal concurrently
+				select {
+				case client.send <- packetJSON: // Attempt send
 					packetCount++
-					
-					// Log packet info occasionally to verify data source
-					if packetCount % 100 == 0 {
+					// Log packet info occasionally
+					if packetCount%100 == 0 {
 						elapsed := time.Since(startTime).Seconds()
 						rate := float64(packetCount) / elapsed
-						log.Printf("Forwarded %d packets (%.2f packets/sec) - Last packet: %s->%s (%s)", 
-							packetCount, rate, packet.Src, packet.Dst, packet.Protocol)
+						log.Printf("Forwarded %d packets (%.2f packets/sec) to %s - Last: %s->%s (%s)",
+							packetCount, rate, client.conn.RemoteAddr(), packet.Src, packet.Dst, packet.Protocol)
 					}
+				case <-client.stopForwarder:
+					log.Printf("Packet forwarder received stop signal while attempting to send to %s. Exiting.", client.conn.RemoteAddr())
+					return
+				case <-packetForwarder:
+					log.Printf("Packet forwarder received manual stop signal while attempting to send to %s. Exiting.", client.conn.RemoteAddr())
+					return
 				}
+			} else {
+				log.Printf("Error converting packet to JSON for client %s: %v", client.conn.RemoteAddr(), err)
 			}
 		}
+		log.Printf("Capture system channel closed for client %s.", client.conn.RemoteAddr())
 	}()
 
 	// Start client read/write pumps
@@ -225,7 +258,9 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 
 	// Wait for client to disconnect
 	<-client.disconnected
+	log.Printf("Client %s disconnected signal received in HandleWebSocket.", client.conn.RemoteAddr()) // Add log
 	close(packetForwarder)
+	log.Printf("Packet forwarder channel closed for %s.", client.conn.RemoteAddr()) // Add log
 	
 	// Stop the capture for this client
 	defer captureSystem.Stop()
@@ -320,6 +355,17 @@ func main() {
 	
 	// Add endpoint to list network interfaces
 	http.HandleFunc("/api/interfaces", func(w http.ResponseWriter, r *http.Request) {
+		// Add CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
 		interfaces, err := capture.ListInterfaces()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -523,3 +569,4 @@ EndRealCapture:
 		</html>
 	`)
 } 
+

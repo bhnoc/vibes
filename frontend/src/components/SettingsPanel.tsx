@@ -1,4 +1,6 @@
 import React, { memo, useEffect, useState } from 'react';
+import { useSettingsStore } from '../stores/settingsStore';
+import { useNetworkStore } from '../stores/networkStore';
 
 interface SettingsPanelProps {
   captureMode: 'simulated' | 'real' | 'waiting';
@@ -19,6 +21,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [highPerformanceMode, setHighPerformanceMode] = useState(true);
   const [isPanelVisible, setIsPanelVisible] = useState(true);
+  
+  // Get node spacing settings
+  const { nodeSpacing, setNodeSpacing } = useSettingsStore();
   
   // Apply performance settings
   useEffect(() => {
@@ -48,6 +53,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     // Always show panel when mode changes, especially to real
     setIsPanelVisible(true);
   }, [captureMode]);
+
+  // Trigger repositioning when node spacing changes
+  useEffect(() => {
+    if (nodeSpacing > 0) {
+      // Get the repositioning function from the network store
+      const { repositionOverlappingNodes } = useNetworkStore.getState();
+      // Debounce the repositioning to avoid excessive updates
+      const timer = setTimeout(() => {
+        repositionOverlappingNodes();
+        console.log(`🎛️ Node spacing changed to ${nodeSpacing}px - repositioning existing nodes`);
+      }, 500); // 500ms delay to avoid excessive updates while dragging
+      
+      return () => clearTimeout(timer);
+    }
+  }, [nodeSpacing]);
 
   // Toggle panel visibility
   const togglePanel = () => {
@@ -152,6 +172,55 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               ? 'Prioritizes smooth rendering (recommended)' 
               : 'Shows all data (may cause slowdowns)'}
           </p>
+        </div>
+
+        {/* Node spacing slider */}
+        <div className="node-spacing" style={{ marginTop: '15px' }}>
+          <h3>Node Spacing</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', minWidth: '40px' }}>Tight</span>
+            <input
+              type="range"
+              min="15"
+              max="100"
+              value={nodeSpacing}
+              onChange={(e) => setNodeSpacing(Number(e.target.value))}
+              style={{
+                flex: 1,
+                height: '4px',
+                background: '#333',
+                outline: 'none',
+                borderRadius: '2px',
+                cursor: 'pointer'
+              }}
+            />
+            <span style={{ fontSize: '12px', minWidth: '40px' }}>Loose</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+            <p style={{ fontSize: '12px', opacity: 0.7, margin: 0 }}>
+              Controls minimum distance between nodes
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '12px', color: '#00ff41', fontWeight: 'bold' }}>
+                {nodeSpacing}px
+              </span>
+              <button
+                onClick={() => setNodeSpacing(50)}
+                style={{
+                  padding: '2px 6px',
+                  fontSize: '10px',
+                  background: 'transparent',
+                  border: '1px solid #00ff41',
+                  color: '#00ff41',
+                  cursor: 'pointer',
+                  borderRadius: '2px'
+                }}
+                title="Reset to default spacing"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Always render the interface selector container, but only show content if in real mode */}

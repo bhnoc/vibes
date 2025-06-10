@@ -1,0 +1,462 @@
+import { create } from 'zustand';
+import { throttle } from 'lodash';
+
+// Types
+export interface Node {
+  id: string;
+  label?: string;
+  x?: number;
+  y?: number;
+  size?: number;
+  color?: number;
+  highlighted?: boolean;
+  lastActive: number; // Timestamp of last activity
+  type?: string;
+  packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
+}
+
+export interface Connection {
+  id: string;
+  source: string;
+  target: string;
+  protocol?: string;
+  size?: number;
+  timestamp?: number;
+  lastActive: number; // Timestamp of last activity
+  packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
+}
+
+interface NetworkState {
+  nodes: Node[];
+  connections: Connection[];
+  addOrUpdateNode: (node: Node) => void;
+  addOrUpdateConnection: (connection: Connection) => void;
+  removeNode: (id: string) => void;
+  removeConnection: (id: string) => void;
+  clearNetwork: () => void;
+  removeInactiveElements: () => void;
+  getEfficiencyStats: () => {
+    nodeCount: number;
+    connectionCount: number;
+    pruneCount: number;
+    avgAge: number;
+  };
+  limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
+}
+
+// Constants for node expiration
+const NODE_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before node is removed
+const CONNECTION_EXPIRATION_TIME = 2000; // 2 seconds of inactivity before connection is removed
+
+// Node count limits to prevent WebGL crashes
+const MAX_NODES = 500; // Hard cap on node count before aggressive pruning
+const PRUNE_TO_COUNT = 400; // When pruning, reduce to this number of nodes
+const CRITICAL_NODE_COUNT = 530; // Critical threshold where WebGL tends to crash
+
+// Constants to limit memory usage - hard limits that prevent display issues
+const HARD_LIMIT_NODES = 3500; // Absolute maximum before emergency trimming
+const HARD_LIMIT_CONNECTIONS = 4000; // Absolute maximum before emergency trimming
+
+// Target for keeping newest nodes/connections when pruning
+const KEEP_NEWEST_NODES = 1500;      // When pruning, keep this many newest nodes
+const KEEP_NEWEST_CONNECTIONS = 2000; // When pruning, keep this many newest connections
+
+// Reuse positions for nodes with same IDs to prevent constant repositioning
+const nodePositionCache = new Map<string, {x: number, y: number}>();
+
+// Helper function to generate random positions within the window bounds
+const generateRandomPosition = () => {
+  const margin = 150; // Keep nodes away from the edges
+  const maxWidth = Math.max(window.innerWidth || 1200, 800);
+  const maxHeight = Math.max(window.innerHeight || 800, 600);
+  
+  // Make sure we have valid dimensions
+  if (isNaN(maxWidth) || isNaN(maxHeight)) {
+    return { x: 400, y: 300 }; // Fallback
+  }
+  
+  // Generate position with margin
+  const x = margin + Math.random() * (maxWidth - margin * 2);
+  const y = margin + Math.random() * (maxHeight - margin * 2);
+  
+  return { x, y };
+};
+
+// Add a reference to monitor packet processing to diagnose rendering issues
+let lastNodeAddTime = Date.now();
+let totalNodesProcessed = 0;
+let totalNodesAdded = 0;
+let totalNodesRemoved = 0;
+
+// Memory usage limits
+const MEMORY_CHECK_INTERVAL = 5000; // Check memory every 5 seconds
+let lastMemoryCheck = 0;
+let isHighMemory = false;
+
+// Function to check memory usage and adjust limits
+const checkMemoryUsage = (): boolean => {
+  const now = Date.now();
+  
+  // Only check periodically to avoid overhead
+  if (now - lastMemoryCheck < MEMORY_CHECK_INTERVAL) {
+    return isHighMemory;
+  }
+  
+  lastMemoryCheck = now;
+  
+  // Check if memory API is available
+  if (window.performance && (window.performance as any).memory) {
+    const memInfo = (window.performance as any).memory;
+    const usedMB = Math.round(memInfo.usedJSHeapSize / 1024 / 1024);
+    const totalMB = Math.round(memInfo.jsHeapSizeLimit / 1024 / 1024);
+    const memoryPercentage = (usedMB / totalMB * 100).toFixed(1);
+    
+    // Get total node and connection counts for reporting
+    const { nodes, connections } = useNetworkStore.getState();
+    
+    // Consider high memory if using more than 70% of available memory
+    const prevMemoryState = isHighMemory;
+    isHighMemory = usedMB > totalMB * 0.7;
+    
+    // Log memory state changes or periodically log usage
+    const shouldLog = prevMemoryState !== isHighMemory || 
+                      (nodes.length > 2000) || 
+                      (usedMB > totalMB * 0.5);
+    
+    if (shouldLog) {
+      console.log(`Memory: ${usedMB}MB/${totalMB}MB (${memoryPercentage}%) - ` +
+                  `Nodes: ${nodes.length}, Connections: ${connections.length}`);
+      
+      if (isHighMemory) {
+        console.warn(`High memory usage detected (${memoryPercentage}%) - reducing network size limits`);
+      } else if (prevMemoryState && !isHighMemory) {
+        console.log('Memory usage returned to normal levels');
+      }
+    }
+    
+    // If memory is critically high (>85%), force emergency cleanup
+    if (usedMB > totalMB * 0.85) {
+      console.error(`CRITICAL MEMORY USAGE: ${memoryPercentage}% - forcing emergency cleanup`);
+      
+      // Force cleanup of the oldest nodes while preserving the most recent activity
+      setTimeout(() => {
+        const { nodes, connections } = useNetworkStore.getState();
+        if (nodes.length > 1000) {
+          useNetworkStore.getState().limitNetworkSize(1000, 2000);
+          console.log('Emergency cleanup completed');
+        }
+      }, 0);
+    }
+  }
+  
+  // Add diagnostics info for counters
+  const diagnosticsInterval = 5000; // 5 seconds
+  if (now - lastMemoryCheck > diagnosticsInterval) {
+    console.log(`Node processing stats: Total processed=${totalNodesProcessed}, Added=${totalNodesAdded}, Removed=${totalNodesRemoved}`);
+    console.log(`Last node added ${now - lastNodeAddTime}ms ago`);
+  }
+  
+  return isHighMemory;
+};
+
+// Helper function to prune oldest nodes when approaching limits
+const pruneOldestNodes = (nodes: Node[]): Node[] => {
+  if (nodes.length <= PRUNE_TO_COUNT) return nodes;
+  
+  console.log(`Pruning nodes from ${nodes.length} to ${PRUNE_TO_COUNT}`);
+  
+  // Sort nodes by last active time (oldest first)
+  const sortedNodes = [...nodes].sort((a, b) => a.lastActive - b.lastActive);
+  
+  // Keep only the most recently active nodes
+  return sortedNodes.slice(nodes.length - PRUNE_TO_COUNT);
+};
+
+// Helper function for aggressive pruning during critical node counts
+const forcePruneNodes = (nodes: Node[]): Node[] => {
+  // Even more aggressive pruning
+  const targetCount = Math.min(PRUNE_TO_COUNT, Math.floor(CRITICAL_NODE_COUNT * 0.75));
+  
+  // Keep only the most important nodes - prioritize:
+  // 1. IP address nodes (containing dots)
+  // 2. Most recently active nodes
+  
+  // First identify IP nodes
+  const ipNodes = nodes.filter(node => node.label?.includes('.') || node.id.includes('.'));
+  const otherNodes = nodes.filter(node => !(node.label?.includes('.') || node.id.includes('.')));
+  
+  // Sort both arrays by activity time
+  const sortedIpNodes = [...ipNodes].sort((a, b) => b.lastActive - a.lastActive);
+  const sortedOtherNodes = [...otherNodes].sort((a, b) => b.lastActive - a.lastActive);
+  
+  // Take most recent IP nodes, then fill remaining slots with other nodes
+  const keptIpNodes = sortedIpNodes.slice(0, Math.min(sortedIpNodes.length, targetCount * 0.6));
+  const remainingSlots = targetCount - keptIpNodes.length;
+  const keptOtherNodes = sortedOtherNodes.slice(0, Math.min(sortedOtherNodes.length, remainingSlots));
+  
+  return [...keptIpNodes, ...keptOtherNodes];
+};
+
+// Helper function to prune oldest connections
+const pruneOldestConnections = (connections: Connection[]): Connection[] => {
+  const targetCount = PRUNE_TO_COUNT * 2; // Allow more connections than nodes
+  
+  if (connections.length <= targetCount) return connections;
+  
+  // Sort by last active time (oldest first)
+  const sortedConnections = [...connections].sort((a, b) => a.lastActive - b.lastActive);
+  
+  // Keep only the most recently active connections
+  return sortedConnections.slice(connections.length - targetCount);
+};
+
+// Create store
+export const useNetworkStore = create<NetworkState>((set, get) => ({
+  nodes: [],
+  connections: [],
+  
+  // Add or update a node (replace if exists)
+  addOrUpdateNode: throttle((node: Node) => {
+    totalNodesProcessed++;
+    lastNodeAddTime = Date.now();
+    
+    set((state) => {
+      // First check if we're at or near the critical node count
+      if (state.nodes.length >= CRITICAL_NODE_COUNT - 10) {
+        console.warn(`⚠️ Critical node count threshold approaching: ${state.nodes.length}/${CRITICAL_NODE_COUNT}`);
+        // Force an immediate aggressive pruning
+        const prunedNodes = forcePruneNodes(state.nodes);
+        console.log(`🧹 Emergency pruning: reduced nodes from ${state.nodes.length} to ${prunedNodes.length}`);
+        
+        // Find the node in the pruned list and update it, or add if not found
+        const nodeIndex = prunedNodes.findIndex((n) => n.id === node.id);
+        if (nodeIndex !== -1) {
+          prunedNodes[nodeIndex] = node;
+        } else {
+          prunedNodes.push(node);
+          totalNodesAdded++;
+        }
+        
+        return {
+          ...state,
+          nodes: prunedNodes
+        };
+      }
+      
+      // Normal flow - find and update node if it exists
+      const nodeIndex = state.nodes.findIndex((n) => n.id === node.id);
+      if (nodeIndex !== -1) {
+        const updatedNodes = [...state.nodes];
+        updatedNodes[nodeIndex] = node;
+        return { ...state, nodes: updatedNodes };
+      } else {
+        totalNodesAdded++;
+        
+        // Check if we're approaching the max node count
+        if (state.nodes.length >= MAX_NODES) {
+          // Perform pruning to make room for new node
+          const prunedNodes = pruneOldestNodes(state.nodes);
+          return { ...state, nodes: [...prunedNodes, node] };
+        }
+        
+        // Otherwise just add the new node
+        return { ...state, nodes: [...state.nodes, node] };
+      }
+    });
+  }, 10), // Throttle to 10ms to prevent too many updates
+  
+  // Add or update a connection (replace if exists)
+  addOrUpdateConnection: throttle((connection: Connection) => {
+    set((state) => {
+      const connectionIndex = state.connections.findIndex(
+        (c) => c.id === connection.id
+      );
+      
+      if (connectionIndex !== -1) {
+        // Update existing connection
+        const updatedConnections = [...state.connections];
+        updatedConnections[connectionIndex] = connection;
+        return { ...state, connections: updatedConnections };
+      } else {
+        // Add new connection (with pruning if needed)
+        if (state.connections.length > MAX_NODES * 2) {
+          // Keep connection count in check relative to node count
+          const prunedConnections = pruneOldestConnections(state.connections);
+          return { ...state, connections: [...prunedConnections, connection] };
+        }
+        return { ...state, connections: [...state.connections, connection] };
+      }
+    });
+  }, 10), // Throttle to 10ms
+  
+  // Remove a node
+  removeNode: (id: string) => {
+    set((state) => {
+      totalNodesRemoved++;
+      return {
+        ...state,
+        nodes: state.nodes.filter((node) => node.id !== id),
+      };
+    });
+  },
+  
+  // Remove a connection
+  removeConnection: (id: string) => {
+    set((state) => ({
+      ...state,
+      connections: state.connections.filter(
+        (connection) => connection.id !== id
+      ),
+    }));
+  },
+  
+  // Clear all nodes and connections
+  clearNetwork: () => {
+    // Don't clear position cache on network clear - preserve layout for next session
+    // But reset memory status
+    isHighMemory = false;
+    lastMemoryCheck = 0;
+    
+    set({ nodes: [], connections: [] });
+  },
+  
+  // Remove inactive elements based on lastActive timestamp
+  removeInactiveElements: () => {
+    const now = Date.now();
+    
+    set((state) => {
+      // Check if we're approaching critical node count
+      const isNearCritical = state.nodes.length >= MAX_NODES;
+      
+      // Use shorter expiration times when we have many nodes
+      const nodeExpirationTime = isNearCritical 
+        ? NODE_EXPIRATION_TIME * 0.6 // More aggressive cleanup when we have many nodes
+        : NODE_EXPIRATION_TIME;
+        
+      const connectionExpirationTime = isNearCritical
+        ? CONNECTION_EXPIRATION_TIME * 0.6
+        : CONNECTION_EXPIRATION_TIME;
+      
+      // Always keep most recent connections and nodes regardless of activity
+      // This ensures recent activity is always visible
+      const PRESERVE_NEWEST_COUNT = state.nodes.length > 2000 ? 1000 : 500;
+      
+      // Sort nodes by activity time (most recent first)
+      const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
+      
+      // Keep newest nodes regardless of activity, then filter older ones
+      const preservedNodes = sortedNodes.slice(0, PRESERVE_NEWEST_COUNT);
+      const olderNodes = sortedNodes.slice(PRESERVE_NEWEST_COUNT);
+      
+      // Filter older nodes by activity
+      const activeOlderNodes = olderNodes.filter(
+        (node) => now - node.lastActive < nodeExpirationTime
+      );
+      
+      // Final node list is preserved + active older nodes
+      const activeNodes = [...preservedNodes, ...activeOlderNodes];
+      
+      // Sort connections by activity time (most recent first)
+      const sortedConnections = [...state.connections].sort((a, b) => b.lastActive - a.lastActive);
+      
+      // Keep newest connections regardless of activity, then filter older ones
+      const preservedConnections = sortedConnections.slice(0, PRESERVE_NEWEST_COUNT);
+      const olderConnections = sortedConnections.slice(PRESERVE_NEWEST_COUNT);
+      
+      // Filter older connections by activity
+      const activeOlderConnections = olderConnections.filter(
+        (connection) => now - connection.lastActive < connectionExpirationTime
+      );
+      
+      // Final connection list is preserved + active older connections
+      const activeConnections = [...preservedConnections, ...activeOlderConnections];
+      
+      const nodesRemoved = state.nodes.length - activeNodes.length;
+      if (nodesRemoved > 0) {
+        totalNodesRemoved += nodesRemoved;
+      }
+      
+      // Only update if something changed
+      if (activeNodes.length !== state.nodes.length || 
+          activeConnections.length !== state.connections.length) {
+        return {
+          ...state,
+          nodes: activeNodes,
+          connections: activeConnections,
+        };
+      }
+      
+      // No changes
+      return state;
+    });
+  },
+  
+  // Limit network size to stay under memory constraints
+  limitNetworkSize: (maxNodes: number, maxConnections: number) => {
+    // Apply memory-based adjustments
+    const highMemory = checkMemoryUsage();
+    
+    // Use more aggressive limits when memory is high
+    const effectiveMaxNodes = highMemory ? Math.floor(maxNodes * 0.5) : maxNodes;
+    const effectiveMaxConnections = highMemory ? Math.floor(maxConnections * 0.5) : maxConnections;
+    
+    set((state) => {
+      // Check if we need to update anything
+      const needsNodeTrim = state.nodes.length > effectiveMaxNodes;
+      const needsConnectionTrim = state.connections.length > effectiveMaxConnections;
+      
+      if (!needsNodeTrim && !needsConnectionTrim) {
+        return state;
+      }
+      
+      let updatedNodes = state.nodes;
+      let updatedConnections = state.connections;
+      
+      // Trim nodes if needed
+      if (needsNodeTrim) {
+        // Sort by activity (most recent first)
+        updatedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
+        
+        // Keep only most recent
+        updatedNodes = updatedNodes.slice(0, effectiveMaxNodes);
+        totalNodesRemoved += (state.nodes.length - updatedNodes.length);
+        
+        console.log(`Network size limited: reduced from ${state.nodes.length} to ${updatedNodes.length} nodes`);
+      }
+      
+      // Trim connections if needed
+      if (needsConnectionTrim) {
+        // Sort by activity (most recent first)
+        updatedConnections = [...state.connections].sort((a, b) => b.lastActive - a.lastActive);
+        
+        // Keep only most recent
+        updatedConnections = updatedConnections.slice(0, effectiveMaxConnections);
+        
+        console.log(`Network size limited: reduced from ${state.connections.length} to ${updatedConnections.length} connections`);
+      }
+      
+      return { 
+        ...state,
+        nodes: updatedNodes,
+        connections: updatedConnections
+      };
+    });
+  },
+  
+  // Stats for monitoring efficiency
+  getEfficiencyStats: () => {
+    const { nodes, connections } = get();
+    const now = Date.now();
+    
+    // Calculate average age
+    const totalAge = nodes.reduce((sum, node) => sum + (now - node.lastActive), 0);
+    const avgAge = nodes.length > 0 ? totalAge / nodes.length : 0;
+    
+    return {
+      nodeCount: nodes.length,
+      connectionCount: connections.length,
+      pruneCount: totalNodesRemoved,
+      avgAge: avgAge
+    };
+  }
+})); 
