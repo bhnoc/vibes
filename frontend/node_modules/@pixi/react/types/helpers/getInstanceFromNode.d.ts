@@ -1,2 +1,0 @@
-/** No idea what this actually does. 🤷🏻‍♂️ */
-export declare function getInstanceFromNode(): null;
