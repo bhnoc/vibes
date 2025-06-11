@@ -705,12 +705,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (node.radius > 7) {
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.3})`
         ctx.beginPath()
-        ctx.arc(node.x, node.y, node.radius * 2.5, 0, Math.PI * 2)
+        ctx.arc(node.x, node.y, node.radius * 1.5, 0, Math.PI * 2)
         ctx.fill()
       }
       
       // Draw IP address label for nodes (if zoom is high enough)
-      if (vp.zoom > 0.5 && node.id.includes('.')) {
+      if (vp.zoom > 0.75 && node.id.includes('.')) {
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.9})`
         ctx.font = `${Math.max(8, 10 * vp.zoom)}px monospace`
         ctx.textAlign = 'center'
