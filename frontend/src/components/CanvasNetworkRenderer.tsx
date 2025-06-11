@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
 import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { usePhysicsStore } from '../stores/physicsStore'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -113,17 +115,16 @@ interface RenderedNode {
   id: string
   x: number
   y: number
+  vx: number // Velocity X
+  vy: number // Velocity Y
   radius: number
   color: string
   alpha: number
   lastActive: number
+  isDriftingAway: boolean // State for drifting behavior
 }
 
 interface RenderedConnection {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
   alpha: number
   color: string
   protocol?: string
@@ -185,12 +186,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
-    () => ({ id: '', x: 0, y: 0, radius: 0, color: '', alpha: 0, lastActive: 0 }),
-    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0 }
+    () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
+    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.isDriftingAway = false }
   ), [])
 
   const connectionPool = useMemo(() => new ObjectPool<RenderedConnection>(
-    () => ({ x1: 0, y1: 0, x2: 0, y2: 0, alpha: 0, color: '', protocol: '', lastActive: 0, sourceId: '', targetId: '' }),
+    () => ({ alpha: 0, color: '', protocol: '', lastActive: 0, sourceId: '', targetId: '' }),
     (conn) => { conn.alpha = 0; conn.lastActive = 0; conn.color = ''; conn.protocol = ''; conn.sourceId = ''; conn.targetId = '' }
   ), [])
 
@@ -203,6 +204,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const { nodes, connections } = useNetworkStore()
   const { packets } = usePacketStore()
   const { width, height } = useSizeStore()
+  const { nodeSpacing } = usePhysicsStore()
+  const { 
+    connectionPullStrength, 
+    collisionRepulsion, 
+    damping,
+    connectionLifetime,
+    driftAwayStrength,
+  } = usePhysicsStore()
 
   // Update viewport size
   useEffect(() => {
@@ -310,155 +319,93 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   // Update rendered objects from store data
   const updateRenderObjects = useCallback(() => {
     const now = Date.now()
-    const maxAge = 120000 // 120 seconds - nodes visible for longer periods
-    const activeAge = 30000 // 30 seconds for "active" state per user requirement
+    const activeAge = 30000 // 30 seconds for "active" state
 
-    // Reduced debug logging for performance
-    const totalStoreNodes = nodes.length
-    const totalStoreConnections = connections.length
-    
-    // Only log every 10 seconds to reduce console spam
-    if (totalStoreNodes > 0 && now % 10000 < 2000) {
-      console.log(`📊 Store: ${totalStoreNodes} nodes, ${totalStoreConnections} connections`)
-    }
+    const storeNodesById = new Map(nodes.map(n => [n.id, n]));
+    const currentRenderedNodeIds = new Set(activeNodes.current.keys());
 
-    // Clear old active objects
-    activeNodes.current.clear()
-    activeConnections.current.length = 0
-
-    // Process nodes - REMOVED age filtering to support 500+ nodes
-    // Let the store handle age-based pruning, renderer shows all nodes from store
-    const recentNodes = nodes.slice(0, 5000) // Just limit total for performance, no age filter
-
-    // Only log filtering results occasionally
-    if (now % 5000 < 1000) {
-      console.log(`🔍 Rendering ${recentNodes.length}/${totalStoreNodes} nodes (removed age filter)`)
-    }
-
-    recentNodes.forEach(node => {
-      // Use the position from the store (which includes collision-free positioning) 
-      // or fall back to generated position if store doesn't have coordinates
-      let position: {x: number, y: number};
-      
-      if (node.x !== undefined && node.y !== undefined) {
-        // Use collision-free position from the store
-        position = { x: node.x, y: node.y };
-        // Only log occasionally to avoid console spam
-        if (Math.random() < 0.02) { // 2% of nodes
-          console.log(`📍 Using store position for ${node.id}: (${position.x}, ${position.y})`);
+    // Remove nodes that are no longer in the store
+    for (const nodeId of currentRenderedNodeIds) {
+      if (!storeNodesById.has(nodeId)) {
+        const nodeToRelease = activeNodes.current.get(nodeId);
+        if (nodeToRelease) {
+          nodePool.release(nodeToRelease);
         }
-      } else {
-        // Fallback to generated position (shouldn't happen with new collision system)
-        position = generatePosition(node.id);
-        console.log(`⚠️ Store position missing for ${node.id}, using generated: (${position.x}, ${position.y})`);
+        activeNodes.current.delete(nodeId);
       }
-      
-      const age = now - node.lastActive
-      const isActive = age < activeAge
-      
-      // Render all nodes (no age-based filtering)
-      const renderedNode = nodePool.acquire()
-      renderedNode.id = node.id
-      renderedNode.x = position.x
-      renderedNode.y = position.y
-      renderedNode.radius = isActive ? 10 : 6
-      
-      // Enhanced node coloring based on IP address patterns and activity
-      let nodeColor = '#00ff41' // Default green
-      
-      if (node.id.includes('.')) {
-        // IP-based coloring
-        const parts = node.id.split('.').map(Number)
-        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-          const firstOctet = parts[0]
-          const fourthOctet = parts[3]
-          
-          // Color by network class and role
-          if (firstOctet === 192) {
-            // 192.x.x.x - Home/Private networks - Blues
-            if (fourthOctet === 1) {
-              nodeColor = '#0080ff' // Router/Gateway - bright blue
-            } else if (fourthOctet < 50) {
-              nodeColor = '#4da6ff' // Early range - light blue
-            } else {
-              nodeColor = '#80ccff' // Higher range - pale blue
-            }
-          } else if (firstOctet === 10) {
-            // 10.x.x.x - Corporate networks - Purples/Magentas
-            if (fourthOctet === 1) {
-              nodeColor = '#ff00ff' // Router/Gateway - bright magenta
-            } else if (fourthOctet < 50) {
-              nodeColor = '#cc66ff' // Early range - purple
-            } else {
-              nodeColor = '#e6b3ff' // Higher range - light purple
-            }
-          } else if (firstOctet === 172) {
-            // 172.x.x.x - Medium networks - Oranges/Reds
-            if (fourthOctet === 1) {
-              nodeColor = '#ff4500' // Router/Gateway - orange red
-            } else if (fourthOctet < 50) {
-              nodeColor = '#ff8c42' // Early range - orange
-            } else {
-              nodeColor = '#ffb380' // Higher range - light orange
-            }
-          } else if (firstOctet === 8 || firstOctet === 1) {
-            // Public DNS (8.8.8.8, 1.1.1.1) - Bright yellows
-            nodeColor = '#ffff00' // Bright yellow for public services
-          } else if (firstOctet < 127) {
-            // Other public IPs - Greens
-            if (firstOctet < 50) {
-              nodeColor = '#00ff80' // Bright green
-            } else {
-              nodeColor = '#80ff80' // Light green
-            }
-          } else {
-            // Other ranges - Cyans/Teals
-            nodeColor = '#00ffff' // Cyan
-          }
-          
-          // Activity-based color intensification
-          if (isActive) {
-            // Make active nodes brighter by increasing saturation
-            const rgb = hexToRgb(nodeColor)
-            if (rgb) {
-              // Boost the dominant color channel for more vibrant active nodes
-              const maxChannel = Math.max(rgb.r, rgb.g, rgb.b)
-              const factor = 1.3
-              const newR = Math.min(255, rgb.r * (rgb.r === maxChannel ? factor : 1))
-              const newG = Math.min(255, rgb.g * (rgb.g === maxChannel ? factor : 1))
-              const newB = Math.min(255, rgb.b * (rgb.b === maxChannel ? factor : 1))
-              nodeColor = rgbToHex(Math.round(newR), Math.round(newG), Math.round(newB))
-            }
-          }
+    }
+
+    // Add new nodes or update existing ones
+    storeNodesById.forEach((node, nodeId) => {
+      const existingNode = activeNodes.current.get(nodeId);
+      if (existingNode) {
+        // Update existing node
+        existingNode.lastActive = node.lastActive;
+        const isActive = (now - node.lastActive) < activeAge;
+        existingNode.radius = isActive ? 10 : 6;
+        if (existingNode.isDriftingAway && isActive) {
+          existingNode.isDriftingAway = false;
         }
+
       } else {
-        // Non-IP nodes - use hash-based coloring
-        let hash = 0
-        for (let i = 0; i < node.id.length; i++) {
-          hash = ((hash << 5) - hash) + node.id.charCodeAt(i)
-          hash = hash & hash
+        // Add new node - ALWAYS start it in the middle of the screen
+        const position = {
+          x: (viewportRef.current.width / 2) + (Math.random() - 0.5) * 5,
+          y: (viewportRef.current.height / 2) + (Math.random() - 0.5) * 5,
+        };
+        const renderedNode = nodePool.acquire();
+        renderedNode.id = node.id;
+        renderedNode.x = position.x;
+        renderedNode.y = position.y;
+        renderedNode.vx = 0;
+        renderedNode.vy = 0;
+        renderedNode.isDriftingAway = false;
+        renderedNode.lastActive = node.lastActive;
+        const age = now - node.lastActive;
+        const isActive = age < activeAge;
+        renderedNode.radius = isActive ? 10 : 6;
+        
+        let nodeColor = '#00ff41'; // Default green
+      if (node.id.includes('.')) {
+          const parts = node.id.split('.').map(Number);
+        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+            const [firstOctet, , , fourthOctet] = parts;
+          if (firstOctet === 192) {
+              nodeColor = '#0080ff'; // Blue for home networks
+          } else if (firstOctet === 10) {
+              nodeColor = '#ff00ff'; // Magenta for corporate
+          } else if (firstOctet === 172) {
+              nodeColor = '#ff4500'; // Orange for other private
+          } else if (firstOctet === 8 || firstOctet === 1) {
+              nodeColor = '#ffff00'; // Yellow for public DNS
+            }
+          }
+        } else {
+            let hash = 0;
+            for (let i = 0; i < node.id.length; i++) {
+              hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
+              hash = hash & hash;
+            }
+            const hue = Math.abs(hash) % 360;
+            nodeColor = hslToHex(hue, 90, 60);
         }
         
-        // Generate vibrant colors from hash
-        const hue = Math.abs(hash) % 360
-        const saturation = 70 + (Math.abs(hash >> 8) % 30) // 70-100% saturation
-        const lightness = isActive ? 60 : 45 // Brighter when active
-        nodeColor = hslToHex(hue, saturation, lightness)
+        renderedNode.color = nodeColor;
+        renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
+        activeNodes.current.set(nodeId, renderedNode);
       }
-      
-      renderedNode.color = nodeColor
-      // Always keep nodes visible with minimum 0.4 alpha, fade gradually over 10 minutes
-      renderedNode.alpha = Math.max(0.4, 1 - (age / 600000)) // 10 minute fade instead of 2 minute cutoff
-      renderedNode.lastActive = node.lastActive
-      
-      activeNodes.current.set(node.id, renderedNode)
-    })
+    });
 
-    // Process connections - REMOVED age filtering to support more connections
+
+    // Process connections
     const nodeIds = new Set(Array.from(activeNodes.current.keys()))
     const recentConnections = connections
       .filter(conn => nodeIds.has(conn.source) && nodeIds.has(conn.target))
-      .slice(0, 5000) // Increased connection limit, no age filter
+      .slice(0, 5000)
+
+    // Release all old connections
+    activeConnections.current.forEach(c => connectionPool.release(c));
+    activeConnections.current.length = 0;
 
     recentConnections.forEach(conn => {
       const sourceNode = activeNodes.current.get(conn.source)
@@ -466,18 +413,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       
       if (sourceNode && targetNode) {
         const renderedConn = connectionPool.acquire()
-        renderedConn.x1 = sourceNode.x
-        renderedConn.y1 = sourceNode.y
-        renderedConn.x2 = targetNode.x
-        renderedConn.y2 = targetNode.y
-        // Use stored packet color or fallback to packet-based generation
         renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
-        // Store the protocol directly in the rendered connection
         renderedConn.protocol = conn.protocol
-        // Connections fade completely over 5 seconds as requested
         const connectionAge = now - conn.lastActive;
-        const maxConnectionLifetime = 5000; // 5 seconds
-        renderedConn.alpha = Math.max(0, 1 - (connectionAge / maxConnectionLifetime))
+        renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
         renderedConn.lastActive = conn.lastActive
         renderedConn.sourceId = conn.source
         renderedConn.targetId = conn.target
@@ -486,14 +425,145 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
-    // Reduced render logging for performance - only log occasionally 
-    if (now % 5000 < 1000) {
-      console.log(`🎨 Rendered: ${activeNodes.current.size} nodes, ${activeConnections.current.length} connections`)
+  }, [nodes, connections, generatePosition, nodePool, connectionPool])
+
+  const updatePhysics = useCallback((deltaTime: number) => {
+    if (!width || !height) return;
+
+    // --- Physics Constants ---
+    // These factors scale the user-friendly values from the store 
+    // into numbers that work well with the physics simulation.
+    const PULL_SCALING = 0.00001;
+    const REPULSION_SCALING = 0.005;
+    const DRIFT_AWAY_SCALING = 0.000001;
+    const INACTIVE_REMOVAL_SECONDS = 15;
+
+    const INACTIVE_TIME_SECONDS = 10;
+    const CENTER_PULL_STRENGTH = 0.0000002;
+
+    const now = Date.now();
+    const centerX = viewportRef.current.width / 2;
+    const centerY = viewportRef.current.height / 2;
+    const nodesToRemove: string[] = [];
+    const offscreenMargin = 200; // Remove nodes this far outside the viewport
+
+    // Apply forces
+    activeNodes.current.forEach(node => {
+      // Check for removal conditions first
+      const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
+      const isOffscreen = 
+        node.x < -offscreenMargin || 
+        node.x > viewportRef.current.width + offscreenMargin ||
+        node.y < -offscreenMargin ||
+        node.y > viewportRef.current.height + offscreenMargin;
+
+      if (isInactiveForRemoval || isOffscreen) {
+        nodesToRemove.push(node.id);
+        return; // Skip physics for nodes that are being removed
+      }
+      
+      const isInactive = (now - node.lastActive) > INACTIVE_TIME_SECONDS * 1000;
+      
+      if (isInactive) {
+        node.isDriftingAway = true;
+      }
+
+      // Only apply drift away force here. Center pull is handled with connections.
+      if (node.isDriftingAway) {
+        const dx = node.x - centerX;
+        const dy = node.y - centerY;
+        const driftForce = driftAwayStrength * DRIFT_AWAY_SCALING;
+        node.vx += dx * driftForce * deltaTime;
+        node.vy += dy * driftForce * deltaTime;
+      }
+    });
+
+    // Collision detection and resolution
+    const nodes = Array.from(activeNodes.current.values());
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nodeA = nodes[i];
+        const nodeB = nodes[j];
+        const dx = nodeB.x - nodeA.x;
+        const dy = nodeB.y - nodeA.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = nodeA.radius + nodeB.radius + nodeSpacing;
+
+        if (distance < minDistance) {
+          const overlap = minDistance - distance;
+          const ax = dx / distance;
+          const ay = dy / distance;
+
+          const repulsionForce = collisionRepulsion * REPULSION_SCALING;
+          nodeA.vx -= ax * overlap * repulsionForce;
+          nodeA.vy -= ay * overlap * repulsionForce;
+          nodeB.vx += ax * overlap * repulsionForce;
+          nodeB.vy += ay * overlap * repulsionForce;
+        }
+      }
     }
-  }, [nodes, connections, generatePosition, isInViewport, nodePool, connectionPool])
+
+    activeConnections.current.forEach(conn => {
+      // Expired connections should not apply physics
+      if (now - conn.lastActive > connectionLifetime) {
+        return;
+      }
+      const source = activeNodes.current.get(conn.sourceId);
+      const target = activeNodes.current.get(conn.targetId);
+
+      if (source && target) {
+        // 1. Spring force pulls nodes together
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        
+        const pullForce = connectionPullStrength * PULL_SCALING;
+        source.vx += dx * pullForce * deltaTime;
+        source.vy += dy * pullForce * deltaTime;
+        target.vx -= dx * pullForce * deltaTime;
+        target.vy -= dy * pullForce * deltaTime;
+
+        // 2. Center pull for connected nodes
+        const source_dx_center = centerX - source.x;
+        const source_dy_center = centerY - source.y;
+        source.vx += source_dx_center * CENTER_PULL_STRENGTH * deltaTime;
+        source.vy += source_dy_center * CENTER_PULL_STRENGTH * deltaTime;
+
+        const target_dx_center = centerX - target.x;
+        const target_dy_center = centerY - target.y;
+        target.vx += target_dx_center * CENTER_PULL_STRENGTH * deltaTime;
+        target.vy += target_dy_center * CENTER_PULL_STRENGTH * deltaTime;
+
+        // When a connection is active, stop drifting
+        if (source.isDriftingAway) source.isDriftingAway = false;
+        if (target.isDriftingAway) target.isDriftingAway = false;
+      }
+    });
+
+    // Handle removal after physics calculations
+    if (nodesToRemove.length > 0) {
+      const removeFunc = useNetworkStore.getState().removeNode;
+      nodesToRemove.forEach(id => removeFunc(id));
+    }
+
+    // Update positions
+    activeNodes.current.forEach(node => {
+      node.vx *= damping;
+      node.vy *= damping;
+
+      node.x += node.vx * deltaTime;
+      node.y += node.vy * deltaTime;
+    });
+
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {
+    const deltaTime = Math.max(16, currentTime - lastFrameTime.current); // Clamp to avoid huge jumps
+    lastFrameTime.current = currentTime;
+
+    // Update physics simulation
+    updatePhysics(deltaTime);
+
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -521,6 +591,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Render connections first (behind nodes) with protocol-based styling
     activeConnections.current.forEach(conn => {
+      const source = activeNodes.current.get(conn.sourceId);
+      const target = activeNodes.current.get(conn.targetId);
+
+      if (!source || !target) return;
+
       // Protocol-based colors and styles using stored protocol
       let strokeColor = `rgba(0, 255, 255, ${conn.alpha})` // Default cyan
       let lineWidth = 1
@@ -573,20 +648,20 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.strokeStyle = strokeColor
       ctx.lineWidth = lineWidth
       ctx.beginPath()
-      ctx.moveTo(conn.x1, conn.y1)
-      ctx.lineTo(conn.x2, conn.y2)
+      ctx.moveTo(source.x, source.y)
+      ctx.lineTo(target.x, target.y)
       ctx.stroke()
       
       // Add arrow indicator for direction (if zoom is high enough)
       if (vp.zoom > 0.8) {
-        const dx = conn.x2 - conn.x1
-        const dy = conn.y2 - conn.y1
+        const dx = target.x - source.x
+        const dy = target.y - source.y
         const len = Math.sqrt(dx * dx + dy * dy)
         
         if (len > 20) {
           // Calculate arrow position (75% along the line)
-          const arrowX = conn.x1 + dx * 0.75
-          const arrowY = conn.y1 + dy * 0.75
+          const arrowX = source.x + dx * 0.75
+          const arrowY = source.y + dy * 0.75
           
           // Calculate arrow direction
           const angle = Math.atan2(dy, dx)
@@ -686,10 +761,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     } else {
       // No nodes - render once more to show "waiting" message and stop
       setTimeout(() => {
+        if (canvasRef.current) { // Check if component is still mounted
         animationRef.current = requestAnimationFrame(render)
+        }
       }, 1000) // Render every second when no data
     }
-  }, [])
+  }, [updatePhysics])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {

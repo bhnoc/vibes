@@ -154,66 +154,35 @@ const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, 
   
   // Add variation within the sector based on IP components
   const sectorAngle = 90; // Each IP type gets 90 degree sector
+  const angleWithinSector = ((c * 256 + d) % 1000) / 1000 * sectorAngle;
+  const finalAngle = (sectorOffset + angleWithinSector) * (Math.PI / 180);
   
-  // IMPROVED: Better angular distribution to prevent clustering
-  // Use more IP components to spread nodes more evenly
-  const hashForAngle = (a * 1000000 + b * 10000 + c * 100 + d);
-  const angleWithinSector = (hashForAngle % 10000) / 10000 * sectorAngle;
-  
-  // IMPROVED: Add dynamic angular expansion based on node density in this sector
-  const nodesInThisSector = existingNodes.filter(node => {
-    if (!node.id.includes('.')) return false;
-    const [na, nb] = node.id.split('.').map(Number);
-    
-    // Check if this node belongs to the same IP category
-    if (a === 192 && b === 168) return na === 192 && nb === 168;
-    if (a === 10) return na === 10;
-    if (a === 172 && b >= 16 && b <= 31) return na === 172 && nb >= 16 && nb <= 31;
-    if ([8, 1].includes(a)) return [8, 1].includes(na);
-    return true; // Other IPs
-  }).length;
-  
-  // Expand the sector angle based on node density
-  const expandedSectorAngle = Math.min(sectorAngle * (1 + nodesInThisSector / 20), 180); // Max 180 degrees
-  const expandedAngleWithinSector = (hashForAngle % 10000) / 10000 * expandedSectorAngle;
-  
-  const finalAngle = (sectorOffset + expandedAngleWithinSector) * (Math.PI / 180);
-  
-  // IMPROVED: Dynamic radius variation based on node density
-  const nodesAtSimilarRadius = existingNodes.filter(node => {
-    if (!node.x || !node.y) return false;
-    const nodeRadius = Math.sqrt(node.x * node.x + node.y * node.y);
-    return Math.abs(nodeRadius - baseRadius) < 20; // Nodes within 20px of this radius
-  }).length;
-  
-  // Increase radius variation when there are many nodes at similar radius
-  const radiusVariation = (b % 10) * 2 + Math.floor(nodesAtSimilarRadius / 5) * 8; // Expand radius spread
+  // Add radius variation based on subnet (smaller now since base expands)
+  const radiusVariation = (b % 10) * 2; // Reduced variation
   const finalRadius = baseRadius + radiusVariation;
+  
+  // Calculate final position
+  const x = Math.cos(finalAngle) * finalRadius;
+  const y = Math.sin(finalAngle) * finalRadius;
   
   // Create a unique hash from all IP components for consistent jitter
   const ipHash = a * 1000000 + b * 10000 + c * 100 + d;
   
-  // Add small random offset to prevent exact overlaps - INCREASED for better spacing
-  const jitterX = ((ipHash % 20) - 10); // INCREASED: -10 to +10px jitter (was -5 to +5)
-  const jitterY = (((ipHash >> 8) % 20) - 10); // INCREASED: Better spread within clusters
+  // Add small random offset to prevent exact overlaps (reduced since we have expansion)
+  const jitterX = ((ipHash % 10) - 5); // -5 to +5px jitter
+  const jitterY = (((ipHash >> 8) % 10) - 5);
   
-  // ADDITIONAL: Add more angular jitter for dense areas
-  const densityBasedJitterAngle = Math.floor(nodesInThisSector / 5) * 5; // Extra 5 degrees per 5 nodes
-  const totalAngle = finalAngle + (densityBasedJitterAngle * Math.PI / 180);
-  
-  // Recalculate position with improved angle and jitter
-  const x = Math.cos(totalAngle) * finalRadius;
-  const y = Math.sin(totalAngle) * finalRadius;
+  const finalPosition = { 
+    x: x + jitterX, 
+    y: y + jitterY 
+  };
   
   // Debug log position generation occasionally
   if (Math.random() < 0.05) { // Log 5% of position generations
-    console.log(`📍 Dynamic position for ${ip}: (${Math.round(x)}, ${Math.round(y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
+    console.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
   }
   
-  return { 
-    x: x, 
-    y: y 
-  };
+  return finalPosition;
 };
 
 // Collision detection and avoidance system

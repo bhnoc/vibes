@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { throttle } from 'lodash';
 import { useSettingsStore } from './settingsStore';
+import { usePhysicsStore } from './physicsStore';
 
 // Types
 export interface Node {
@@ -14,6 +15,7 @@ export interface Node {
   lastActive: number; // Timestamp of last activity
   type?: string;
   packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
+  packetColor?: string; // Color based on the packet that created this connection
 }
 
 export interface Connection {
@@ -31,9 +33,9 @@ export interface Connection {
 interface NetworkState {
   nodes: Node[];
   connections: Connection[];
+  updateNodeActivity: (nodeId: string) => void;
   addOrUpdateNode: (node: Node) => void;
   addOrUpdateConnection: (connection: Connection) => void;
-  updateNodeActivity: (nodeId: string) => void;
   // Legacy/compatibility API methods
   addNode: (id: string, data?: Partial<Node>) => void;
   addConnection: (connection: Partial<Connection>) => void;
@@ -51,9 +53,8 @@ interface NetworkState {
   limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
 }
 
-// Constants for node expiration - REDUCED: Faster fading for inactive nodes
-const NODE_EXPIRATION_TIME = 10000; // REDUCED: 10 seconds (was 30s) - nodes fade faster without packets
-const VERY_OLD_NODE_TIME = 20000; // ADDED: 20 seconds - nodes are immediately removed (not just faded)
+// Constants for node expiration - per user requirement: 30 seconds of no packets
+const NODE_EXPIRATION_TIME = 30000; // 30 seconds of inactivity before node starts fading
 const CONNECTION_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before connection removal as requested
 
 // OPTIMIZED LIMITS: Set to 500 nodes as requested for performance
@@ -221,6 +222,17 @@ const pruneOldestConnections = (connections: Connection[]): Connection[] => {
   return sortedConnections.slice(connections.length - targetCount);
 };
 
+// Check for collisions between two nodes
+function checkCollision(node1: Node, node2: Node, minDistance: number): boolean {
+  if (!node1 || !node2 || node1.x === undefined || node1.y === undefined || node2.x === undefined || node2.y === undefined) {
+    return false;
+  }
+  const dx = node1.x - node2.x;
+  const dy = node1.y - node2.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  return distance < minDistance;
+}
+
 // Create store
 export const useNetworkStore = create<NetworkState>((set, get) => ({
   nodes: [],
@@ -335,6 +347,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       return {
         ...state,
         nodes: state.nodes.filter((node) => node.id !== id),
+        connections: state.connections.filter(c => c.source !== id && c.target !== id),
       };
     });
   },
@@ -364,18 +377,8 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     const now = Date.now();
     
     set((state) => {
-      // ADDED: First pass - immediately remove very old nodes (over 20 seconds)
-      const nodesAfterAggresiveCleanup = state.nodes.filter(node => 
-        now - node.lastActive < VERY_OLD_NODE_TIME
-      );
-      
-      const veryOldNodesRemoved = state.nodes.length - nodesAfterAggresiveCleanup.length;
-      if (veryOldNodesRemoved > 0) {
-        console.log(`🧹 Aggressive cleanup: Removed ${veryOldNodesRemoved} very old nodes (>${VERY_OLD_NODE_TIME/1000}s)`);
-      }
-      
       // Check if we're approaching critical node count
-      const isNearCritical = nodesAfterAggresiveCleanup.length >= MAX_NODES;
+      const isNearCritical = state.nodes.length >= MAX_NODES;
       
       // Use shorter expiration times when we have many nodes
       const nodeExpirationTime = isNearCritical 
@@ -391,14 +394,14 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       const PRESERVE_NEWEST_COUNT = 1500; // INCREASED: Always preserve 1500 newest nodes regardless of total count
       
       // Sort nodes by activity time (most recent first)
-      const sortedNodes = [...nodesAfterAggresiveCleanup].sort((a, b) => b.lastActive - a.lastActive);
+      const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
       
       // Keep newest nodes regardless of activity, then filter older ones
       const preservedNodes = sortedNodes.slice(0, PRESERVE_NEWEST_COUNT);
       const olderNodes = sortedNodes.slice(PRESERVE_NEWEST_COUNT);
       
       // Filter older nodes by activity (but only if we have way too many)
-      const activeOlderNodes = nodesAfterAggresiveCleanup.length > 2000 ? olderNodes.filter(
+      const activeOlderNodes = state.nodes.length > 2000 ? olderNodes.filter(
         (node) => now - node.lastActive < nodeExpirationTime
       ) : olderNodes; // Keep all older nodes if we're under 2000 total
       
@@ -413,20 +416,20 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       const olderConnections = sortedConnections.slice(PRESERVE_NEWEST_COUNT * 2);
       
       // Filter older connections by activity (but only if we have way too many)
-      const activeOlderConnections = nodesAfterAggresiveCleanup.length > 3000 ? olderConnections.filter(
+      const activeOlderConnections = state.connections.length > 3000 ? olderConnections.filter(
         (connection) => now - connection.lastActive < connectionExpirationTime
       ) : olderConnections; // Keep all older connections if we're under 3000 total
       
       // Final connection list is preserved + active older connections
       const activeConnections = [...preservedConnections, ...activeOlderConnections];
       
-      const nodesRemoved = nodesAfterAggresiveCleanup.length - activeNodes.length;
+      const nodesRemoved = state.nodes.length - activeNodes.length;
       if (nodesRemoved > 0) {
         totalNodesRemoved += nodesRemoved;
       }
       
       // Only update if something changed
-      if (activeNodes.length !== nodesAfterAggresiveCleanup.length || 
+      if (activeNodes.length !== state.nodes.length || 
           activeConnections.length !== state.connections.length) {
         return {
           ...state,
@@ -511,59 +514,35 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
 
   // Reposition overlapping nodes to prevent visual collisions
   repositionOverlappingNodes: () => {
-    // Use the shared nodeSpacing constant from usePacketProcessor
-    set((state) => {
-      const updatedNodes = [...state.nodes];
-      let repositioned = 0;
-      
-      // Check each node against all others for overlaps
-      for (let i = 0; i < updatedNodes.length; i++) {
-        const nodeA = updatedNodes[i];
-        if (nodeA.x === undefined || nodeA.y === undefined) continue;
-        
-        for (let j = i + 1; j < updatedNodes.length; j++) {
-          const nodeB = updatedNodes[j];
-          if (nodeB.x === undefined || nodeB.y === undefined) continue;
-          
-          // Calculate distance between nodes
-          const dx = nodeA.x - nodeB.x;
-          const dy = nodeA.y - nodeB.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          
-          // If nodes are too close, move the less recently active node
-          if (distance < useSettingsStore.getState().nodeSpacing) {
-            const moveNode = nodeA.lastActive < nodeB.lastActive ? nodeA : nodeB;
-            const keepNode = moveNode === nodeA ? nodeB : nodeA;
-            
-            // Type guard: ensure both nodes have valid coordinates
-            if (moveNode.x === undefined || moveNode.y === undefined || 
-                keepNode.x === undefined || keepNode.y === undefined) {
-              continue;
-            }
-            
-            // Calculate direction to move the node away
-            const angle = Math.atan2(moveNode.y - keepNode.y, moveNode.x - keepNode.x);
-            const moveDistance = useSettingsStore.getState().nodeSpacing + 10; // Add some extra buffer
-            
-            // Update position of the node to be moved
-            const nodeIndex = moveNode === nodeA ? i : j;
-            updatedNodes[nodeIndex] = {
-              ...moveNode,
-              x: keepNode.x + Math.cos(angle) * moveDistance,
-              y: keepNode.y + Math.sin(angle) * moveDistance
-            };
-            
+    // Use the shared nodeSpacing constant from the physics store
+    const { nodeSpacing } = usePhysicsStore.getState();
+    const minDistance = nodeSpacing;
+
+    const allNodes = new Map<string, Node>();
+    get().nodes.forEach(node => {
+      allNodes.set(node.id, node);
+    });
+
+    let repositioned = 0;
+
+    allNodes.forEach(node => {
+      // Check for collisions with other nodes
+      allNodes.forEach(otherNode => {
+        if (node.id !== otherNode.id && checkCollision(node, otherNode, minDistance)) {
+          // Simple repositioning: move the current node slightly
+          const angle = Math.random() * 2 * Math.PI;
+          if (node.x !== undefined && node.y !== undefined) {
+            node.x += Math.cos(angle) * (minDistance / 2);
+            node.y += Math.sin(angle) * (minDistance / 2);
             repositioned++;
           }
         }
-      }
-      
-      if (repositioned > 0) {
-        console.log(`🔧 Repositioned ${repositioned} overlapping nodes (${useSettingsStore.getState().nodeSpacing}px shared threshold)`);
-        return { ...state, nodes: updatedNodes };
-      }
-      
-      return state;
+      });
     });
+
+    if (repositioned > 0) {
+      set({ nodes: Array.from(allNodes.values()) });
+      console.log(`🔧 Repositioned ${repositioned} overlapping nodes (${minDistance}px shared threshold)`);
+    }
   }
 })); 
