@@ -348,10 +348,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
 
       } else {
-        // Add new node - ALWAYS start it in the middle of the screen
+        // Add new node - place it randomly around the center up to 500px away
+        const centerX = viewportRef.current.width / 2;
+        const centerY = viewportRef.current.height / 2;
+        const angle = Math.random() * 2 * Math.PI;
+        const radius = Math.random() * 500;
+        
         const position = {
-          x: (viewportRef.current.width / 2) + (Math.random() - 0.5) * 5,
-          y: (viewportRef.current.height / 2) + (Math.random() - 0.5) * 5,
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius,
         };
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
@@ -434,7 +439,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // These factors scale the user-friendly values from the store 
     // into numbers that work well with the physics simulation.
     const PULL_SCALING = 0.00001;
-    const REPULSION_SCALING = 0.005;
+    const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
     const DRIFT_AWAY_SCALING = 0.000001;
     const INACTIVE_REMOVAL_SECONDS = 15;
 
@@ -684,8 +689,32 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
+    // Determine which nodes have active connections to render them on top
+    const now = currentTime
+    const nodesWithActiveConnections = new Set<string>()
+    activeConnections.current.forEach(conn => {
+      // An active connection is one that is still visible
+      if (now - conn.lastActive < connectionLifetime) {
+        nodesWithActiveConnections.add(conn.sourceId)
+        nodesWithActiveConnections.add(conn.targetId)
+      }
+    })
+
+    // Get nodes and sort them so active ones are drawn last (on top)
+    const nodesToRender = Array.from(activeNodes.current.values())
+    nodesToRender.sort((a, b) => {
+      const aHasActiveConnection = nodesWithActiveConnections.has(a.id)
+      const bHasActiveConnection = nodesWithActiveConnections.has(b.id)
+
+      if (aHasActiveConnection && !bHasActiveConnection) return 1
+      if (!aHasActiveConnection && bHasActiveConnection) return -1
+      
+      // If both have similar connection status, sort by recent activity
+      return a.lastActive - b.lastActive
+    })
+
     // Render nodes with enhanced IP address display
-    activeNodes.current.forEach(node => {
+    nodesToRender.forEach(node => {
       // Use the enhanced node color system
       const rgb = hexToRgb(node.color)
       const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65] // fallback to green
@@ -766,7 +795,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
       }, 1000) // Render every second when no data
     }
-  }, [updatePhysics])
+  }, [updatePhysics, connectionLifetime])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {
