@@ -125,6 +125,10 @@ This project follows a "retro cyberpunk" aesthetic - think Tron, Hackers, and 80
 
 See the `CURSOR_RULES.md` file for our detailed design philosophy and coding guidelines.
 
+## Background 
+
+Originally inspired by OrganicIP ([OIP](https://github.com/USU-Security/oip)), a visualizer which uses libpcap and Simple DirectMedia Layer (SDL) to visualize IP traffic between endpoints.
+
 ## License
 
 MIT 
