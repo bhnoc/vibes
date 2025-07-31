@@ -55,7 +55,7 @@ The easiest way to get started on Windows is by using our automated installation
 
 For Windows users, packet capture requires Npcap which will be installed by the script.
 
-If you encounter any issues, check the (TROUBLESHOOTING.md)[TROUBLESHOOTING.md] file for solutions.
+If you encounter any issues, check the [TROUBLESHOOTING.md](TROUBLESHOOTING.md) file for solutions.
 
 ## Quick Start (WSL/Linux)
 
