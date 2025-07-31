@@ -1,6 +1,6 @@
 # VIBES - Network Visualization Tool
 
-A next-generation network visualization tool with retro-inspired aesthetics. Watch network traffic flow in real-time with stylized neon particles and node representations.
+Visual Interface for Browsing Entities and Structures (VIBES). This next-generation network visualization tool is imbued with retro-inspired aesthetics. Watch network traffic flow in real-time with stylized neon particles and node representations.
 
 ## Features
 
@@ -55,7 +55,7 @@ The easiest way to get started on Windows is by using our automated installation
 
 For Windows users, packet capture requires Npcap which will be installed by the script.
 
-If you encounter any issues, check the `TROUBLESHOOTING.md` file for solutions.
+If you encounter any issues, check the [TROUBLESHOOTING.md](TROUBLESHOOTING.md) file for solutions.
 
 ## Quick Start (WSL/Linux)
 
@@ -124,6 +124,10 @@ This project follows a "retro cyberpunk" aesthetic - think Tron, Hackers, and 80
 - **Play** (have fun—you're building art, not just software)
 
 See the `CURSOR_RULES.md` file for our detailed design philosophy and coding guidelines.
+
+## Background 
+
+Originally inspired by OrganicIP ([OIP](https://github.com/USU-Security/oip)), a visualizer which uses libpcap and Simple DirectMedia Layer (SDL) to visualize IP traffic between endpoints.
 
 ## License
 
