@@ -65,7 +65,7 @@ export const PhysicsPanel: React.FC = () => {
           label="Node Spacing"
           value={nodeSpacing}
           min="0"
-          max="300"
+          max="500"
           onChange={setNodeSpacing}
           displayValue={`${nodeSpacing} px`}
         />
@@ -73,7 +73,7 @@ export const PhysicsPanel: React.FC = () => {
           label="Drift Away Strength"
           value={driftAwayStrength * 100}
           min="0"
-          max="500"
+          max="900"
           onChange={(v: number) => setDriftAwayStrength(v / 100)}
           displayValue={driftAwayStrength.toFixed(2)}
         />
@@ -81,7 +81,7 @@ export const PhysicsPanel: React.FC = () => {
           label="Connection Pull"
           value={connectionPullStrength * 100}
           min="0"
-          max="500"
+          max="900"
           onChange={(v: number) => setConnectionPullStrength(v / 100)}
           displayValue={connectionPullStrength.toFixed(2)}
         />

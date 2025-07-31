@@ -4,42 +4,90 @@ A next-generation network visualization tool with retro-inspired aesthetics. Wat
 
 ## Features
 
+### Network Visualization
 - Real-time network map with device nodes and connections
-- Packet tracing with animated flow lines
+- Multiple rendering engines for different performance needs
 - Dynamically scaled hosts based on traffic volume
-- Time-travel mode (rewind/fast-forward traffic visualization)
-- Device metadata on hover
-- Filtering by protocol, device type, or IP range
-- Dark mode with CRT-inspired themes
+- Animated packet flow visualization with protocol-specific coloring
+- Viewport panning and zooming for large networks
+- Device metadata display and interaction
+
+### Traffic Analysis
+- **Real Packet Capture**: Live capture from network interfaces (TCP, UDP, ICMP)
+- **Simulated Traffic**: Configurable traffic generation for testing and demos
+- Protocol-specific visualization and filtering
+- Traffic volume-based node sizing and connection highlighting
+- Real-time performance statistics
+
+### Performance & Debugging
+- Object pooling for high-performance rendering (1000s of objects at 60fps)
+- Comprehensive debug panels with performance metrics
+- WebSocket connection monitoring and diagnostics
+- Simulation testing framework with automated scenarios
+- FPS monitoring and viewport optimization
+
+### User Interface
+- Dark mode with retro-inspired CRT aesthetics
+- Configurable physics simulation parameters
+- Renderer selection (Canvas, PixiJS variants, Minimal DOM)
+- Real-time settings adjustment
+- Cross-platform support (Windows, Linux, WSL)
 
 ## Tech Stack
 
 ### Backend
-- **Language:** Go
-- **Real-Time Communication:** WebSockets (Gorilla)
-- **Packet Capture:** libpcap, tshark, or custom ingestors
+- **Language:** Go 1.21
+- **Real-Time Communication:** WebSockets (Gorilla WebSocket v1.5.3)
+- **Packet Capture:** Real packet capture (gopacket v1.1.19) and comprehensive simulated traffic generation
+- **Network Processing:** Support for TCP, UDP, ICMP, and other protocols
+- **Testing:** Comprehensive simulation testing framework with automated scenarios
 
 ### Frontend
-- **Framework:** React
-- **Rendering Engine:** PixiJS (@pixi/react)
-- **State Management:** Zustand
-- **Styling:** TailwindCSS
-- **Visual Enhancements:** CRT shaders, glow effects, animated trails
+- **Framework:** React with TypeScript and Vite
+- **Rendering Engines:** Currently implemented:
+  - **Canvas Renderer** (Recommended) - High-performance Canvas-based rendering for 1000s of objects at 60fps
+  - **Minimal DOM** - Lightweight DOM renderer for smaller networks (<100 objects)
+- **State Management:** Zustand v4.1.1
+- **Styling:** TailwindCSS v3.1.8
+- **Additional Libraries:** React Icons, Lodash
+- **Performance:** Object pooling, viewport optimization, and 60fps animation loops
+- **Development Tools:** Comprehensive debugging panels and performance monitoring
 
 ## Project Structure
 
 ```
 /
-├── backend/           # Go backend code
-│   ├── cmd/           # Application entry points
-│   ├── internal/      # Private application code
-│   └── pkg/           # Public libraries
-└── frontend/          # React frontend code
-    ├── public/        # Static assets
-    └── src/           # Source code
-        ├── components/  # React components
-        ├── hooks/       # Custom React hooks
-        └── utils/       # Utility functions
+├── backend/              # Go backend code
+│   ├── cmd/              # Application entry points (main.go)
+│   ├── internal/         # Private application code
+│   │   └── capture/      # Packet capture implementations (packet.go)
+│   ├── go.mod & go.sum   # Go module definitions
+│   ├── test_results/     # Simulation testing results
+│   ├── test_simulation.sh # Automated simulation testing script
+│   ├── check_timestamps.sh # Testing utilities
+│   └── SIMULATION_TESTING.md # Comprehensive testing documentation
+├── frontend/             # React frontend code
+│   ├── public/           # Static assets
+│   ├── src/              # Source code
+│   │   ├── components/   # React components (renderers, debug panels)
+│   │   ├── stores/       # Zustand state management
+│   │   ├── hooks/        # Custom React hooks
+│   │   ├── types/        # TypeScript type definitions
+│   │   ├── utils/        # Utility functions
+│   │   └── styles/       # Additional styling
+│   ├── package.json      # Frontend dependencies
+│   ├── vite.config.ts    # Vite build configuration
+│   ├── tailwind.config.cjs # TailwindCSS configuration
+│   └── tsconfig.json     # TypeScript configuration
+├── build/                # Compiled binaries (server executable)
+├── data/                 # Runtime data directory
+├── logs/                 # Application logs
+├── Misc Docs/            # Additional documentation
+├── install_prereqs.ps1  # Windows installation script
+├── install_prereqs.sh   # Linux/WSL installation script
+├── install_wsl_prereqs.bat # WSL setup script
+├── TROUBLESHOOTING.md   # Common issues and solutions
+└── CURSOR_RULES.md      # Development guidelines and design philosophy
 ```
 
 ## Quick Start (Windows)
@@ -70,16 +118,16 @@ If you're using WSL or Linux:
 
 ### Prerequisites
 - Node.js v16+
-- Go 1.19+
+- Go 1.21+
 - libpcap development libraries (for packet capture on Linux/macOS)
 - Npcap (for packet capture on Windows)
 
 ### Backend Setup
 ```bash
 cd backend
-go mod init github.com/yourusername/vibes
-go get -u github.com/gorilla/websocket
-go get -u github.com/google/gopacket
+# Dependencies are already defined in go.mod
+go mod tidy
+go mod download
 ```
 
 ### Frontend Setup
