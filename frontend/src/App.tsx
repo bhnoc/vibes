@@ -279,7 +279,7 @@ export const App = memo(() => {
     }
     
     // Use the same host as the current page, or fall back to localhost
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost' : '172.18.208.50';
+    const wsHost = window.location.hostname === 'localhost' ? 'localhost' : '10.220.199.71';
     const wsPort = '8080';
     
     if (captureMode === 'real' && selectedInterface) {
