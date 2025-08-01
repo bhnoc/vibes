@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore } from '../stores/networkStore';
+import { getWebSocketUrl } from '../utils/websocketUtils';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'waiting';
 type CaptureMode = 'real' | 'simulated' | 'unknown' | 'waiting';
@@ -105,7 +106,8 @@ export const useWebSocket = (url: string | null): WebSocketState => {
           // Try to connect to simulation WebSocket after a delay
           timeoutRef.current = setTimeout(() => {
             console.log('Attempting to connect to simulation websocket...');
-            const simulationWs = new WebSocket('ws://localhost:8080/ws');
+            const simulationWsUrl = getWebSocketUrl();
+            const simulationWs = new WebSocket(simulationWsUrl);
             
             simulationWs.onopen = () => {
               console.log('Connected to simulation websocket');
@@ -239,7 +241,8 @@ export const useWebSocket = (url: string | null): WebSocketState => {
                 // Try to connect to simulation WebSocket immediately
                 timeoutRef.current = setTimeout(() => {
                   console.log('Connecting to simulation websocket...');
-                  const simulationWs = new WebSocket('ws://localhost:8080/ws');
+                  const simulationWsUrl = getWebSocketUrl();
+                  const simulationWs = new WebSocket(simulationWsUrl);
                   
                   simulationWs.onopen = () => {
                     console.log('Connected to simulation websocket!');

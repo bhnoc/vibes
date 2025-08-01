@@ -4,6 +4,7 @@ import { usePacketProcessor } from './hooks/usePacketProcessor'
 import { usePacketStore } from './stores/packetStore'
 import { useNetworkStore } from './stores/networkStore'
 import { useSizeStore } from './stores/sizeStore'
+import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 
 // Import critical components directly 
@@ -154,9 +155,9 @@ export const App = memo(() => {
         
         try {
           // First try with regular CORS mode
-          // Use the same host as the current page, or fall back to localhost
-          const apiHost = window.location.hostname === 'localhost' ? 'localhost' : '172.18.208.50';
-          const response = await fetch(`http://${apiHost}:8080/api/interfaces`, {
+          // Use dynamic API base URL
+          const apiBaseUrl = getApiBaseUrl();
+          const response = await fetch(`${apiBaseUrl}/api/interfaces`, {
             headers: {
               'Accept': 'application/json'
             },
@@ -200,9 +201,10 @@ export const App = memo(() => {
             setFallbackInterfaces();
             
             // Display a more helpful error message for developers
+            const backendUrl = getApiBaseUrl();
             console.error(`
               ⚠️ CORS CONFIGURATION REQUIRED:
-              The backend server at http://localhost:8080 needs to be configured to allow requests
+              The backend server at ${backendUrl} needs to be configured to allow requests
               from the frontend origin (${window.location.origin}).
               
               Backend needs to add these headers to API responses:
