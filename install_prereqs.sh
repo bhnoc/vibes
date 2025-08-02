@@ -3,7 +3,7 @@
 # VIBES Network Visualizer Prerequisites Installer
 # ====================================
 # This script installs all required dependencies for the VIBES project in WSL
-# - Go 1.19+
+# - Go 1.21+
 # - Node.js 16+
 # - libpcap development libraries
 # - And more...
