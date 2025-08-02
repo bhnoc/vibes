@@ -9,22 +9,11 @@
 $FE_NAME="vibes-network-visualizer"
 $FE_PRIVATE=$true
 $FE_VERSION="0.1.0"
-$GO_VER="1.24.4"
-$NODE_VER="16.18.0"
-$REACT_VER="18.2.0"
-$ZUSTAND_VER="4.1.1"
-$TYPES_REACT_VER="18.0.17"
-$TYPES_REACTDOM_VER="18.0.6"
-$VITEJS_REACT_VER="2.1.0"
-$AUTOPREFIXER_VER="10.4.12"
-$POSTCSS_VER="8.4.16"
-$TYPESCRIPT_VER="4.6.4"
-$TAILWINDCSS_VER="3.1.8"
-$VITE_VER="3.1.0"
-$VITETS_VER="3.5.0"
-$WEBSOCKET_VER="1.5.3"
-$GOPACKET_VER="1.1.19"
-$GO_RUN="1.21"
+
+# Load the requirements.conf file
+Get-Content requirements.conf | Where-Object { $_ -notmatch '^\s*#' } | ForEach-Object {
+    $key, $value = $_.Split('=', 2).Trim()
+}
 
 # Function to display styled output
 function Write-Header {
@@ -114,15 +103,15 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
     Write-Step "Node.js $nodeVersion is already installed"
     
     # Compare versions
-    if ([version]$nodeVersion -lt [version]"$NODE_VER") {
-        Write-Warning "Your Node.js version is too old. Version $NODE_VER+ is required."
+    if ([version]$nodeVersion -lt [version]"$NODE_VER.$NODE_MIN_VER") {
+        Write-Warning "Your Node.js version is too old. Version $NODE_VER.$NODE_MIN_VER+ is required."
         Write-Step "Upgrading Node.js..."
-        choco install nodejs -y --version=$NODE_VER
+        choco install nodejs -y --version=$NODE_VER.$NODE_MIN_VER
         refreshenv
     }
 } else {
-    Write-Step "Installing Node.js $NODE_VER..."
-    choco install nodejs -y --version=$NODE_VER
+    Write-Step "Installing Node.js $NODE_VER.$NODE_MIN_VER..."
+    choco install nodejs -y --version=$NODE_VER.$NODE_MIN_VER
     refreshenv
     Write-Step "Node.js installation complete"
 }
