@@ -278,9 +278,9 @@ export const App = memo(() => {
       return null;
     }
     
-    // Use the same host as the current page, or fall back to localhost
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost' : '10.220.199.71';
-    const wsPort = '8080';
+    // Get host from environment variables or fall back to localhost
+    const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
+    const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
     
     if (captureMode === 'real' && selectedInterface) {
       // Real mode with selected interface
