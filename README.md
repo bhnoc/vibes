@@ -4,7 +4,7 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 
 ## Example
 
-![Preview of VIBES](./PREVIEW.gif)
+![Preview of VIBES](PREVIEW.gif)
 
 
 ## Features
