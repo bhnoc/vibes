@@ -2,9 +2,29 @@
 # ==================================================
 # This script installs all required dependencies for the VIBES project on Windows
 # - Node.js 16+
-# - Go 1.19+
+# - Go 1.21+
 # - Npcap (for packet capture)
 # - Development tools
+
+$FE_NAME="vibes-network-visualizer"
+$FE_PRIVATE=$true
+$FE_VERSION="0.1.0"
+$GO_VER="1.24.4"
+$NODE_VER="16.18.0"
+$REACT_VER="18.2.0"
+$ZUSTAND_VER="4.1.1"
+$TYPES_REACT_VER="18.0.17"
+$TYPES_REACTDOM_VER="18.0.6"
+$VITEJS_REACT_VER="2.1.0"
+$AUTOPREFIXER_VER="10.4.12"
+$POSTCSS_VER="8.4.16"
+$TYPESCRIPT_VER="4.6.4"
+$TAILWINDCSS_VER="3.1.8"
+$VITE_VER="3.1.0"
+$VITETS_VER="3.5.0"
+$WEBSOCKET_VER="1.5.3"
+$GOPACKET_VER="1.1.19"
+$GO_RUN="1.21"
 
 # Function to display styled output
 function Write-Header {
@@ -70,19 +90,19 @@ if (Get-Command choco -ErrorAction SilentlyContinue) {
 }
 
 # Install Go
-Write-Header "Installing Go 1.19"
+Write-Header "Installing Go $GO_VER"
 if (Get-Command go -ErrorAction SilentlyContinue) {
     $goVersion = (go version) -replace '.*go([0-9]+\.[0-9]+).*', '$1'
     Write-Step "Go $goVersion is already installed"
     
     # Compare versions (basic check)
-    if ([version]$goVersion -lt [version]"1.19") {
-        Write-Warning "Your Go version might be too old. Version 1.19+ is recommended."
+    if ([version]$goVersion -lt [version]"$GO_RUN") {
+        Write-Warning "Your Go version might be too old. Version $GO_RUN+ is recommended."
         Write-Step "Proceeding with existing installation..."
     }
 } else {
-    Write-Step "Installing Go 1.19..."
-    choco install golang -y --version=1.19
+    Write-Step "Installing Go $GO_VER..."
+    choco install golang -y --version=$GO_VER
     refreshenv
     Write-Step "Go installation complete"
 }
@@ -94,15 +114,15 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
     Write-Step "Node.js $nodeVersion is already installed"
     
     # Compare versions
-    if ([version]$nodeVersion -lt [version]"16.0.0") {
-        Write-Warning "Your Node.js version is too old. Version 16+ is required."
+    if ([version]$nodeVersion -lt [version]"$NODE_VER") {
+        Write-Warning "Your Node.js version is too old. Version $NODE_VER+ is required."
         Write-Step "Upgrading Node.js..."
-        choco install nodejs -y --version=16.18.0
+        choco install nodejs -y --version=$NODE_VER
         refreshenv
     }
 } else {
-    Write-Step "Installing Node.js 16..."
-    choco install nodejs -y --version=16.18.0
+    Write-Step "Installing Node.js $NODE_VER..."
+    choco install nodejs -y --version=$NODE_VER
     refreshenv
     Write-Step "Node.js installation complete"
 }
@@ -147,10 +167,11 @@ if (-not (Test-Path "backend\go.mod")) {
     Set-Content -Path "backend\go.mod" -Value @"
 module github.com/vibes-network-visualizer
 
-go 1.19
+go $GO_RUN
 
 require (
-	github.com/gorilla/websocket v1.5.0
+	github.com/gorilla/websocket v$WEBSOCKET_VER
+	github.com/google/gopacket v$GOPACKET_VER
 )
 "@
 }
@@ -171,9 +192,9 @@ if (-not (Test-Path "frontend\package.json")) {
     Write-Step "Creating package.json"
     Set-Content -Path "frontend\package.json" -Value @"
 {
-  "name": "vibes-network-visualizer",
-  "private": true,
-  "version": "0.1.0",
+  "name": "$FE_NAME",
+  "private": $($FE_PRIVATE.ToString().ToLower()),
+  "version": "$FE_VERSION",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -181,22 +202,22 @@ if (-not (Test-Path "frontend\package.json")) {
     "preview": "vite preview"
   },
   "dependencies": {
-    "@pixi/react": "^6.0.1",
-    "pixi.js": "^6.0.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "zustand": "^4.1.1"
+    "@pixi/react": "latest",
+    "pixi.js": "latest",
+    "react": "^$REACT_VER",
+    "react-dom": "^$REACT_VER",
+    "zustand": "^$ZUSTAND_VER"
   },
   "devDependencies": {
-    "@types/react": "^18.0.17",
-    "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^2.1.0",
-    "autoprefixer": "^10.4.12",
-    "postcss": "^8.4.16",
-    "tailwindcss": "^3.1.8",
-    "typescript": "^4.6.4",
-    "vite": "^3.1.0",
-    "vite-tsconfig-paths": "^3.5.0"
+    "@types/react": "^$TYPES_REACT_VER",
+    "@types/react-dom": "^$TYPES_REACTDOM_VER",
+    "@vitejs/plugin-react": "^$VITEJS_REACT_VER",
+    "autoprefixer": "^$AUTOPREFIXER_VER",
+    "postcss": "^$POSTCSS_VER",
+    "tailwindcss": "^$TAILWINDCSS_VER",
+    "typescript": "^$TYPESCRIPT_VER",
+    "vite": "^$VITE_VER",
+    "vite-tsconfig-paths": "^$VITETS_VER"
   }
 }
 "@
@@ -207,9 +228,9 @@ Write-Header "Installing Go dependencies"
 Push-Location "backend"
 try {
     Write-Step "Installing github.com/gorilla/websocket..."
-    go get -u github.com/gorilla/websocket
+    go get -u github.com/gorilla/websocket@v$WEBSOCKET_VER
     Write-Step "Installing github.com/google/gopacket..."
-    go get -u github.com/google/gopacket
+    go get -u github.com/google/gopacket@v$GOPACKET_VER
 } catch {
     Write-Error "Failed to install Go dependencies: $_"
 } finally {
@@ -246,4 +267,5 @@ Write-Step "To start the backend: cd backend/cmd && go run main.go"
 
 Write-Warning "Note: You may need to run the command prompt as administrator for packet capture capabilities"
 Write-Header "Ready to build the sickest network visualizer ever! 🚀"
-Read-Host "Press Enter to exit" 
+Read-Host "Press Enter to exit"
+
