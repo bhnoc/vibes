@@ -9,7 +9,7 @@ This guide will help you solve common issues that may arise when setting up and 
 1. Open WSL (Windows Subsystem for Linux) by searching for it in the Start menu or opening a PowerShell/CMD and typing `wsl`
 2. Navigate to your project directory:
    ```bash
-   cd /mnt/c/Users/your-username/path/to/OIP-ngng
+   cd /mnt/c/Users/your-username/path/to/FOO
    ```
 3. Make the installer script executable:
    ```bash
@@ -121,4 +121,3 @@ If you have trouble with network interface access in WSL, you might need to run 
 If you're still experiencing issues, try:
 1. Checking the console logs in your browser and the backend terminal
 2. Looking for similar issues in the PixiJS or Go WebSocket documentation
-3. Reviewing the legacy OIP codebase for clues on how certain features were implemented 
