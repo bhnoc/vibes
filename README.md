@@ -79,13 +79,12 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 │   ├── vite.config.ts    # Vite build configuration
 │   ├── tailwind.config.cjs # TailwindCSS configuration
 │   └── tsconfig.json     # TypeScript configuration
-├── build/                # Compiled binaries (server executable)
 ├── data/                 # Runtime data directory
 ├── logs/                 # Application logs
-├── Misc Docs/            # Additional documentation
 ├── install_prereqs.ps1  # Windows installation script
 ├── install_prereqs.sh   # Linux/WSL installation script
 ├── install_wsl_prereqs.bat # WSL setup script
+├── ROADMAP.md           # Temporary project guidance
 ├── TROUBLESHOOTING.md   # Common issues and solutions
 └── CURSOR_RULES.md      # Development guidelines and design philosophy
 ```
