@@ -1,7 +1,11 @@
 # VIBES - Network Visualization Tool
-![Alt Text](./preview.gif)
 
 Visual Interface for Browsing Entities and Structures (VIBES). This next-generation network visualization tool is imbued with retro-inspired aesthetics. Watch network traffic flow in real-time with stylized neon particles and node representations.
+
+## Example
+
+![Preview of VIBES](./PREVIEW.gif)
+
 
 ## Features
 
