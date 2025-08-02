@@ -242,9 +242,6 @@ id_ed25519.pub
 # Project Specific
 # ===========================
 # Your existing directories that should be ignored
-oip-master.zip
-# Uncomment the line below if you don't want to track the extracted oip-master folder
-# oip-master/
 
 # Vite timestamp files
 *.timestamp-*.mjs
