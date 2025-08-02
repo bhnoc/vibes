@@ -84,7 +84,7 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 ├── install_prereqs.ps1  # Windows installation script
 ├── install_prereqs.sh   # Linux/WSL installation script
 ├── install_wsl_prereqs.bat # WSL setup script
-├── ROADMAP.md           # Temporary project guidance
+├── PROJECT.md           # Temporary project guidance
 ├── TROUBLESHOOTING.md   # Common issues and solutions
 └── CURSOR_RULES.md      # Development guidelines and design philosophy
 ```
