@@ -8,7 +8,35 @@
 # - libpcap development libraries
 # - And more...
 
-set -e # Exit immediately if a command exits with a non-zero status
+set -o pipefail # If using pipe in commands, fail for any non-exit 0
+set -o nounset # Error on unset variables
+set -o errexit # Exit immediately if a command exits with a non-zero status
+
+######################################################################
+export PATH=$PATH:/usr/local/bin
+######################################################################
+#Front-End config:
+export FE_NAME="vibes-network-visualizer"
+export FE_PRIVATE=true
+export FE_VERSION="0.1.0"
+######################################################################
+export GO_VER="1.24.4"
+export NODE_VER="16"
+export REACT_VER="18.2.0"
+export ZUSTAND_VER="4.1.1"
+export TYPES_REACT_VER="18.0.17"
+export TYPES_REACTDOM_VER="18.0.6"
+export VITEJS_REACT_VER="2.1.0"
+export AUTOPREFIXER_VER="10.4.12"
+export POSTCSS_VER="8.4.16"
+export TYPESCRIPT_VER="4.6.4"
+export TAILWINDCSS_VER="3.1.8"
+export VITE_VER="3.1.0"
+export VITETS_VER="3.5.0"
+export WEBSOCKET_VER="1.5.3"
+export GOPACKET_VER="1.1.19"
+export GO_RUN="1.21"
+######################################################################
 
 # Print styled messages
 print_header() {
@@ -51,45 +79,41 @@ print_header "Installing basic build tools"
 sudo apt-get install -y build-essential curl wget git unzip
 
 # Install Go
-print_header "Installing Go 1.24.4"
+print_header "Installing Go $GO_VER"
 if command -v go &> /dev/null; then
   GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
   print_step "Go $GO_VERSION is already installed"
-  
+
   # Compare versions (basic check)
-  if [[ "$(echo -e "$GO_VERSION\n1.24.4" | sort -V | head -n 1)" != "1.24.4" ]]; then
-    print_warning "Your Go version is older than 1.24.4. Attempting upgrade..."
-    
-    print_step "Downloading Go 1.24.4..."
-    wget -O /tmp/go1.24.4.linux-amd64.tar.gz https://golang.org/dl/go1.24.4.linux-amd64.tar.gz
-    
+  if [[ "$(echo -e "$GO_VERSION\n$GO_VER" | sort -V | head -n 1)" != "$GO_VER" ]]; then
+    print_warning "Your Go version is older than $GO_VER. Attempting upgrade..."
+    print_step "Downloading Go $GO_VER..."
+    wget -O /tmp/go${GO_VER}.linux-amd64.tar.gz https://golang.org/dl/go${GO_VER}.linux-amd64.tar.gz
     print_step "Removing old Go installation..."
     sudo rm -rf /usr/local/go
-    
-    print_step "Installing Go 1.24.4..."
-    sudo tar -C /usr/local -xzf /tmp/go1.24.4.linux-amd64.tar.gz
-    
+    print_step "Installing Go $GO_VER..."
+    sudo tar -C /usr/local -xzf /tmp/go${GO_VER}.linux-amd64.tar.gz
+
     # Add Go to PATH if not already there
     if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
       echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
     fi
-    
+
     # Also add to current session
     export PATH=$PATH:/usr/local/go/bin
     print_step "Go upgrade complete"
   fi
 else
-  print_step "Downloading Go 1.24.4..."
-  wget -O /tmp/go1.24.4.linux-amd64.tar.gz https://golang.org/dl/go1.24.4.linux-amd64.tar.gz
-  
+  print_step "Downloading Go $GO_VER..."
+  wget -O /tmp/go${GO_VER}.linux-amd64.tar.gz https://golang.org/dl/go${GO_VER}.linux-amd64.tar.gz
   print_step "Installing Go..."
-  sudo tar -C /usr/local -xzf /tmp/go1.24.4.linux-amd64.tar.gz
-  
+  sudo tar -C /usr/local -xzf /tmp/go${GO_VER}.linux-amd64.tar.gz
+
   # Add Go to PATH if not already there
   if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
     echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
   fi
-  
+
   # Also add to current session
   export PATH=$PATH:/usr/local/go/bin
   print_step "Go installation complete"
@@ -100,19 +124,18 @@ print_header "Installing Node.js and npm"
 if command -v node &> /dev/null; then
   NODE_VERSION=$(node -v)
   print_step "Node.js $NODE_VERSION is already installed"
-  
-  # Check if Node.js version is at least 16
+
+  # Check if Node.js version is at least $NODE_VER
   NODE_MAJOR=$(echo $NODE_VERSION | cut -d. -f1 | tr -d 'v')
-  if [[ $NODE_MAJOR -lt 16 ]]; then
-    print_warning "Your Node.js version is too old. Version 16+ is required."
+  if [[ $NODE_MAJOR -lt $NODE_VER ]]; then
+    print_warning "Your Node.js version is too old. Version $NODE_VER+ is required."
     print_step "Upgrading Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VER}.x | sudo -E bash -
     sudo apt-get install -y nodejs
   fi
 else
   print_step "Setting up Node.js repository..."
-  curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-  
+  curl -fsSL https://deb.nodesource.com/setup_${NODE_VER}.x | sudo -E bash -
   print_step "Installing Node.js..."
   sudo apt-get install -y nodejs
   print_step "Node.js installation complete"
@@ -129,9 +152,9 @@ if [ ! -f frontend/package.json ]; then
   mkdir -p frontend
   cat > frontend/package.json << EOF
 {
-  "name": "vibes-network-visualizer",
-  "private": true,
-  "version": "0.1.0",
+  "name": "${FE_NAME}",
+  "private": ${FE_PRIVATE},
+  "version": "${FE_VERSION}",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -141,20 +164,20 @@ if [ ! -f frontend/package.json ]; then
   "dependencies": {
     "@pixi/react": "latest",
     "pixi.js": "latest",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "zustand": "^4.1.1"
+    "react": "^${REACT_VER}",
+    "react-dom": "^${REACT_VER}",
+    "zustand": "^${ZUSTAND_VER}"
   },
   "devDependencies": {
-    "@types/react": "^18.0.17",
-    "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^2.1.0",
-    "autoprefixer": "^10.4.12",
-    "postcss": "^8.4.16",
-    "tailwindcss": "^3.1.8",
-    "typescript": "^4.6.4",
-    "vite": "^3.1.0",
-    "vite-tsconfig-paths": "^3.5.0"
+    "@types/react": "^${TYPES_REACT_VER}",
+    "@types/react-dom": "^${TYPES_REACTDOM_VER}",
+    "@vitejs/plugin-react": "^${VITEJS_REACT_VER}",
+    "autoprefixer": "^${AUTOPREFIXER_VER}",
+    "postcss": "^${POSTCSS_VER}",
+    "tailwindcss": "^${TAILWINDCSS_VER}",
+    "typescript": "^${TYPESCRIPT_VER}",
+    "vite": "^${VITE_VER}",
+    "vite-tsconfig-paths": "^${VITETS_VER}"
   }
 }
 EOF
@@ -169,10 +192,11 @@ if [ ! -f backend/go.mod ]; then
   cat > backend/go.mod << EOF
 module github.com/vibes-network-visualizer
 
-go 1.19
+go $GO_RUN
 
 require (
-	github.com/gorilla/websocket v1.5.0
+        github.com/gorilla/websocket v${WEBSOCKET_VER}
+        github.com/google/gopacket v${GOPACKET_VER}
 )
 EOF
   print_step "Created go.mod"
@@ -181,11 +205,12 @@ fi
 print_step "Installing Go dependencies"
 cd backend
 go mod tidy
+
 # Try installing websocket package with fallback to GOPROXY
-go get github.com/gorilla/websocket@latest || \
-GOPROXY=https://proxy.golang.org,direct go install github.com/gorilla/websocket@latest || \
+go get github.com/gorilla/websocket@v${WEBSOCKET_VER} || \
+GOPROXY=https://proxy.golang.org,direct go install github.com/gorilla/websocket@v${WEBSOCKET_VER} || \
 echo "Warning: Could not install gorilla/websocket package. You may need to install it manually."
-go install github.com/google/gopacket@latest
+go get github.com/google/gopacket@v${GOPACKET_VER}
 cd ..
 
 print_step "Installing frontend dependencies"
@@ -211,4 +236,5 @@ print_step "To start the backend: cd backend/cmd && go run main.go"
 print_warning "Note: you'll need to run the backend with sudo for packet capture capabilities"
 print_warning "      Example: sudo -E $(which go) run backend/cmd/main.go"
 
-print_header "Ready to build the sickest network visualizer ever! 🚀" 
+print_header "Ready to build the sickest network visualizer ever! 🚀"
+
