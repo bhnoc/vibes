@@ -16,39 +16,43 @@ set -o errexit # Exit immediately if a command exits with a non-zero status
 export PATH=$PATH:/usr/local/bin
 ######################################################################
 #Front-End config:
-export FE_NAME                         = "vibes-network-visualizer"
-export FE_PRIVATE                      = true
-export FE_VERSION                      = "0.1.0"
+export FE_NAME="vibes-network-visualizer"
+export FE_PRIVATE=true
+export FE_VERSION="0.1.0"
 ######################################################################
-export GO_VER             = "1.24.4"
-export NODE_VER           = "16"
-export REACT_VER          = "18.2.0"
-export ZUSTAND_VER        = "4.1.1"
-export TYPES_REACT_VER    = "18.0.17"
-export TYPES_REACTDOM_VER = "18.0.6"
-export VITEJS_REACT_VER   = "2.1.0"
-export AUTOPREFIXER_VER   = "10.4.12"
-export POSTCSS_VER        = "8.4.16"
-export TYPESCRIPT_VER     = "4.6.4"
-export TAILWINDCSS_VER    = "3.1.8"
-export VITE_VER           = "3.1.0"
-export VITETS_VER         = "3.5.0"
-export WEBSOCKET_VER      = "1.5.0"
-export GO_RUN             = "1.19"
+export GO_VER="1.24.4"
+export NODE_VER="16"
+export REACT_VER="18.2.0"
+export ZUSTAND_VER="4.1.1"
+export TYPES_REACT_VER="18.0.17"
+export TYPES_REACTDOM_VER="18.0.6"
+export VITEJS_REACT_VER="2.1.0"
+export AUTOPREFIXER_VER="10.4.12"
+export POSTCSS_VER="8.4.16"
+export TYPESCRIPT_VER="4.6.4"
+export TAILWINDCSS_VER="3.1.8"
+export VITE_VER="3.1.0"
+export VITETS_VER="3.5.0"
+export WEBSOCKET_VER="1.5.3"
+export GOPACKET_VER="1.1.19"
+export GO_RUN="1.21"
 ######################################################################
 
 # Print styled messages
 print_header() {
   echo -e "\n\e[1;36m==>\e[0m \e[1;37m$1\e[0m"
 }
+
 print_step() {
-  echo -e " \e[1;32m->\e[0m \e[1;37m$1\e[0m"
+  echo -e "  \e[1;32m->\e[0m \e[1;37m$1\e[0m"
 }
+
 print_warning() {
-  echo -e " \e[1;33m!\e[0m \e[1;37m$1\e[0m"
+  echo -e "  \e[1;33m!\e[0m \e[1;37m$1\e[0m"
 }
+
 print_error() {
-  echo -e " \e[1;31mX\e[0m \e[1;37m$1\e[0m"
+  echo -e "  \e[1;31mX\e[0m \e[1;37m$1\e[0m"
 }
 
 # Check if we're running in WSL
@@ -191,7 +195,8 @@ module github.com/vibes-network-visualizer
 go $GO_RUN
 
 require (
-       github.com/gorilla/websocket v${WEBSOCKET_VER}
+        github.com/gorilla/websocket v${WEBSOCKET_VER}
+        github.com/google/gopacket v${GOPACKET_VER}
 )
 EOF
   print_step "Created go.mod"
@@ -202,10 +207,10 @@ cd backend
 go mod tidy
 
 # Try installing websocket package with fallback to GOPROXY
-go get github.com/gorilla/websocket@latest || \
-GOPROXY=https://proxy.golang.org,direct go install github.com/gorilla/websocket@latest || \
+go get github.com/gorilla/websocket@v${WEBSOCKET_VER} || \
+GOPROXY=https://proxy.golang.org,direct go install github.com/gorilla/websocket@v${WEBSOCKET_VER} || \
 echo "Warning: Could not install gorilla/websocket package. You may need to install it manually."
-go install github.com/google/gopacket@latest
+go get github.com/google/gopacket@v${GOPACKET_VER}
 cd ..
 
 print_step "Installing frontend dependencies"
