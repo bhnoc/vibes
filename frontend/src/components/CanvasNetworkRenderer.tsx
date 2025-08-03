@@ -227,6 +227,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   console.log('--- CanvasNetworkRenderer RE-RENDER ---');
   useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
 
+  const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
+  const PINNED_PULL_SCALING = 0.0005;
+
 
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
@@ -499,7 +502,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Apply forces
     activeNodes.current.forEach(node => {
       if (isPined(node.id)) {
-        return; // Skip physics for pinned nodes
+        // Move pinned nodes to their anchor positions
+        if (!pinnedNodePositions.current.has(node.id)) {
+          const x = viewportRef.current.width - 100;
+          const y = (pinnedNodePositions.current.size * 50) + 100;
+          pinnedNodePositions.current.set(node.id, { x, y });
+        }
+        const pos = pinnedNodePositions.current.get(node.id)!;
+        node.x = pos.x;
+        node.y = pos.y;
+        node.vx = 0;
+        node.vy = 0;
+        return;
       }
       // Check for removal conditions first
       const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
@@ -564,11 +578,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const target = activeNodes.current.get(conn.targetId);
 
       if (source && target) {
+        const isSourcePinned = isPined(source.id);
+        const isTargetPinned = isPined(target.id);
+        
         // 1. Spring force pulls nodes together
         const dx = target.x - source.x;
         const dy = target.y - source.y;
         
-        const pullForce = connectionPullStrength * PULL_SCALING;
+        const pullForce = (isSourcePinned || isTargetPinned) ? PINNED_PULL_SCALING : connectionPullStrength * PULL_SCALING;
+
         source.vx += dx * pullForce * deltaTime;
         source.vy += dy * pullForce * deltaTime;
         target.vx -= dx * pullForce * deltaTime;
@@ -791,6 +809,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         ctx.strokeStyle = '#FFFF00'; // Yellow highlight for pinned nodes
         ctx.lineWidth = 3;
         ctx.stroke();
+
+        // Draw pin emoji in the center
+        ctx.font = `${node.radius * 1.5}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📌', node.x, node.y);
       }
       
       // Add border for better visibility

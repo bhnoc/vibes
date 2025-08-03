@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePinStore } from '../stores/pinStore';
+import { useNetworkStore } from '../stores/networkStore';
 
 export const CommandBar = () => {
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const { addPinnedIP, removePinnedIP, pinnedIPs } = usePinStore();
-  const consoleRef = useRef<HTMLDivElement>(null);
+  const { nodes } = useNetworkStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const consoleOutputRef = useRef<HTMLDivElement>(null);
 
   const handleCommandChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCommand(e.target.value);
@@ -18,21 +22,41 @@ export const CommandBar = () => {
     let output = '';
 
     if (action === '/pin') {
-      const ip = args[0];
-      if (ip) {
-        addPinnedIP(ip);
-        output = `Pinned IP: ${ip}`;
+      const target = args[0];
+      if (target) {
+        if (target.startsWith('port:')) {
+          const port = parseInt(target.split(':')[1]);
+          if (!isNaN(port)) {
+            const nodesToPin = nodes.filter(node => node.ports.has(port));
+            nodesToPin.forEach(node => addPinnedIP(node.id));
+            output = `Pinned ${nodesToPin.length} nodes with port ${port}`;
+          }
+        } else {
+          addPinnedIP(target);
+          output = `Pinned IP: ${target}`;
+        }
       }
     } else if (action === '/unpin') {
-      const ip = args[0];
-      if (ip) {
-        removePinnedIP(ip);
-        output = `Unpinned IP: ${ip}`;
-      }
+        const target = args[0];
+        if (target) {
+            if (target.startsWith('port:')) {
+            const port = parseInt(target.split(':')[1]);
+            if (!isNaN(port)) {
+                const nodesToUnpin = nodes.filter(node => node.ports.has(port));
+                nodesToUnpin.forEach(node => removePinnedIP(node.id));
+                output = `Unpinned ${nodesToUnpin.length} nodes with port ${port}`;
+            }
+            } else {
+            removePinnedIP(target);
+            output = `Unpinned IP: ${target}`;
+            }
+        }
     } else if (action === '/pinned') {
       output = `Pinned IPs: ${Array.from(pinnedIPs).join(', ')}`;
+    } else if (action === '/list' && args[0] === 'pinned') {
+        output = `Pinned IPs: ${Array.from(pinnedIPs).join(', ')}`;
     } else if (action === '/help') {
-      output = `Available commands: /pin [ip], /unpin [ip], /pinned, /help, /whoami`;
+      output = `Available commands: /pin [ip|port:number], /unpin [ip|port:number], /pinned, /list pinned, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {
@@ -45,8 +69,14 @@ export const CommandBar = () => {
   };
 
   useEffect(() => {
+    if (consoleOutputRef.current) {
+      consoleOutputRef.current.scrollTop = consoleOutputRef.current.scrollHeight;
+    }
+  }, [history]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (consoleRef.current && !consoleRef.current.contains(event.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setShowConsole(false);
       }
     };
@@ -55,12 +85,26 @@ export const CommandBar = () => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [consoleRef]);
+  }, [containerRef]);
+
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.key === '`' || event.key === '~') {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyPress);
+    return () => {
+      document.removeEventListener('keydown', handleKeyPress);
+    };
+  }, []);
 
   return (
-    <div className="command-bar-container" ref={consoleRef}>
+    <div className="command-bar-container" ref={containerRef}>
       {showConsole && (
-        <div className="console-output">
+        <div className="console-output" ref={consoleOutputRef}>
           {history.map((line, index) => (
             <div key={index}>{line}</div>
           ))}
@@ -68,10 +112,11 @@ export const CommandBar = () => {
       )}
       <form onSubmit={handleCommandSubmit}>
         <input
+          ref={inputRef}
           type="text"
           value={command}
           onChange={handleCommandChange}
-          placeholder="Enter command... (e.g. /pin 192.168.1.1)"
+          placeholder="Press '`' to focus. Eg: /pin 1.1.1.1, /unpin port:443"
           className="command-input"
         />
       </form>

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { throttle } from 'lodash';
 import { useSettingsStore } from './settingsStore';
 import { usePhysicsStore } from './physicsStore';
+import { usePinStore } from './pinStore';
 import { logger } from '../utils/logger';
 
 // Types
@@ -304,6 +305,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       id,
       ...data,
       lastActive: now, // Set current time as lastActive
+      ports: new Set(),
     };
     
     // Call the new function
@@ -389,6 +391,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   // Remove inactive elements based on lastActive timestamp
   removeInactiveElements: () => {
     const now = Date.now();
+    const { isPined } = usePinStore.getState();
     
     set((state) => {
       // Check if we're approaching critical node count
@@ -416,7 +419,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       
       // Filter older nodes by activity (but only if we have way too many)
       const activeOlderNodes = state.nodes.length > 2000 ? olderNodes.filter(
-        (node) => now - node.lastActive < nodeExpirationTime
+        (node) => now - node.lastActive < nodeExpirationTime || isPined(node.id)
       ) : olderNodes; // Keep all older nodes if we're under 2000 total
       
       // Final node list is preserved + active older nodes
@@ -461,6 +464,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   limitNetworkSize: (maxNodes: number, maxConnections: number) => {
     // Apply memory-based adjustments
     const highMemory = checkMemoryUsage();
+    const { isPined } = usePinStore.getState();
     
     // Use more aggressive limits when memory is high
     const effectiveMaxNodes = highMemory ? Math.floor(maxNodes * 0.5) : maxNodes;
@@ -481,10 +485,12 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       // Trim nodes if needed
       if (needsNodeTrim) {
         // Sort by activity (most recent first)
-        updatedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
+        const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
         
-        // Keep only most recent
-        updatedNodes = updatedNodes.slice(0, effectiveMaxNodes);
+        // Keep only most recent, plus any pinned nodes
+        const pinnedNodes = sortedNodes.filter(node => isPined(node.id));
+        const unpinnedNodes = sortedNodes.filter(node => !isPined(node.id));
+        updatedNodes = [...pinnedNodes, ...unpinnedNodes.slice(0, effectiveMaxNodes - pinnedNodes.length)];
         totalNodesRemoved += (state.nodes.length - updatedNodes.length);
         
         logger.log(`Network size limited: reduced from ${state.nodes.length} to ${updatedNodes.length} nodes`);

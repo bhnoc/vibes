@@ -80,7 +80,7 @@ VIBES is a next-generation network visualization tool with retro-inspired aesthe
   - [ ] Performance optimized for many nodes with port labels
 
 #### FR-005: Command and Search Bar
-- **Status**: 🔴 Not Started
+- **Status**: 🟡 In Progress
 - **Priority**: High
 - **Description**: A command and search bar should exist on the bottom next to the "connected" notification. The command and search bar should allow a user to interact with the application.
 - **Technical Details**:
@@ -95,7 +95,7 @@ VIBES is a next-generation network visualization tool with retro-inspired aesthe
   - [ ] Pin IP address command implemented
 
 #### FR-006: IP Address Pinning
-- **Status**: 🔴 Not Started
+- **Status**: 🟡 In Progress
 - **Priority**: High
 - **Description**: Initially a user should be able to pin an IP address so that a node matching the pinned IP stays on the screen. User's can pin nodes that are based on a port as well. 
 - **Dependencies**: FR-005 (Command bar)
