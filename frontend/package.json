@@ -11,15 +11,18 @@
   "dependencies": {
     "@pixi/react": "latest",
     "@types/lodash": "^4.17.16",
+    "ip-address": "^10.0.1",
     "lodash": "^4.17.21",
     "pixi.js": "latest",
+    "prismjs": "^1.30.0",
     "react": "latest",
     "react-dom": "latest",
     "react-icons": "^5.5.0",
-    "zustand": "^4.1.1",
-    "ip-address": "^10.0.1"
+    "react-simple-code-editor": "^0.14.1",
+    "zustand": "^4.1.1"
   },
   "devDependencies": {
+    "@types/prismjs": "^1.26.5",
     "@types/react": "^18.0.17",
     "@types/react-dom": "^18.0.6",
     "@vitejs/plugin-react": "^2.1.0",

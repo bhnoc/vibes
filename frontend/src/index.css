@@ -41,6 +41,40 @@ body {
   letter-spacing: 2px;
 }
 
+.minimize-btn {
+  background: none;
+  border: 1px solid #00ff00;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0px 8px;
+  line-height: 1;
+}
+
+.minimize-btn:hover {
+  background: rgba(0, 255, 0, 0.2);
+}
+
+.settings-button {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #ff0000;
+  color: #ff0000;
+  padding: 10px 20px;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.settings-button:hover {
+  background: rgba(255, 0, 0, 0.2);
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+}
+
 .settings-panel h3 {
   margin: 0 0 10px 0;
   font-size: 18px;
@@ -368,22 +402,48 @@ body {
 
 /* Command Bar */
 .command-bar-container {
+  position: relative;
   display: flex;
   align-items: center;
   flex-grow: 1;
   margin-left: 20px;
+  max-width: 800px;
 }
 
-.command-input {
+.editor-container {
+  flex-grow: 1;
+  position: relative;
+}
+
+.editor-container::before {
+  content: 'u@vibes$#';
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  color: #00ff00;
+  pointer-events: none;
+  font-size: 16px;
+  font-family: 'VT323', monospace;
+  display: none; /* Hidden by default */
+}
+
+.editor-container.console-active::before {
+  display: block; /* Show only when console is active */
+}
+
+.command-input-editor {
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid #00ff00;
   color: #00ff00;
-  padding: 5px 10px;
   font-family: 'VT323', monospace;
   font-size: 16px;
   width: 100%;
-  max-width: 600px;
   outline: none;
+  min-height: 38px; /* Adjusted for padding */
+}
+
+.editor-container.console-active .command-input-editor {
+    padding-left: 100px; /* Make space for the prompt only when active */
 }
 
 .command-input::placeholder {
@@ -392,12 +452,14 @@ body {
 
 .console-output {
   position: absolute;
-  bottom: 36px; /* Position above status bar */
+  bottom: 100%; /* Position directly above the command bar */
   left: 0;
-  right: 0;
+  width: 100%; /* Match the width of the container */
   height: 200px; /* Max height for 10 lines */
   background: rgba(0, 0, 0, 0.85);
   border-top: 1px solid #00ff00;
+  border-left: 1px solid #00ff00;
+  border-right: 1px solid #00ff00;
   padding: 10px;
   overflow-y: auto;
   color: #00ff00;
@@ -410,5 +472,39 @@ body {
 .console-output div {
   margin-bottom: 5px;
 }
+
+.console-output .prompt {
+  color: #00ffff; /* Cyan for the prompt in history */
+  margin-right: 5px;
+}
+
+
+/* --- Syntax Highlighting Editor --- */
+
+.command-input-editor textarea:focus {
+  outline: none;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+.command-input-editor .token.keyword {
+  color: #ff00ff; /* Magenta for commands */
+}
+
+.command-input-editor .token.function {
+  color: #00ffff; /* Cyan for subcommands */
+}
+
+.command-input-editor .token.builtin {
+  color: #ffff00; /* Yellow for keywords like 'port' or 'clear' */
+}
+
+.command-input-editor .token.number {
+  color: #00ff00; /* Green for numbers/IPs */
+}
+
+.command-input-editor .token.operator {
+  color: #ff0000; /* Red for operators like '/' and '-' */
+}
+
 
  

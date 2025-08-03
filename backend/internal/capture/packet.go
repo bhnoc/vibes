@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"time"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -522,7 +526,7 @@ func (s *SimulatedCapture) sendPacket(src, dst string, size int, protocol string
 	// Generate realistic ports based on protocol
 	srcPort, dstPort := generateRealisticPorts(protocol)
 	
-	packet := NewPacket(
+	packet := NewPacketWithPorts(
 		src,
 		dst,
 		srcPort,
@@ -1047,4 +1051,707 @@ func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 			}
 		}
 	}
+}
+
+// TimeWindowProcessor handles historical packet replay with seamless file transitions
+type TimeWindowProcessor struct {
+	packetChan      chan *Packet
+	stopChan        chan bool
+	running         bool
+	storageDir      string
+	startTime       time.Time
+	endTime         time.Time
+	replaySpeed     float64
+	fileSequence    []string
+	currentIndex    int
+	currentOffset   int64
+	transitionChan  chan string
+	seekChan        chan time.Time
+	currentFile     *pcap.Handle
+	lastPacketTime  time.Time
+	replayStartTime time.Time
+}
+
+// CaptureIndex represents metadata about a PCAP file
+type CaptureIndex struct {
+	FilePath    string    `json:"file_path"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	PacketCount int64     `json:"packet_count"`
+	FileSize    int64     `json:"file_size"`
+}
+
+// PacketIndex represents timestamp-to-offset mapping for fast seeking
+type PacketIndex struct {
+	Timestamp time.Time `json:"timestamp"`
+	Offset    int64     `json:"offset"`
+}
+
+// VisualizationMode represents different playback modes
+type VisualizationMode int
+
+const (
+	ModeLive VisualizationMode = iota
+	ModeHistorical
+	ModeTimeWindow
+)
+
+// TimeWindowConfig holds configuration for time window replay
+type TimeWindowConfig struct {
+	StorageDir   string        `json:"storage_dir"`
+	StartTime    time.Time     `json:"start_time"`
+	EndTime      time.Time     `json:"end_time"`
+	ReplaySpeed  float64       `json:"replay_speed"`
+	SamplingRate int           `json:"sampling_rate"`
+}
+
+// NewTimeWindowProcessor creates a new time window processor
+func NewTimeWindowProcessor(config TimeWindowConfig) *TimeWindowProcessor {
+	return &TimeWindowProcessor{
+		packetChan:      make(chan *Packet, 1000),
+		stopChan:        make(chan bool),
+		transitionChan:  make(chan string, 10),
+		seekChan:        make(chan time.Time, 10),
+		running:         false,
+		storageDir:      config.StorageDir,
+		startTime:       config.StartTime,
+		endTime:         config.EndTime,
+		replaySpeed:     config.ReplaySpeed,
+		currentIndex:    0,
+		currentOffset:   0,
+	}
+}
+
+// Start begins time window processing
+func (twp *TimeWindowProcessor) Start() error {
+	if twp.running {
+		return fmt.Errorf("time window processor already running")
+	}
+
+	log.Printf("🕐 Starting time window processor: %s to %s (%.2fx speed)", 
+		twp.startTime.Format("15:04:05"), twp.endTime.Format("15:04:05"), twp.replaySpeed)
+
+	// Find all files spanning the time range
+	if err := twp.buildFileSequence(); err != nil {
+		return fmt.Errorf("failed to build file sequence: %v", err)
+	}
+
+	if len(twp.fileSequence) == 0 {
+		return fmt.Errorf("no capture files found for time range")
+	}
+
+	log.Printf("📁 Found %d files spanning time window", len(twp.fileSequence))
+
+	twp.running = true
+	twp.replayStartTime = time.Now()
+
+	// Start processing goroutine
+	go twp.processTimeWindow()
+	return nil
+}
+
+// Stop stops the time window processor
+func (twp *TimeWindowProcessor) Stop() error {
+	if !twp.running {
+		return fmt.Errorf("time window processor not running")
+	}
+
+	twp.running = false
+	twp.stopChan <- true
+	
+	if twp.currentFile != nil {
+		twp.currentFile.Close()
+	}
+	
+	return nil
+}
+
+// GetPacketChannel returns the channel to receive packets
+func (twp *TimeWindowProcessor) GetPacketChannel() <-chan *Packet {
+	return twp.packetChan
+}
+
+// SeekToTime jumps to a specific time in the window
+func (twp *TimeWindowProcessor) SeekToTime(targetTime time.Time) error {
+	if !twp.running {
+		return fmt.Errorf("processor not running")
+	}
+
+	log.Printf("⏭️  Seeking to %s", targetTime.Format("15:04:05.000"))
+	twp.seekChan <- targetTime
+	return nil
+}
+
+// buildFileSequence discovers and orders PCAP files for the time window
+func (twp *TimeWindowProcessor) buildFileSequence() error {
+	// Search for PCAP files in storage directory
+	pattern := filepath.Join(twp.storageDir, "**/*.pcap")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return err
+	}
+
+	// Build index for each file
+	var validFiles []string
+	for _, file := range files {
+		if twp.fileSpansTimeWindow(file) {
+			validFiles = append(validFiles, file)
+		}
+	}
+
+	// Sort files by timestamp (assumes filename contains timestamp)
+	sort.Strings(validFiles)
+	twp.fileSequence = validFiles
+
+	return nil
+}
+
+// fileSpansTimeWindow checks if a file overlaps with the requested time window
+func (twp *TimeWindowProcessor) fileSpansTimeWindow(filePath string) bool {
+	// Quick check: extract timestamp from filename if possible
+	// Format: capture_20240803_143000.pcap
+	basename := filepath.Base(filePath)
+	
+	// Try to parse timestamp from filename
+	if timeStr := twp.extractTimestampFromFilename(basename); timeStr != "" {
+		if fileTime, err := time.Parse("20060102_150405", timeStr); err == nil {
+			// Assume 1-hour files, check if it overlaps our window
+			fileEndTime := fileTime.Add(time.Hour)
+			return fileTime.Before(twp.endTime) && fileEndTime.After(twp.startTime)
+		}
+	}
+
+	// Fallback: check file modification time
+	if stat, err := os.Stat(filePath); err == nil {
+		modTime := stat.ModTime()
+		// Rough estimate: file might contain data +/- 1 hour from mod time
+		return modTime.Add(-time.Hour).Before(twp.endTime) && modTime.Add(time.Hour).After(twp.startTime)
+	}
+
+	return true // Include file if we can't determine timestamp
+}
+
+// extractTimestampFromFilename extracts timestamp string from filename
+func (twp *TimeWindowProcessor) extractTimestampFromFilename(filename string) string {
+	// Match patterns like: capture_20240803_143000.pcap
+	re := regexp.MustCompile(`(\d{8}_\d{6})`)
+	matches := re.FindStringSubmatch(filename)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+// processTimeWindow main processing loop
+func (twp *TimeWindowProcessor) processTimeWindow() {
+	defer log.Printf("🏁 Time window processing completed")
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Time window processor recovered from panic: %v", r)
+		}
+	}()
+
+	// Start with first file
+	if err := twp.openCurrentFile(); err != nil {
+		log.Printf("Error opening first file: %v", err)
+		return
+	}
+
+	packetCount := 0
+	for twp.running {
+		select {
+		case <-twp.stopChan:
+			log.Printf("Time window processor stopped")
+			return
+
+		case seekTime := <-twp.seekChan:
+			log.Printf("🎯 Processing seek request to %s", seekTime.Format("15:04:05"))
+			twp.handleSeek(seekTime)
+
+		default:
+			// Process next packet
+			packet, err := twp.readNextPacket()
+			if err != nil {
+				if err.Error() == "EOF" {
+					// Try to transition to next file
+					if !twp.transitionToNextFile() {
+						// No more files, we're done
+						log.Printf("🏁 Reached end of time window")
+						return
+					}
+					continue
+				}
+				log.Printf("Error reading packet: %v", err)
+				continue
+			}
+
+			// Check if packet is within our time window
+			if packet.Timestamp < twp.startTime.UnixMilli() {
+				continue // Skip packets before start time
+			}
+			if packet.Timestamp > twp.endTime.UnixMilli() {
+				log.Printf("🏁 Reached end time, stopping playback")
+				return
+			}
+
+			// Apply replay timing
+			twp.applyReplayTiming(packet)
+
+			// Send packet to visualization
+			select {
+			case twp.packetChan <- packet:
+				packetCount++
+				
+				// Log progress
+				if packetCount%1000 == 0 {
+					elapsed := time.Since(twp.replayStartTime).Seconds()
+					rate := float64(packetCount) / elapsed
+					currentTime := time.Unix(packet.Timestamp/1000, 0)
+					log.Printf("🔥 TIME WINDOW: %d packets replayed (%.1f pps) - at %s", 
+						packetCount, rate, currentTime.Format("15:04:05"))
+				}
+			default:
+				// Channel full, skip packet but continue
+			}
+		}
+	}
+}
+
+// openCurrentFile opens the current file in the sequence
+func (twp *TimeWindowProcessor) openCurrentFile() error {
+	if twp.currentIndex >= len(twp.fileSequence) {
+		return fmt.Errorf("no more files in sequence")
+	}
+
+	filePath := twp.fileSequence[twp.currentIndex]
+	log.Printf("📂 Opening file: %s", filepath.Base(filePath))
+
+	handle, err := pcap.OpenOffline(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open %s: %v", filePath, err)
+	}
+
+	// Close previous file if open
+	if twp.currentFile != nil {
+		twp.currentFile.Close()
+	}
+
+	twp.currentFile = handle
+	twp.currentOffset = 0
+
+	return nil
+}
+
+// readNextPacket reads the next packet from current file
+func (twp *TimeWindowProcessor) readNextPacket() (*Packet, error) {
+	if twp.currentFile == nil {
+		return nil, fmt.Errorf("no file open")
+	}
+
+	// Read raw packet data
+	data, ci, err := twp.currentFile.ReadPacketData()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse packet layers
+	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+	
+	// Extract network layer
+	networkLayer := packet.NetworkLayer()
+	if networkLayer == nil {
+		return twp.readNextPacket() // Skip non-IP packets
+	}
+
+	// Get IP layer
+	ipLayer := packet.Layer(layers.LayerTypeIPv4)
+	if ipLayer == nil {
+		return twp.readNextPacket() // Skip non-IPv4 packets
+	}
+
+	ip, _ := ipLayer.(*layers.IPv4)
+	srcIP := ip.SrcIP.String()
+	dstIP := ip.DstIP.String()
+
+	// Extract protocol and port information
+	var protocol string
+	var srcPort, dstPort int
+
+	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+		tcp, _ := tcpLayer.(*layers.TCP)
+		protocol = ProtocolTCP
+		srcPort = int(tcp.SrcPort)
+		dstPort = int(tcp.DstPort)
+	} else if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+		udp, _ := udpLayer.(*layers.UDP)
+		protocol = ProtocolUDP
+		srcPort = int(udp.SrcPort)
+		dstPort = int(udp.DstPort)
+	} else if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
+		icmp, _ := icmpLayer.(*layers.ICMPv4)
+		protocol = ProtocolICMP
+		srcPort = int(icmp.TypeCode.Type())
+		dstPort = int(icmp.TypeCode.Code())
+	} else {
+		protocol = ProtocolOther
+		srcPort = 0
+		dstPort = 0
+	}
+
+	// Create packet with original timestamp
+	replayPacket := &Packet{
+		Type:      "packet",
+		Src:       srcIP,
+		Dst:       dstIP,
+		SrcPort:   srcPort,
+		DstPort:   dstPort,
+		Size:      len(data),
+		Protocol:  protocol,
+		Timestamp: ci.Timestamp.UnixMilli(),
+		Source:    "time_window",
+	}
+
+	return replayPacket, nil
+}
+
+// transitionToNextFile seamlessly moves to the next file in sequence
+func (twp *TimeWindowProcessor) transitionToNextFile() bool {
+	if twp.currentIndex >= len(twp.fileSequence)-1 {
+		return false // No more files
+	}
+
+	oldFile := filepath.Base(twp.fileSequence[twp.currentIndex])
+	twp.currentIndex++
+	newFile := filepath.Base(twp.fileSequence[twp.currentIndex])
+
+	log.Printf("🔄 Seamless transition: %s → %s", oldFile, newFile)
+
+	if err := twp.openCurrentFile(); err != nil {
+		log.Printf("Error opening next file: %v", err)
+		return false
+	}
+
+	return true
+}
+
+// applyReplayTiming implements realistic timing for packet replay
+func (twp *TimeWindowProcessor) applyReplayTiming(packet *Packet) {
+	currentPacketTime := time.Unix(packet.Timestamp/1000, 0)
+	
+	if !twp.lastPacketTime.IsZero() && twp.replaySpeed > 0 {
+		// Calculate time difference from previous packet
+		timeDiff := currentPacketTime.Sub(twp.lastPacketTime)
+		
+		// Apply replay speed multiplier
+		adjustedDelay := time.Duration(float64(timeDiff) / twp.replaySpeed)
+		
+		// Don't sleep for very small delays
+		if adjustedDelay > time.Microsecond && adjustedDelay < time.Second {
+			time.Sleep(adjustedDelay)
+		}
+	}
+	
+	twp.lastPacketTime = currentPacketTime
+}
+
+// handleSeek processes seek requests to jump to specific times
+func (twp *TimeWindowProcessor) handleSeek(targetTime time.Time) {
+	log.Printf("🎯 Seeking to %s", targetTime.Format("15:04:05.000"))
+
+	// Find file that should contain this timestamp
+	for i, filePath := range twp.fileSequence {
+		if twp.fileContainsTime(filePath, targetTime) {
+			twp.currentIndex = i
+			if err := twp.openCurrentFile(); err != nil {
+				log.Printf("Error opening file for seek: %v", err)
+				return
+			}
+			
+			// TODO: Implement precise seeking within file using packet timestamps
+			log.Printf("📍 Seeked to file: %s", filepath.Base(filePath))
+			break
+		}
+	}
+}
+
+// fileContainsTime estimates if a file contains the target timestamp
+func (twp *TimeWindowProcessor) fileContainsTime(filePath string, targetTime time.Time) bool {
+	// Extract timestamp from filename
+	basename := filepath.Base(filePath)
+	if timeStr := twp.extractTimestampFromFilename(basename); timeStr != "" {
+		if fileTime, err := time.Parse("20060102_150405", timeStr); err == nil {
+			// Assume 1-hour files
+			fileEndTime := fileTime.Add(time.Hour)
+			return targetTime.After(fileTime) && targetTime.Before(fileEndTime)
+		}
+	}
+	return false
+}
+
+// DumpcapCapture implements packet capture by monitoring dumpcap output files
+type DumpcapCapture struct {
+	packetChan   chan *Packet
+	stopChan     chan bool
+	running      bool
+	dumpcapDir   string
+	currentFile  string
+	fileWatcher  *os.File
+	pcapHandle   *pcap.Handle
+	lastPosition int64
+	iface        string
+}
+
+// NewDumpcapCapture creates a new dumpcap-based capture instance
+func NewDumpcapCapture(dumpcapDir string, iface string) *DumpcapCapture {
+	return &DumpcapCapture{
+		packetChan: make(chan *Packet, 1000), // Larger buffer for high-throughput
+		stopChan:   make(chan bool),
+		running:    false,
+		dumpcapDir: dumpcapDir,
+		iface:      iface,
+	}
+}
+
+// Start begins monitoring dumpcap output files
+func (d *DumpcapCapture) Start() error {
+	if d.running {
+		return fmt.Errorf("dumpcap capture already running")
+	}
+
+	log.Printf("🚀 Starting dumpcap file monitoring in directory: %s", d.dumpcapDir)
+	
+	// Check if dumpcap directory exists
+	if _, err := os.Stat(d.dumpcapDir); os.IsNotExist(err) {
+		return fmt.Errorf("dumpcap directory does not exist: %s", d.dumpcapDir)
+	}
+
+	d.running = true
+	go d.monitorFiles()
+	return nil
+}
+
+// Stop stops the dumpcap monitoring
+func (d *DumpcapCapture) Stop() error {
+	if !d.running {
+		return fmt.Errorf("dumpcap capture not running")
+	}
+
+	d.running = false
+	d.stopChan <- true
+	
+	if d.pcapHandle != nil {
+		d.pcapHandle.Close()
+	}
+	if d.fileWatcher != nil {
+		d.fileWatcher.Close()
+	}
+	
+	log.Printf("Stopped dumpcap file monitoring")
+	return nil
+}
+
+// GetPacketChannel returns the channel to receive packets
+func (d *DumpcapCapture) GetPacketChannel() <-chan *Packet {
+	return d.packetChan
+}
+
+// monitorFiles continuously monitors for new dumpcap files and tails the latest one
+func (d *DumpcapCapture) monitorFiles() {
+	defer close(d.packetChan)
+	
+	ticker := time.NewTicker(1 * time.Second) // Check for new files every second
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-ticker.C:
+			latestFile := d.findLatestDumpcapFile()
+			if latestFile != "" && latestFile != d.currentFile {
+				log.Printf("📂 Switching to new dumpcap file: %s", latestFile)
+				d.switchToFile(latestFile)
+			}
+			
+			// Read new packets from current file
+			if d.currentFile != "" {
+				d.readNewPackets()
+			}
+		}
+	}
+}
+
+// findLatestDumpcapFile finds the most recently modified PCAP file in the dumpcap directory
+func (d *DumpcapCapture) findLatestDumpcapFile() string {
+	files, err := filepath.Glob(filepath.Join(d.dumpcapDir, "*.pcap"))
+	if err != nil {
+		log.Printf("Error globbing PCAP files: %v", err)
+		return ""
+	}
+	
+	if len(files) == 0 {
+		return ""
+	}
+	
+	// Find the most recently modified file
+	var latestFile string
+	var latestTime time.Time
+	
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			continue
+		}
+		
+		if info.ModTime().After(latestTime) {
+			latestTime = info.ModTime()
+			latestFile = file
+		}
+	}
+	
+	return latestFile
+}
+
+// switchToFile changes to monitoring a new dumpcap file
+func (d *DumpcapCapture) switchToFile(filename string) {
+	// Close current file handles
+	if d.pcapHandle != nil {
+		d.pcapHandle.Close()
+		d.pcapHandle = nil
+	}
+	if d.fileWatcher != nil {
+		d.fileWatcher.Close()
+		d.fileWatcher = nil
+	}
+	
+	d.currentFile = filename
+	d.lastPosition = 0
+	
+	// Open the new file for reading
+	var err error
+	d.fileWatcher, err = os.Open(filename)
+	if err != nil {
+		log.Printf("Failed to open dumpcap file %s: %v", filename, err)
+		return
+	}
+	
+	// Create PCAP handle for the file
+	d.pcapHandle, err = pcap.OpenOffline(filename)
+	if err != nil {
+		log.Printf("Failed to open PCAP handle for %s: %v", filename, err)
+		d.fileWatcher.Close()
+		d.fileWatcher = nil
+		return
+	}
+	
+	log.Printf("✅ Successfully opened dumpcap file: %s", filename)
+}
+
+// readNewPackets reads any new packets that have been appended to the current file
+func (d *DumpcapCapture) readNewPackets() {
+	if d.pcapHandle == nil {
+		return
+	}
+	
+	// Get current file size
+	info, err := d.fileWatcher.Stat()
+	if err != nil {
+		return
+	}
+	
+	currentSize := info.Size()
+	if currentSize <= d.lastPosition {
+		return // No new data
+	}
+	
+	// Read packets from the current position
+	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
+	
+	packetCount := 0
+	for {
+		packet, err := packetSource.NextPacket()
+		if err != nil {
+			break // End of current data
+		}
+		
+		// Process the packet (similar to real capture)
+		if processedPacket := d.processPacket(packet); processedPacket != nil {
+			select {
+			case d.packetChan <- processedPacket:
+				packetCount++
+			case <-d.stopChan:
+				return
+			default:
+				// Channel full, skip packet to avoid blocking
+			}
+		}
+		
+		// Limit packets per read cycle to avoid overwhelming
+		if packetCount >= 100 {
+			break
+		}
+	}
+	
+	d.lastPosition = currentSize
+	
+	if packetCount > 0 {
+		log.Printf("📊 Read %d new packets from dumpcap file", packetCount)
+	}
+}
+
+// processPacket converts a gopacket.Packet to our internal Packet format
+func (d *DumpcapCapture) processPacket(packet gopacket.Packet) *Packet {
+	// Process network layer
+	networkLayer := packet.NetworkLayer()
+	if networkLayer == nil {
+		return nil
+	}
+
+	// Get IP layer info
+	ipLayer := packet.Layer(layers.LayerTypeIPv4)
+	if ipLayer == nil {
+		return nil
+	}
+	
+	ip, _ := ipLayer.(*layers.IPv4)
+	
+	// Extract IP addresses
+	srcIP := ip.SrcIP.String()
+	dstIP := ip.DstIP.String()
+	
+	// Extract ports and determine protocol
+	srcPort, dstPort, protocol := extractPortsAndProtocol(packet)
+	
+	// Create packet
+	return NewPacketWithPorts(
+		srcIP,
+		dstIP,
+		srcPort,
+		dstPort,
+		len(packet.Data()),
+		protocol,
+	)
+}
+
+// extractPortsAndProtocol extracts source/dest ports and protocol from a packet
+func extractPortsAndProtocol(packet gopacket.Packet) (int, int, string) {
+	// Check for TCP
+	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+		tcp, _ := tcpLayer.(*layers.TCP)
+		return int(tcp.SrcPort), int(tcp.DstPort), ProtocolTCP
+	}
+	
+	// Check for UDP
+	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+		udp, _ := udpLayer.(*layers.UDP)
+		return int(udp.SrcPort), int(udp.DstPort), ProtocolUDP
+	}
+	
+	// Check for ICMP
+	if packet.Layer(layers.LayerTypeICMPv4) != nil {
+		return 0, 0, ProtocolICMP
+	}
+	
+	// Default to "Other" for unknown protocols
+	return 0, 0, ProtocolOther
 } 

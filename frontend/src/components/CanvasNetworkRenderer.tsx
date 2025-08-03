@@ -155,6 +155,7 @@ interface RenderedConnection {
   alpha: number
   color: string
   protocol?: string
+  dstPort?: number
   lastActive: number
   sourceId: string
   targetId: string
@@ -242,8 +243,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   ), [])
 
   const connectionPool = useMemo(() => new ObjectPool<RenderedConnection>(
-    () => ({ alpha: 0, color: '', protocol: '', lastActive: 0, sourceId: '', targetId: '' }),
-    (conn) => { conn.alpha = 0; conn.lastActive = 0; conn.color = ''; conn.protocol = ''; conn.sourceId = ''; conn.targetId = '' }
+    () => ({ alpha: 0, color: '', protocol: '', dstPort: 0, lastActive: 0, sourceId: '', targetId: '' }),
+    (conn) => { conn.alpha = 0; conn.lastActive = 0; conn.color = ''; conn.protocol = ''; conn.dstPort = 0; conn.sourceId = ''; conn.targetId = '' }
   ), [])
 
   // Active rendered objects
@@ -471,6 +472,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const renderedConn = connectionPool.acquire()
         renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
         renderedConn.protocol = conn.protocol
+        renderedConn.dstPort = conn.dstPort;
         const connectionAge = now - conn.lastActive;
         renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
         renderedConn.lastActive = conn.lastActive
@@ -510,21 +512,38 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // Apply forces
-    activeNodes.current.forEach(node => {
-      if (isPined(node.id)) {
-        if (!pinnedNodePositions.current.has(node.id)) {
-          const x = viewportRef.current.width - 100;
-          const y = (pinnedNodePositions.current.size * 50) + 100;
-          pinnedNodePositions.current.set(node.id, { x, y });
+      // --- Pinned Node Positioning ---
+      const renderedNodes = Array.from(activeNodes.current.values());
+      const pinnedNodes = renderedNodes.filter(node => isPined(node.id));
+      const sortedPinnedNodes = pinnedNodes.sort((a, b) => a.id.localeCompare(b.id));
+      
+      const NODES_PER_COLUMN = 18;
+      const COLUMN_SPACING = 200;
+      const NODE_SPACING_Y = 50;
+
+      sortedPinnedNodes.forEach((node, index) => {
+        const column = Math.floor(index / NODES_PER_COLUMN);
+        const rowIndex = index % NODES_PER_COLUMN;
+        
+        const x = viewportRef.current.width - 100 - (column * COLUMN_SPACING);
+        const y = 100 + (rowIndex * NODE_SPACING_Y);
+
+        pinnedNodePositions.current.set(node.id, { x, y });
+      });
+
+
+      // Apply forces
+      activeNodes.current.forEach(node => {
+        if (isPined(node.id)) {
+          const pos = pinnedNodePositions.current.get(node.id);
+          if (pos) {
+            node.x = pos.x;
+            node.y = pos.y;
+            node.vx = 0;
+            node.vy = 0;
+          }
+          return; // Skip other physics for pinned nodes
         }
-        const pos = pinnedNodePositions.current.get(node.id)!;
-        node.x = pos.x;
-        node.y = pos.y;
-        node.vx = 0;
-        node.vy = 0;
-        return;
-      }
 
       const timeSinceActive = now - node.lastActive;
 
@@ -623,13 +642,24 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
             source.y = lerp(source.y, targetY, PULL_IN_SPEED);
           }
         } else {
-          const pullForce = connectionPullStrength * PULL_SCALING;
           const dx = target.x - source.x;
           const dy = target.y - source.y;
-          source.vx += dx * pullForce * deltaTime;
-          source.vy += dy * pullForce * deltaTime;
-          target.vx -= dx * pullForce * deltaTime;
-          target.vy -= dy * pullForce * deltaTime;
+          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+          const restLength = 40; // The desired distance between connected nodes
+
+          const displacement = distance - restLength;
+          const pullForce = connectionPullStrength * PULL_SCALING;
+          
+          // Apply a spring-like force (F = -kx)
+          const forceMagnitude = displacement * pullForce * 0.1; // Using a smaller multiplier for stability
+          
+          const fx = (dx / distance) * forceMagnitude;
+          const fy = (dy / distance) * forceMagnitude;
+
+          source.vx += fx * deltaTime;
+          source.vy += fy * deltaTime;
+          target.vx -= fx * deltaTime;
+          target.vy -= fy * deltaTime;
         }
 
         // 2. Center pull for connected nodes
@@ -782,34 +812,41 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.lineTo(target.x, target.y)
       ctx.stroke()
       
-      // Add arrow indicator for direction (if zoom is high enough)
+      // Add arrow indicator for direction and port/protocol info (if zoom is high enough)
       if (vp.zoom > 0.8) {
         const dx = target.x - source.x
         const dy = target.y - source.y
         const len = Math.sqrt(dx * dx + dy * dy)
         
         if (len > 20) {
-          // Calculate arrow position (75% along the line)
-          const arrowX = source.x + dx * 0.75
-          const arrowY = source.y + dy * 0.75
+          // Calculate midpoint for text
+          const midX = source.x + dx * 0.5
+          const midY = source.y + dy * 0.5
           
-          // Calculate arrow direction
-          const angle = Math.atan2(dy, dx)
-          const arrowSize = 6
+          // --- Draw Port and Protocol Text ---
+          const protocolText = (conn.protocol?.toUpperCase() || '???');
+          const portText = conn.dstPort > 0 ? `:${conn.dstPort}` : '';
+          const fullText = `${protocolText}${portText}`;
           
-          ctx.fillStyle = strokeColor
-          ctx.beginPath()
-          ctx.moveTo(arrowX, arrowY)
-          ctx.lineTo(
-            arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
-            arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
-          )
-          ctx.lineTo(
-            arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
-            arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
-          )
-          ctx.closePath()
-          ctx.fill()
+          ctx.font = `${Math.max(9, 11 * vp.zoom)}px monospace`;
+          const textWidth = ctx.measureText(fullText).width;
+
+          // Rotate context to draw text along the line
+          ctx.save();
+          ctx.translate(midX, midY);
+          ctx.rotate(Math.atan2(dy, dx));
+          
+          // Add background for readability
+          ctx.fillStyle = `rgba(0, 0, 0, 0.7)`;
+          ctx.fillRect(-textWidth / 2 - 2, -6, textWidth + 4, 12);
+
+          // Draw the text
+          ctx.fillStyle = `rgba(0, 255, 255, ${conn.alpha})`; // Bright blue for port number
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(fullText, 0, 0);
+          
+          ctx.restore();
         }
       }
     })

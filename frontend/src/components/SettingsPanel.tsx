@@ -11,12 +11,14 @@ export const SettingsPanel: React.FC<{
   interfaces: Array<{ name: string; description: string }>;
   selectedInterface: string;
   onInterfaceSelect: (iface: string) => void;
+  onMinimize: () => void;
 }> = ({ 
   captureMode, 
   onCaptureModeChange, 
   interfaces, 
   selectedInterface, 
-  onInterfaceSelect 
+  onInterfaceSelect,
+  onMinimize
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('network');
   const { clearNetwork } = useNetworkStore();
@@ -27,7 +29,10 @@ export const SettingsPanel: React.FC<{
 
   return (
     <div className="settings-panel" onMouseDown={handlePanelMouseDown}>
-      <h2>Settings</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2>Settings</h2>
+        <button onClick={onMinimize} className="minimize-btn">_</button>
+      </div>
       
       {/* Tab Navigation */}
       <div className="button-group">

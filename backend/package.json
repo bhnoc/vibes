@@ -1,5 +1,10 @@
 {
   "dependencies": {
+    "prismjs": "^1.30.0",
+    "react-simple-code-editor": "^0.14.1",
     "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/prismjs": "^1.26.5"
   }
 }
