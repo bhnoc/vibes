@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { throttle } from 'lodash';
 import { useSettingsStore } from './settingsStore';
 import { usePhysicsStore } from './physicsStore';
+import { logger } from '../utils/logger';
 
 // Types
 export interface Node {
@@ -14,6 +15,7 @@ export interface Node {
   highlighted?: boolean;
   lastActive: number; // Timestamp of last activity
   type?: string;
+  lastProtocol?: string; // To color nodes based on the last seen protocol
   packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
   packetColor?: string; // Color based on the packet that created this connection
 }
@@ -58,13 +60,13 @@ const NODE_EXPIRATION_TIME = 30000; // 30 seconds of inactivity before node star
 const CONNECTION_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before connection removal as requested
 
 // OPTIMIZED LIMITS: Set to 500 nodes as requested for performance
-const MAX_NODES = 500; // REDUCED: Hard cap on node count to prevent slowdown (was 1000)
+const MAX_NODES = 1000; // REDUCED: Hard cap on node count to prevent slowdown (was 1000)
 const PRUNE_TO_COUNT = 400; // REDUCED: When pruning, reduce to this number of nodes (was 750) 
-const CRITICAL_NODE_COUNT = 450; // REDUCED: Critical threshold (was 800)
+const CRITICAL_NODE_COUNT = 800; // REDUCED: Critical threshold (was 800)
 
 // Constants to limit memory usage - hard limits that prevent display issues
-const HARD_LIMIT_NODES = 3500; // Absolute maximum before emergency trimming
-const HARD_LIMIT_CONNECTIONS = 4000; // Absolute maximum before emergency trimming
+const HARD_LIMIT_NODES = 5000; // Absolute maximum before emergency trimming
+const HARD_LIMIT_CONNECTIONS = 4500; // Absolute maximum before emergency trimming
 
 // Target for keeping newest nodes/connections when pruning
 const KEEP_NEWEST_NODES = 1500;      // When pruning, keep this many newest nodes
@@ -75,7 +77,7 @@ const nodePositionCache = new Map<string, {x: number, y: number}>();
 
 // Helper function to generate random positions within the window bounds
 const generateRandomPosition = () => {
-  const margin = 150; // Keep nodes away from the edges
+  const margin = 100; // Keep nodes away from the edges
   const maxWidth = Math.max(window.innerWidth || 1200, 800);
   const maxHeight = Math.max(window.innerHeight || 800, 600);
   
@@ -98,7 +100,7 @@ let totalNodesAdded = 0;
 let totalNodesRemoved = 0;
 
 // Memory usage limits
-const MEMORY_CHECK_INTERVAL = 5000; // Check memory every 5 seconds
+const MEMORY_CHECK_INTERVAL = 3000; // Check memory every 5 seconds
 let lastMemoryCheck = 0;
 let isHighMemory = false;
 
@@ -133,19 +135,19 @@ const checkMemoryUsage = (): boolean => {
                       (usedMB > totalMB * 0.5);
     
     if (shouldLog) {
-      console.log(`Memory: ${usedMB}MB/${totalMB}MB (${memoryPercentage}%) - ` +
+      logger.log(`Memory: ${usedMB}MB/${totalMB}MB (${memoryPercentage}%) - ` +
                   `Nodes: ${nodes.length}, Connections: ${connections.length}`);
       
       if (isHighMemory) {
-        console.warn(`High memory usage detected (${memoryPercentage}%) - reducing network size limits`);
+        logger.warn(`High memory usage detected (${memoryPercentage}%) - reducing network size limits`);
       } else if (prevMemoryState && !isHighMemory) {
-        console.log('Memory usage returned to normal levels');
+        logger.log('Memory usage returned to normal levels');
       }
     }
     
     // If memory is critically high (>85%), force emergency cleanup
     if (usedMB > totalMB * 0.85) {
-      console.error(`CRITICAL MEMORY USAGE: ${memoryPercentage}% - emergency cleanup disabled to maintain 500+ nodes`);
+      logger.error(`CRITICAL MEMORY USAGE: ${memoryPercentage}% - emergency cleanup disabled to maintain 500+ nodes`);
       
       // DISABLED: Emergency cleanup was too aggressive for user requirement of 500+ nodes
       // Users should use system memory management instead of aggressive node pruning
@@ -154,7 +156,7 @@ const checkMemoryUsage = (): boolean => {
         const { nodes, connections } = useNetworkStore.getState();
         if (nodes.length > 1000) {
           useNetworkStore.getState().limitNetworkSize(1000, 2000);
-          console.log('Emergency cleanup completed');
+          logger.log('Emergency cleanup completed');
         }
       }, 0);
       */
@@ -164,8 +166,8 @@ const checkMemoryUsage = (): boolean => {
   // Add diagnostics info for counters
   const diagnosticsInterval = 5000; // 5 seconds
   if (now - lastMemoryCheck > diagnosticsInterval) {
-    console.log(`Node processing stats: Total processed=${totalNodesProcessed}, Added=${totalNodesAdded}, Removed=${totalNodesRemoved}`);
-    console.log(`Last node added ${now - lastNodeAddTime}ms ago`);
+    logger.log(`Node processing stats: Total processed=${totalNodesProcessed}, Added=${totalNodesAdded}, Removed=${totalNodesRemoved}`);
+    logger.log(`Last node added ${now - lastNodeAddTime}ms ago`);
   }
   
   return isHighMemory;
@@ -175,7 +177,7 @@ const checkMemoryUsage = (): boolean => {
 const pruneOldestNodes = (nodes: Node[]): Node[] => {
   if (nodes.length <= PRUNE_TO_COUNT) return nodes;
   
-  console.log(`Pruning nodes from ${nodes.length} to ${PRUNE_TO_COUNT}`);
+  logger.log(`Pruning nodes from ${nodes.length} to ${PRUNE_TO_COUNT}`);
   
   // Sort nodes by last active time (oldest first)
   const sortedNodes = [...nodes].sort((a, b) => a.lastActive - b.lastActive);
@@ -239,14 +241,21 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   connections: [],
   
   // DIRECT method to update node activity - bypasses batching
-  updateNodeActivity: (nodeId: string) => {
+  updateNodeActivity: (nodeId: string, protocol?: string) => {
     const now = Date.now();
     set((state) => {
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex !== -1) {
         const updatedNodes = [...state.nodes];
-        updatedNodes[nodeIndex] = { ...updatedNodes[nodeIndex], lastActive: now };
-        console.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
+        const updatedNode = { 
+          ...updatedNodes[nodeIndex], 
+          lastActive: now 
+        };
+        if (protocol) {
+          updatedNode.lastProtocol = protocol;
+        }
+        updatedNodes[nodeIndex] = updatedNode;
+        logger.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
         return { ...state, nodes: updatedNodes };
       }
       return state;
@@ -326,7 +335,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     
     // Ensure it has required fields
     if (!connection.id || !connection.source || !connection.target) {
-      console.error('Connection missing required fields:', connection);
+      logger.error('Connection missing required fields:', connection);
       return;
     }
     
@@ -473,7 +482,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         updatedNodes = updatedNodes.slice(0, effectiveMaxNodes);
         totalNodesRemoved += (state.nodes.length - updatedNodes.length);
         
-        console.log(`Network size limited: reduced from ${state.nodes.length} to ${updatedNodes.length} nodes`);
+        logger.log(`Network size limited: reduced from ${state.nodes.length} to ${updatedNodes.length} nodes`);
       }
       
       // Trim connections if needed
@@ -484,7 +493,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         // Keep only most recent
         updatedConnections = updatedConnections.slice(0, effectiveMaxConnections);
         
-        console.log(`Network size limited: reduced from ${state.connections.length} to ${updatedConnections.length} connections`);
+        logger.log(`Network size limited: reduced from ${state.connections.length} to ${updatedConnections.length} connections`);
       }
       
       return { 
@@ -542,7 +551,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
 
     if (repositioned > 0) {
       set({ nodes: Array.from(allNodes.values()) });
-      console.log(`🔧 Repositioned ${repositioned} overlapping nodes (${minDistance}px shared threshold)`);
+      logger.log(`🔧 Repositioned ${repositioned} overlapping nodes (${minDistance}px shared threshold)`);
     }
   }
-})); 
+}));

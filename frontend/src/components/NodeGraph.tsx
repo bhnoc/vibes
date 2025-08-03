@@ -3,6 +3,7 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js'
 import { useNetworkStore, Node, Connection } from '../stores/networkStore'
 import { useSizeStore } from '../stores/sizeStore'
 import React, { createContext, useContext } from 'react'
+import { logger } from '../utils/logger'
 
 // Create a context for capture mode
 interface CaptureContextType {
@@ -137,7 +138,7 @@ export const NodeGraph = () => {
     // Add new nodes
     nodes.forEach(node => {
       if (!renderedNodes.has(node.id)) {
-        console.log(`Adding new node: ${node.id}`)
+        logger.log(`Adding new node: ${node.id}`)
         const renderedNode = createNodeVisual(node)
         renderedNodes.set(node.id, renderedNode)
         container.addChild(renderedNode.container)
@@ -153,7 +154,7 @@ export const NodeGraph = () => {
     renderedNodes.forEach((renderedNode, nodeId) => {
       const age = now - renderedNode.lastActivity
       if (age > 45000) { // 45 seconds (remove after 15s fade)
-        console.log(`Removing old node: ${nodeId}`)
+        logger.log(`Removing old node: ${nodeId}`)
         container.removeChild(renderedNode.container)
         renderedNode.container.destroy()
         nodesToRemove.push(nodeId)
@@ -186,7 +187,7 @@ export const NodeGraph = () => {
       const targetNode = renderedNodes.get(connection.target)
       
       if (sourceNode && targetNode && !renderedConnections.has(connection.id)) {
-        console.log(`Adding new connection: ${connection.source} -> ${connection.target}`)
+        logger.log(`Adding new connection: ${connection.source} -> ${connection.target}`)
         const renderedConnection = createConnectionVisual(connection, sourceNode, targetNode)
         renderedConnections.set(connection.id, renderedConnection)
         container.addChild(renderedConnection.line)
@@ -202,7 +203,7 @@ export const NodeGraph = () => {
     renderedConnections.forEach((renderedConnection, connectionId) => {
       const age = now - renderedConnection.lastActivity
       if (age > 5000) { // 5 seconds for connections
-        console.log(`Removing old connection: ${connectionId}`)
+        logger.log(`Removing old connection: ${connectionId}`)
         container.removeChild(renderedConnection.line)
         renderedConnection.line.destroy()
         connectionsToRemove.push(connectionId)
@@ -230,7 +231,7 @@ export const NodeGraph = () => {
   useEffect(() => {
     if (!containerRef.current) return
 
-    console.log('🎯 Initializing simple NodeGraph')
+    logger.log('🎯 Initializing simple NodeGraph')
 
     // Create PIXI application
     const app = new Application()
@@ -262,9 +263,9 @@ export const NodeGraph = () => {
       app.ticker.maxFPS = 30
       app.ticker.add(renderScene)
       
-      console.log('✅ Simple NodeGraph initialized successfully')
+      logger.log('✅ Simple NodeGraph initialized successfully')
     }).catch(err => {
-      console.error('❌ Failed to initialize PIXI app:', err)
+      logger.error('❌ Failed to initialize PIXI app:', err)
     })
 
     // Cleanup
@@ -287,8 +288,8 @@ export const NodeGraph = () => {
 
   // Debug logging
   useEffect(() => {
-    console.log(`📊 NodeGraph: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
+    logger.log(`📊 NodeGraph: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
   }, [captureContextValue.captureMode, nodes.length, connections.length])
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-} 
+}

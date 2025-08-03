@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore, Node } from '../stores/networkStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { logger } from '../utils/logger';
 
 // SHARED CONSTANTS - Export these to prevent collision detection mismatches between modules
 export const MIN_NODE_DISTANCE = 25; // Base minimum distance (will be overridden by settings)
@@ -179,7 +180,7 @@ const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, 
   
   // Debug log position generation occasionally
   if (Math.random() < 0.05) { // Log 5% of position generations
-    console.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
+    logger.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
   }
   
   return finalPosition;
@@ -196,7 +197,7 @@ function nodesOverlap(pos1: {x: number, y: number}, pos2: {x: number, y: number}
   
   // Debug log for overlaps
   if (overlap && Math.random() < 0.1) { // Log 10% of overlaps to avoid spam
-    console.log(`🔍 Overlap detected: distance ${Math.round(distance)}px < min ${minDistance}px between (${Math.round(pos1.x)}, ${Math.round(pos1.y)}) and (${Math.round(pos2.x)}, ${Math.round(pos2.y)})`);
+    logger.log(`🔍 Overlap detected: distance ${Math.round(distance)}px < min ${minDistance}px between (${Math.round(pos1.x)}, ${Math.round(pos1.y)}) and (${Math.round(pos2.x)}, ${Math.round(pos2.y)})`);
   }
   
   return overlap;
@@ -215,11 +216,11 @@ function findCollisionFreePosition(
   );
   
   if (!hasCollision) {
-    console.log(`✅ Desired position (${Math.round(desiredPos.x)}, ${Math.round(desiredPos.y)}) is collision-free with ${existingNodes.length} existing nodes`);
+    logger.log(`✅ Desired position (${Math.round(desiredPos.x)}, ${Math.round(desiredPos.y)}) is collision-free with ${existingNodes.length} existing nodes`);
     return desiredPos;
   }
   
-  console.log(`⚠️ Collision detected at desired position (${Math.round(desiredPos.x)}, ${Math.round(desiredPos.y)}) with ${existingNodes.length} existing nodes - searching for free space...`);
+  logger.log(`⚠️ Collision detected at desired position (${Math.round(desiredPos.x)}, ${Math.round(desiredPos.y)}) with ${existingNodes.length} existing nodes - searching for free space...`);
   
   // Use spiral search to find the nearest free position
   const maxAttempts = 50; // Limit search to prevent infinite loops
@@ -241,7 +242,7 @@ function findCollisionFreePosition(
     );
     
     if (!hasCollisionAtTest) {
-      console.log(`🎯 Found collision-free position after ${attempt} attempts: (${Math.round(testPos.x)}, ${Math.round(testPos.y)})`);
+      logger.log(`🎯 Found collision-free position after ${attempt} attempts: (${Math.round(testPos.x)}, ${Math.round(testPos.y)})`);
       return testPos;
     }
   }
@@ -253,7 +254,7 @@ function findCollisionFreePosition(
     y: desiredPos.y + (Math.random() - 0.5) * fallbackDistance
   };
   
-  console.log(`⚠️ Using fallback position after ${maxAttempts} attempts: (${Math.round(fallbackPos.x)}, ${Math.round(fallbackPos.y)})`);
+  logger.log(`⚠️ Using fallback position after ${maxAttempts} attempts: (${Math.round(fallbackPos.x)}, ${Math.round(fallbackPos.y)})`);
   return fallbackPos;
 }
 
@@ -279,7 +280,7 @@ export const usePacketProcessor = () => {
   // SIMPLIFIED: Process packets directly without complex batching
   useEffect(() => {
     if (processingRef.current) {
-      console.log('🚫 Processing already in progress, skipping...');
+      logger.log('🚫 Processing already in progress, skipping...');
       return;
     }
     
@@ -291,12 +292,12 @@ export const usePacketProcessor = () => {
     });
     
     if (unprocessedPackets.length === 0) {
-      console.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
+      logger.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
       return;
     }
     
     processingRef.current = true;
-    console.log(`🔄 TIMESTAMP-BASED Processing: ${unprocessedPackets.length} new packets (total: ${packets.length})`);
+    logger.log(`🔄 TIMESTAMP-BASED Processing: ${unprocessedPackets.length} new packets (total: ${packets.length})`);
     
     try {
       // Get store state fresh each time (don't rely on stale closure)
@@ -328,20 +329,20 @@ export const usePacketProcessor = () => {
         // For source node: check if exists, update activity or create
         const existingSourceNode = allNodesForCollision.find(n => n.id === sourceNode);
         if (existingSourceNode) {
-          console.log(`⚡ UPDATING activity for existing source: ${sourceNode} at (${existingSourceNode.x}, ${existingSourceNode.y})`);
-          updateNodeActivity(sourceNode);
+          logger.log(`⚡ UPDATING activity for existing source: ${sourceNode} at (${existingSourceNode.x}, ${existingSourceNode.y})`);
+          updateNodeActivity(sourceNode, packet.protocol);
         } else {
-          console.log(`➕ CREATING new source node: ${sourceNode}`);
+          logger.log(`➕ CREATING new source node: ${sourceNode}`);
           const desiredPosition = generatePosition(sourceNode, currentNodes);
           // Reduced debug logging for better performance
           if (Math.random() < 0.1) { // Only log 10% of creations
-            console.log(`🎯 Desired position for ${sourceNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
-            console.log(`🔍 Checking collision against ${allNodesForCollision.length} nodes`);
+            logger.log(`🎯 Desired position for ${sourceNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
+            logger.log(`🔍 Checking collision against ${allNodesForCollision.length} nodes`);
           }
           
           const collisionFreePosition = findCollisionFreePosition(desiredPosition, allNodesForCollision, useSettingsStore.getState().nodeSpacing);
           if (Math.random() < 0.1) { // Only log 10% of final positions
-            console.log(`✅ Final position for ${sourceNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
+            logger.log(`✅ Final position for ${sourceNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
           }
           
           const newNode: Node = {
@@ -355,7 +356,7 @@ export const usePacketProcessor = () => {
           };
           addOrUpdateNode(newNode);
           nodesAddedThisBatch.push(newNode); // Track for collision detection
-          console.log(`📝 Added source node to batch: ${sourceNode} at (${newNode.x}, ${newNode.y})`);
+          logger.log(`📝 Added source node to batch: ${sourceNode} at (${newNode.x}, ${newNode.y})`);
           processedNodesRef.current.add(sourceNode);
         }
         
@@ -365,16 +366,16 @@ export const usePacketProcessor = () => {
         // For target node: check if exists, update activity or create  
         const existingTargetNode = updatedNodesForCollision.find(n => n.id === targetNode);
         if (existingTargetNode) {
-          console.log(`⚡ UPDATING activity for existing target: ${targetNode} at (${existingTargetNode.x}, ${existingTargetNode.y})`);
-          updateNodeActivity(targetNode);
+          logger.log(`⚡ UPDATING activity for existing target: ${targetNode} at (${existingTargetNode.x}, ${existingTargetNode.y})`);
+          updateNodeActivity(targetNode, packet.protocol);
         } else {
-          console.log(`➕ CREATING new target node: ${targetNode}`);
+          logger.log(`➕ CREATING new target node: ${targetNode}`);
           const desiredPosition = generatePosition(targetNode, currentNodes);
-          console.log(`🎯 Desired position for ${targetNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
-          console.log(`🔍 Checking collision against ${updatedNodesForCollision.length} nodes:`, updatedNodesForCollision.map(n => `${n.id}:(${n.x},${n.y})`));
+          logger.log(`🎯 Desired position for ${targetNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
+          logger.log(`🔍 Checking collision against ${updatedNodesForCollision.length} nodes:`, updatedNodesForCollision.map(n => `${n.id}:(${n.x},${n.y})`));
           
           const collisionFreePosition = findCollisionFreePosition(desiredPosition, updatedNodesForCollision, useSettingsStore.getState().nodeSpacing);
-          console.log(`✅ Final position for ${targetNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
+          logger.log(`✅ Final position for ${targetNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
           
           const newNode: Node = {
             id: targetNode,
@@ -387,7 +388,7 @@ export const usePacketProcessor = () => {
           };
           addOrUpdateNode(newNode);
           nodesAddedThisBatch.push(newNode); // Track for collision detection
-          console.log(`📝 Added target node to batch: ${targetNode} at (${newNode.x}, ${newNode.y})`);
+          logger.log(`📝 Added target node to batch: ${targetNode} at (${newNode.x}, ${newNode.y})`);
           processedNodesRef.current.add(targetNode);
         }
         
@@ -425,7 +426,7 @@ export const usePacketProcessor = () => {
       lastProcessedCountRef.current = packets.length; // Keep for debugging
       processingRef.current = false;
       
-      console.log(`✅ TIMESTAMP-BASED Processing complete: processed ${unprocessedPackets.length} packets, latest timestamp: ${latestTimestamp}`);
+      logger.log(`✅ TIMESTAMP-BASED Processing complete: processed ${unprocessedPackets.length} packets, latest timestamp: ${latestTimestamp}`);
       
       // Periodically clean up old network elements
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
@@ -443,12 +444,12 @@ export const usePacketProcessor = () => {
                       packetSourcesRef.current.unknown;
         
         const freshNodes = useNetworkStore.getState().nodes;
-        console.log(`📊 Packet stats: Total: ${total}, Real: ${packetSourcesRef.current.real}, ` +
+        logger.log(`📊 Packet stats: Total: ${total}, Real: ${packetSourcesRef.current.real}, ` +
                    `Simulated: ${packetSourcesRef.current.simulated}, Processed nodes: ${processedNodesRef.current.size}, Rendered nodes: ${freshNodes.length}`);
       }
       
     } catch (error) {
-      console.error('💥 CRITICAL ERROR in packet processing:', error);
+      logger.error('💥 CRITICAL ERROR in packet processing:', error);
       processingRef.current = false;
     }
   }, [packets]); // FIXED: Only depend on packets, get everything else fresh from store
@@ -466,4 +467,4 @@ const getProtocolColor = (protocol: string): number => {
     default:
       return 0xffffff; // White
   }
-}; 
+};

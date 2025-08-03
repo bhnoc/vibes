@@ -4,6 +4,45 @@ import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
+import { logger } from '../utils/logger'
+import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
+
+// Helper function to get a color based on protocol
+function getProtocolColor(protocol?: string): string {
+  if (!protocol) return '#ffffff'; // Default to white if no protocol
+  switch (protocol.toLowerCase()) {
+    case 'tcp':
+      return '#00ff00'; // Green
+    case 'udp':
+      return '#ff00ff'; // Magenta
+    case 'icmp':
+      return '#00ffff'; // Cyan
+    default:
+      return '#ffffff'; // White for others
+  }
+}
+
+function getNodeIpColor(nodeId: string): string {
+  if (nodeId.includes('.')) {
+    const parts = nodeId.split('.').map(Number);
+    if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+      const [firstOctet] = parts;
+      if (firstOctet === 192) return '#0080ff'; // Blue for home networks
+      if (firstOctet === 10) return '#ff00ff'; // Magenta for corporate
+      if (firstOctet === 172) return '#ff4500'; // Orange for other private
+      if (firstOctet === 8 || firstOctet === 1) return '#ffff00'; // Yellow for public DNS
+    }
+  }
+  // Fallback for non-IP nodes
+  let hash = 0;
+  for (let i = 0; i < nodeId.length; i++) {
+    hash = ((hash << 5) - hash) + nodeId.charCodeAt(i);
+    hash = hash & hash;
+  }
+  const hue = Math.abs(hash) % 360;
+  return hslToHex(hue, 90, 60);
+}
+
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -169,20 +208,40 @@ class ObjectPool<T> {
 
 // High-performance Canvas Network Renderer
 export const CanvasNetworkRenderer: React.FC = React.memo(() => {
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number>()
   const lastFrameTime = useRef<number>(0)
   const fpsRef = useRef<number>(0)
   const frameCount = useRef<number>(0)
+  const lastLogTime = useRef<number>(0)
   
-  // Viewport state - start zoomed out to see the whole spread-out network
+  // Viewport state
   const viewportRef = useRef<Viewport>({
-    x: -400, // Center on the wider spread
-    y: -200, // Center on the taller spread
-    zoom: 0.3, // Much more zoomed out to see the expanded layout
+    x: 0,
+    y: 0,
+    zoom: 1.0, 
     width: 0,
     height: 0
   })
+
+  // Store hooks
+  const { nodes, connections } = useNetworkStore()
+  const { packets } = usePacketStore()
+  const { height, width } = useSizeStore()
+  const { verboseLogging } = useSettingsStore()
+  const { nodeSpacing } = usePhysicsStore()
+  const {
+    connectionPullStrength,
+    collisionRepulsion,
+    damping,
+    connectionLifetime,
+    driftAwayStrength,
+  } = usePhysicsStore()
+
+  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
+
 
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
@@ -200,42 +259,37 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const activeConnections = useRef<RenderedConnection[]>([])
   const nodePositions = useRef<Map<string, {x: number, y: number}>>(new Map())
 
-  // Store hooks
-  const { nodes, connections } = useNetworkStore()
-  const { packets } = usePacketStore()
-  const { width, height } = useSizeStore()
-  const { nodeSpacing } = usePhysicsStore()
-  const { 
-    connectionPullStrength, 
-    collisionRepulsion, 
-    damping,
-    connectionLifetime,
-    driftAwayStrength,
-  } = usePhysicsStore()
 
-  // Update viewport size
+
+  // Update viewport size and center it
   useEffect(() => {
     if (canvasRef.current && width && height) {
-      const canvas = canvasRef.current
-      const dpr = window.devicePixelRatio || 1
-      
+      const canvas = canvasRef.current;
+      const dpr = window.devicePixelRatio || 1;
+
       // Set actual size
-      canvas.width = width * dpr
-      canvas.height = height * dpr
-      canvas.style.width = `${width}px`
-      canvas.style.height = `${height}px`
-      
-      // Update viewport
-      viewportRef.current.width = width
-      viewportRef.current.height = height
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      // Update viewport dimensions
+      viewportRef.current.width = width;
+      viewportRef.current.height = height;
+
+      // Center the viewport only on the initial load, accounting for zoom
+      if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
+        viewportRef.current.x = (width - width / viewportRef.current.zoom) / 2;
+        viewportRef.current.y = (height - height / viewportRef.current.zoom) / 2;
+      }
       
       // Scale context for high DPI
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.scale(dpr, dpr)
+        ctx.scale(dpr, dpr);
       }
     }
-  }, [width, height])
+  }, [width, height]);
 
   // Viewport culling - only render visible objects
   const isInViewport = useCallback((x: number, y: number, radius = 10): boolean => {
@@ -370,32 +424,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const isActive = age < activeAge;
         renderedNode.radius = isActive ? 10 : 6;
         
-        let nodeColor = '#00ff41'; // Default green
-      if (node.id.includes('.')) {
-          const parts = node.id.split('.').map(Number);
-        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-            const [firstOctet, , , fourthOctet] = parts;
-          if (firstOctet === 192) {
-              nodeColor = '#0080ff'; // Blue for home networks
-          } else if (firstOctet === 10) {
-              nodeColor = '#ff00ff'; // Magenta for corporate
-          } else if (firstOctet === 172) {
-              nodeColor = '#ff4500'; // Orange for other private
-          } else if (firstOctet === 8 || firstOctet === 1) {
-              nodeColor = '#ffff00'; // Yellow for public DNS
-            }
-          }
-        } else {
-            let hash = 0;
-            for (let i = 0; i < node.id.length; i++) {
-              hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
-              hash = hash & hash;
-            }
-            const hue = Math.abs(hash) % 360;
-            nodeColor = hslToHex(hue, 90, 60);
-        }
+        const protocolColor = getProtocolColor(node.lastProtocol);
+        const ipColor = getNodeIpColor(node.id);
         
-        renderedNode.color = nodeColor;
+        renderedNode.color = protocolColor;
+        // Store the IP-based color for the glow effect in a new property
+        (renderedNode as any).glowColor = ipColor;
         renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
         activeNodes.current.set(nodeId, renderedNode);
       }
@@ -570,10 +604,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     updatePhysics(deltaTime);
 
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !width || !height) return;
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    
+    // Log dimensions every 2 seconds to avoid spamming the console
+    if (currentTime - lastLogTime.current > 2000) {
+      logger.log(`[Debug] Canvas dimensions received by renderer: width=${width} height=${height}`);
+      lastLogTime.current = currentTime;
+    }
 
     // Calculate FPS
     frameCount.current++
@@ -583,9 +623,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       lastFrameTime.current = currentTime
     }
 
-    // Clear canvas
+    // Clear canvas using logical dimensions, as context is already scaled by DPR
     ctx.fillStyle = 'black'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(0, 0, width, height)
+    
+    // DEBUG: Draw a border to check canvas boundaries
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 1; // 1 logical pixel will be scaled by DPR
+    ctx.strokeRect(0, 0, width, height);
+
 
     const vp = viewportRef.current
 
@@ -601,53 +647,28 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       if (!source || !target) return;
 
-      // Protocol-based colors and styles using stored protocol
-      let strokeColor = `rgba(0, 255, 255, ${conn.alpha})` // Default cyan
-      let lineWidth = 1
-      
-      if (conn.protocol) {
-        const protocol = conn.protocol.toLowerCase();
-        // Debug log to see what protocols we're getting
-        if (Math.random() < 0.01) { // Log 1% of connections to avoid spam
-          console.log(`🎨 Connection protocol: ${protocol} for ${conn.sourceId} -> ${conn.targetId}`);
-        }
-        
-        switch (protocol) {
-          case 'tcp':
-            strokeColor = `rgba(0, 255, 0, ${conn.alpha})`; // Bright green for TCP
-            lineWidth = 3; // Thicker line
-            break;
-          case 'udp':
-            strokeColor = `rgba(255, 0, 255, ${conn.alpha})`; // Bright magenta for UDP
-            lineWidth = 2; // Medium line
-            break;
-          case 'icmp':
-            strokeColor = `rgba(255, 255, 0, ${conn.alpha})`; // Bright yellow for ICMP
-            lineWidth = 2; // Medium line
-            break;
-          case 'http':
-          case 'https':
-            strokeColor = `rgba(255, 165, 0, ${conn.alpha})`; // Orange for HTTP/HTTPS
-            lineWidth = 2;
-            break;
-          default:
-            strokeColor = `rgba(0, 255, 255, ${conn.alpha})`; // Cyan for others
-            lineWidth = 1;
-            // Log unknown protocols
-            if (Math.random() < 0.05) {
-              console.log(`🔍 Unknown protocol: ${protocol}`);
-            }
-        }
-      } else {
-        // Debug: no protocol found
-        if (Math.random() < 0.01) {
-          console.log(`⚠️ No protocol found for connection ${conn.sourceId} -> ${conn.targetId}`);
-        }
-      }
-      
-      // Make very active connections more prominent regardless of protocol
+      const connectionIsActive = now - conn.lastActive < connectionLifetime;
+      if (!connectionIsActive) return;
+
+      // Use the pre-calculated packet color for consistency
+      let strokeColor = conn.color;
+      let lineWidth = 1;
+
+      // Make very active connections more prominent
       if (conn.alpha > 0.8) {
         lineWidth += 1;
+      }
+      
+      // Add protocol-specific styles for emphasis
+      if (conn.protocol) {
+        switch (conn.protocol.toLowerCase()) {
+          case 'tcp':
+            lineWidth = Math.max(lineWidth, 2);
+            break;
+          case 'udp':
+            lineWidth = Math.max(lineWidth, 1.5);
+            break;
+        }
       }
       
       ctx.strokeStyle = strokeColor
@@ -715,18 +736,20 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Render nodes with enhanced IP address display
     nodesToRender.forEach(node => {
-      // Use the enhanced node color system
-      const rgb = hexToRgb(node.color)
-      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65] // fallback to green
+      const glowColor = (node as any).glowColor || node.color;
+      const rgb = hexToRgb(glowColor);
+      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65]; // fallback to green
       
       // Draw main node circle
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      const mainRgb = hexToRgb(node.color);
+      const [mainR, mainG, mainB] = mainRgb ? [mainRgb.r, mainRgb.g, mainRgb.b] : [255, 255, 255];
+      ctx.fillStyle = `rgba(${mainR}, ${mainG}, ${mainB}, ${node.alpha})`;
       ctx.beginPath()
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
       
       // Add border for better visibility
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      ctx.strokeStyle = `rgba(${mainR}, ${mainG}, ${mainB}, ${node.alpha})`
       ctx.lineWidth = 1
       ctx.stroke()
       
@@ -795,7 +818,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
       }, 1000) // Render every second when no data
     }
-  }, [updatePhysics, connectionLifetime])
+  }, [updatePhysics, connectionLifetime, width, height])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {
@@ -855,7 +878,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         viewportRef.current.x = -400
         viewportRef.current.y = -200
         viewportRef.current.zoom = 0.3
-        console.log('🔄 View reset to show full network')
+        logger.log('🔄 View reset to show full network')
       }
     }
 
@@ -916,4 +939,4 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   )
 })
 
-CanvasNetworkRenderer.displayName = 'CanvasNetworkRenderer' 
+CanvasNetworkRenderer.displayName = 'CanvasNetworkRenderer'

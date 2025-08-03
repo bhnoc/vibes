@@ -1,0 +1,81 @@
+---
+description: Guiding Principles for Building the Sickest Network Visualizer Ever
+globs: **/*.tsx, **/*.jsx, frontend/src/**/*, **/*.go
+alwaysApply: false
+---
+
+
+---
+
+## 🧠 Philosophy
+This is not just a tool—it's a vibe. Every decision you make at the cursor should push this project toward:
+- **Performance** (60+ FPS, zero lag)  
+- **Personality** (retro, cinematic, terminal-chic)  
+- **Precision** (tight, scalable codebase)  
+- **Play** (have fun—you're building art, not just software)
+
+---
+
+## 🧱 General Code Rules
+
+### 1. **Build like a gamer, not an engineer.**
+- If a system feels slow, janky, or unresponsive—rewrite it.
+- Prioritize smooth rendering and feedback over architectural elegance.
+- If you wouldn't want to demo it in front of a crowd, it's not done.
+
+### 2. **Treat performance like a design constraint.**
+- **60+ FPS** is the benchmark for all rendering.
+- Use PixiJS pools, delta-based animations, and avoid DOM thrashing.
+- If you need to track performance—log it, visualize it, fix it.
+
+### 3. **No half-assed visuals.**
+- Every shape, animation, and effect should contribute to the aesthetic.
+- Use easing functions, CRT filters, glows, pulses—make it _feel alive_.
+
+### 4. **Data must flow, not just show.**
+- WebSocket events must be fast, small, and consistent.
+- Never block rendering with heavy packet transforms—offload or batch them.
+- Design protocol payloads like game engine packets: compact, clear, and predictable.
+
+---
+
+## 🧩 Frontend Rules (Pixi + React)
+
+- All PixiJS objects must be **pooled or recyclable.** No memory leaks.  
+- Render cycle = `requestAnimationFrame` only. No timers unless you mean it.  
+- Nodes must interpolate position/scale over time—no jump cuts.  
+- Avoid React state for anything changing faster than 30Hz. Use raw refs or Pixi containers.
+
+---
+
+## 🛠 Backend Rules (Go)
+
+- Packet processing should be done **in memory, streaming, and fast**.  
+- WebSocket payloads must be <10ms per message on ingest and <2kb when possible.  
+- All traffic events are ephemeral unless saved explicitly.  
+- Don't try to build a database engine. You're building a data _pulse_.
+
+---
+
+## 🎨 Visual Rules
+
+- Use a defined **retro palette** (e.g., neon green, electric blue, magenta, cyan).  
+- Fonts: `VT323`, `Press Start 2P`, or `Share Tech Mono`.  
+- All visuals should include some form of subtle motion: flicker, pulse, drift, shimmer.  
+- Dark mode only. If someone asks for light mode, turn off their monitor.
+
+---
+
+## 🔄 Git Rules
+
+- Always commit when something looks cool.  
+- Commit messages can be fun. Examples:
+  - `feat: packet laser cannons working`
+  - `style: added CRT distortion layer hell yeah`
+  - `fix: packet orbs no longer teleport through the matrix`
+- Keep your `main` branch demo-ready. Everything else is chaos-safe.
+
+---
+
+## 💥 Final Rule: Showmanship Matters
+If you're not excited to show someone what you built at the end of a sprint, redo it until you are. 

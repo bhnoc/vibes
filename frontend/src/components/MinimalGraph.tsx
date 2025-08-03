@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
 import { usePacketStore } from '../stores/packetStore'
 import { createContext, useContext } from 'react'
+import { logger } from '../utils/logger'
 
 interface CaptureContextType {
   captureMode: 'real' | 'simulated' | 'unknown' | 'waiting';
@@ -32,7 +33,7 @@ export const MinimalGraph = React.memo(() => {
   useEffect(() => {
     const update = () => {
       const now = Date.now()
-      console.log(`🔄 Update cycle running at ${new Date().toLocaleTimeString()}`)
+      logger.log(`🔄 Update cycle running at ${new Date().toLocaleTimeString()}`)
       
       // Get current data from stores (will be fresh each time)
       const currentNodes = useNetworkStore.getState().nodes
@@ -40,12 +41,12 @@ export const MinimalGraph = React.memo(() => {
       const currentPackets = usePacketStore.getState().packets
 
       // Debug: Check packet flow and node data
-      console.log(`📦 Packets in store: ${currentPackets.length}`)
-      console.log(`🔍 Total nodes in store: ${currentNodes.length}`)
+      logger.log(`📦 Packets in store: ${currentPackets.length}`)
+      logger.log(`🔍 Total nodes in store: ${currentNodes.length}`)
       if (currentNodes.length > 0) {
         const sampleNode = currentNodes[0]
         const nodeAge = now - sampleNode.lastActive
-        console.log(`🔍 Sample node age: ${nodeAge}ms (${Math.round(nodeAge/1000)}s)`)
+        logger.log(`🔍 Sample node age: ${nodeAge}ms (${Math.round(nodeAge/1000)}s)`)
       }
 
       // Filter nodes with reasonable time window
@@ -54,7 +55,7 @@ export const MinimalGraph = React.memo(() => {
         .sort((a, b) => b.lastActive - a.lastActive)
         .slice(0, 15)
 
-      console.log(`🔍 After 60s time filter: ${recentNodes.length} nodes remain`)
+      logger.log(`🔍 After 60s time filter: ${recentNodes.length} nodes remain`)
 
       // Generate positions for new nodes only
       recentNodes.forEach(node => {
@@ -99,7 +100,7 @@ export const MinimalGraph = React.memo(() => {
       setDisplayState({ nodes: displayNodes, connections: displayConnections })
       
       // Debug logging
-      console.log(`📊 MinimalGraph Update: ${displayNodes.length} nodes displayed, ${displayConnections.length} connections`)
+      logger.log(`📊 MinimalGraph Update: ${displayNodes.length} nodes displayed, ${displayConnections.length} connections`)
     }
 
     const interval = setInterval(update, 1000) // Update every 1 second
@@ -182,4 +183,4 @@ export const MinimalGraph = React.memo(() => {
       )}
     </div>
   )
-}) 
+})
