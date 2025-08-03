@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
 import { usePacketStore } from '../stores/packetStore'
+import { logger } from '../utils/logger'
 
 interface TestDataProps {
   nodeCount?: number
@@ -19,7 +20,7 @@ export const PerformanceTestData: React.FC<TestDataProps> = ({
   useEffect(() => {
     if (!enabled) return
 
-    console.log(`🚀 Generating test data: ${nodeCount} nodes, ${connectionCount} connections`)
+    logger.log(`🚀 Generating test data: ${nodeCount} nodes, ${connectionCount} connections`)
     
     // Clear existing data
     clearNetwork()
@@ -121,7 +122,7 @@ export const PerformanceTestData: React.FC<TestDataProps> = ({
       }
     }, 100) // Add packets every 100ms
 
-    console.log(`✅ Test data generated: ${nodeCount} nodes, ${connectionCount} connections`)
+    logger.log(`✅ Test data generated: ${nodeCount} nodes, ${connectionCount} connections`)
 
     return () => {
       clearInterval(packetInterval)
@@ -224,4 +225,4 @@ export const PerformanceTestControl: React.FC = () => {
       />
     </>
   )
-} 
+}

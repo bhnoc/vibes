@@ -3,6 +3,7 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js'
 import { useNetworkStore, Node, Connection } from '../stores/networkStore'
 import { useSizeStore } from '../stores/sizeStore'
 import React, { createContext, useContext } from 'react'
+import { logger } from '../utils/logger'
 
 // Create a context for capture mode
 interface CaptureContextType {
@@ -47,7 +48,7 @@ export const SimpleNodeGraph = () => {
   useEffect(() => {
     if (!containerRef.current) return
 
-    console.log('🎯 Initializing SIMPLE NodeGraph with width:', width, 'height:', height)
+    logger.log('🎯 Initializing SIMPLE NodeGraph with width:', width, 'height:', height)
 
     // Create PIXI application
     const app = new Application()
@@ -60,7 +61,7 @@ export const SimpleNodeGraph = () => {
     }).then(() => {
       if (!containerRef.current) return
 
-      console.log('✅ PIXI app initialized, adding canvas to DOM')
+      logger.log('✅ PIXI app initialized, adding canvas to DOM')
       
       // Clear any existing content
       containerRef.current.innerHTML = ''
@@ -82,7 +83,7 @@ export const SimpleNodeGraph = () => {
       }
       appRef.current = app
       
-      console.log('✅ Containers created and added to stage')
+      logger.log('✅ Containers created and added to stage')
       
       // Start with immediate render
       renderEverything()
@@ -91,9 +92,9 @@ export const SimpleNodeGraph = () => {
       app.ticker.maxFPS = 30
       app.ticker.add(renderEverything)
       
-      console.log('✅ Simple NodeGraph fully initialized')
+      logger.log('✅ Simple NodeGraph fully initialized')
     }).catch(err => {
-      console.error('❌ Failed to initialize PIXI app:', err)
+      logger.error('❌ Failed to initialize PIXI app:', err)
     })
 
     // The render function
@@ -109,12 +110,12 @@ export const SimpleNodeGraph = () => {
       const rendered = renderedElementsRef.current
       const container = containersRef.current.nodes
       
-      console.log(`🔄 Rendering ${nodes.length} nodes`)
+      logger.log(`🔄 Rendering ${nodes.length} nodes`)
       
       // Add new nodes
       nodes.forEach(node => {
         if (!rendered.nodes.has(node.id)) {
-          console.log(`➕ Adding node: ${node.id}`)
+          logger.log(`➕ Adding node: ${node.id}`)
           
           // Generate random position if not stored
           let position = rendered.nodePositions.get(node.id)
@@ -189,7 +190,7 @@ export const SimpleNodeGraph = () => {
           container.removeChild(nodeContainer)
           nodeContainer.destroy()
           rendered.nodes.delete(nodeId)
-          console.log(`➖ Removed node: ${nodeId}`)
+          logger.log(`➖ Removed node: ${nodeId}`)
         }
       })
     }
@@ -201,7 +202,7 @@ export const SimpleNodeGraph = () => {
       const rendered = renderedElementsRef.current
       const container = containersRef.current.connections
       
-      console.log(`🔄 Rendering ${connections.length} connections`)
+      logger.log(`🔄 Rendering ${connections.length} connections`)
       
       // Add new connections
       connections.forEach(connection => {
@@ -212,7 +213,7 @@ export const SimpleNodeGraph = () => {
           const targetPos = rendered.nodePositions.get(connection.target)
           
           if (sourcePos && targetPos) {
-            console.log(`➕ Adding connection: ${connection.source} -> ${connection.target}`)
+            logger.log(`➕ Adding connection: ${connection.source} -> ${connection.target}`)
             
             const line = new Graphics()
             line.clear()
@@ -259,14 +260,14 @@ export const SimpleNodeGraph = () => {
           container.removeChild(line)
           line.destroy()
           rendered.connections.delete(connectionId)
-          console.log(`➖ Removed connection: ${connectionId}`)
+          logger.log(`➖ Removed connection: ${connectionId}`)
         }
       })
     }
 
     // Cleanup
     return () => {
-      console.log('🧹 Cleaning up SimpleNodeGraph')
+      logger.log('🧹 Cleaning up SimpleNodeGraph')
       if (appRef.current) {
         appRef.current.destroy(true)
         appRef.current = null
@@ -280,18 +281,18 @@ export const SimpleNodeGraph = () => {
   // Handle resize separately
   useEffect(() => {
     if (appRef.current && width && height) {
-      console.log('📐 Resizing to:', width, 'x', height)
+      logger.log('📐 Resizing to:', width, 'x', height)
       appRef.current.renderer.resize(width, height)
     }
   }, [width, height])
 
   // Debug logging
   useEffect(() => {
-    console.log(`📊 SimpleNodeGraph Update: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
+    logger.log(`📊 SimpleNodeGraph Update: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
     
     // Force a render if we have data but no visuals
     if (nodes.length > 0 && appRef.current) {
-      console.log('🔄 Forcing render due to new data')
+      logger.log('🔄 Forcing render due to new data')
     }
   }, [captureContextValue.captureMode, nodes.length, connections.length])
 
@@ -306,4 +307,4 @@ export const SimpleNodeGraph = () => {
       }} 
     />
   )
-} 
+}

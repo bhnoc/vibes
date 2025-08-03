@@ -6,6 +6,7 @@ import { useNetworkStore } from './stores/networkStore'
 import { useSizeStore } from './stores/sizeStore'
 import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
+import { logger } from './utils/logger'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -19,17 +20,21 @@ import { PerformanceTestData } from './components/PerformanceTestData'
 const StatsPanel = lazy(() => import('./components/StatsPanel').then(module => ({ default: module.StatsPanel })))
 const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module => ({ default: module.IPDebugPage })))
 
+import { CommandBar } from './components/CommandBar';
+
 // Status bar component with active panel
 const StatusBar = memo(({ status, error }: { status: string; error: string | null }) => {
   const { nodes, connections } = useNetworkStore();
   const { packets } = usePacketStore();
   
   return (
-    <div className="status-bar" style={{ zIndex: 999 }}> {/* FIXED: Lower z-index so text isn't covered */}
+    <div className="status-bar" style={{ zIndex: 999, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
         <span className={`status ${status}`}>{status}</span>
         {error && <span className="error">{error}</span>}
       </div>
+      <CommandBar />
+      
       
       {/* Active Panel - Shows current network activity */}
       <div style={{ 
@@ -131,7 +136,7 @@ export const App = memo(() => {
         const interfacePart = wsParam.split('interface=')[1];
         const interfaceName = interfacePart.split('&')[0]; // Handle any additional params
         
-        console.log(`🔍 Initial load detected interface request: ${interfaceName}`);
+        logger.log(`🔍 Initial load detected interface request: ${interfaceName}`);
         setCaptureMode('real');
         setSelectedInterface(interfaceName);
       }
@@ -147,7 +152,7 @@ export const App = memo(() => {
     
     const fetchInterfaces = async () => {
       try {
-        console.log("Fetching interfaces...");
+        logger.log("Fetching interfaces...");
         
         // Add timeout to prevent hanging
         const controller = new AbortController();
@@ -165,17 +170,17 @@ export const App = memo(() => {
           });
           
           clearTimeout(timeoutId);
-          console.log("API Response status:", response.status);
+          logger.log("API Response status:", response.status);
           
           if (!response.ok) {
             throw new Error(`API returned status ${response.status}`);
           }
           
           const rawData = await response.json();
-          console.log("Received interfaces (raw):", rawData);
+          logger.log("Received interfaces (raw):", rawData);
           
           if (!Array.isArray(rawData) || rawData.length === 0) {
-            console.warn("API returned empty or invalid interface list, using fallback interfaces");
+            logger.warn("API returned empty or invalid interface list, using fallback interfaces");
             setFallbackInterfaces();
             return;
           }
@@ -184,11 +189,11 @@ export const App = memo(() => {
           processInterfaceData(rawData);
           
         } catch (fetchError) {
-          console.error('Fetch operation failed:', fetchError);
+          logger.error('Fetch operation failed:', fetchError);
           
           // Check if this is a CORS error specifically
           if (fetchError instanceof TypeError && fetchError.message.includes('Failed to fetch')) {
-            console.warn("CORS error detected - attempting fallback method");
+            logger.warn("CORS error detected - attempting fallback method");
             
             // Create a hidden div to show CORS error
             const corsError = document.createElement('div');
@@ -202,7 +207,7 @@ export const App = memo(() => {
             
             // Display a more helpful error message for developers
             const backendUrl = getApiBaseUrl();
-            console.error(`
+            logger.error(`
               ⚠️ CORS CONFIGURATION REQUIRED:
               The backend server at ${backendUrl} needs to be configured to allow requests
               from the frontend origin (${window.location.origin}).
@@ -218,7 +223,7 @@ export const App = memo(() => {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch interfaces:', error);
+        logger.error('Failed to fetch interfaces:', error);
         setFallbackInterfaces();
       }
     };
@@ -232,7 +237,7 @@ export const App = memo(() => {
           description: iface.Description || iface.Name // Use Name as fallback if Description is empty
         }));
         
-        console.log("Formatted interfaces:", formattedData);
+        logger.log("Formatted interfaces:", formattedData);
         
         // Always include "any" interfaces option if not present
         if (!formattedData.some(iface => iface.name === 'any')) {
@@ -243,14 +248,14 @@ export const App = memo(() => {
         }
         
         if (formattedData.length === 0) {
-          console.warn("No interfaces after formatting, using fallback interfaces");
+          logger.warn("No interfaces after formatting, using fallback interfaces");
           setFallbackInterfaces();
           return;
         }
         
         setInterfaces(formattedData);
       } catch (err) {
-        console.error("Error processing interface data:", err);
+        logger.error("Error processing interface data:", err);
         setFallbackInterfaces();
       }
     };
@@ -263,7 +268,7 @@ export const App = memo(() => {
         { name: "wlan0", description: "Wireless Adapter (Fallback)" },
         { name: "lo", description: "Loopback Interface (Fallback)" }
       ];
-      console.log("Setting fallback interfaces:", fallbackList);
+      logger.log("Setting fallback interfaces:", fallbackList);
       setInterfaces(fallbackList);
     };
     
@@ -274,13 +279,13 @@ export const App = memo(() => {
   const wsUrl = useMemo(() => {
     // Only create a WebSocket URL if we're not in waiting mode
     if (captureMode === 'waiting') {
-      console.log('In waiting mode, not connecting to any WebSocket');
+      logger.log('In waiting mode, not connecting to any WebSocket');
       return null;
     }
     
-    // Use the same host as the current page, or fall back to localhost
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost' : '10.220.199.71';
-    const wsPort = '8080';
+    // Get host from environment variables or fall back to localhost
+    const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
+    const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
     
     if (captureMode === 'real' && selectedInterface) {
       // Real mode with selected interface
@@ -294,7 +299,7 @@ export const App = memo(() => {
     }
   }, [captureMode, selectedInterface]);
   
-  console.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
+  logger.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
   
   // Always call useWebSocket, but it won't connect if url is null
   const { status, error, captureMode: actualCaptureMode } = useWebSocket(wsUrl);
@@ -308,7 +313,7 @@ export const App = memo(() => {
     if (actualCaptureMode !== 'unknown' && 
         actualCaptureMode !== captureMode && 
         !userInitiatedChangeRef.current) {
-      console.log(`📡 Server reported capture mode: ${actualCaptureMode}, updating local state`);
+      logger.log(`📡 Server reported capture mode: ${actualCaptureMode}, updating local state`);
       setCaptureMode(actualCaptureMode as 'simulated' | 'real');
     }
   }, [actualCaptureMode, captureMode]);
@@ -341,11 +346,11 @@ export const App = memo(() => {
   }, [actualCaptureMode]);
   
   const handleCaptureModeChange = (mode: 'simulated' | 'real') => {
-    console.log("🔄 User switching mode to:", mode);
+    logger.log("🔄 User switching mode to:", mode);
     
     // Prevent multiple rapid calls
     if (userInitiatedChangeRef.current) {
-      console.log("⏳ Mode change already in progress, ignoring duplicate call");
+      logger.log("⏳ Mode change already in progress, ignoring duplicate call");
       return;
     }
     
@@ -364,11 +369,11 @@ export const App = memo(() => {
   }
   
   const handleInterfaceSelect = (iface: string) => {
-    console.log("🔌 Interface selected:", iface);
+    logger.log("🔌 Interface selected:", iface);
     
     // Prevent multiple rapid calls
     if (userInitiatedChangeRef.current) {
-      console.log("⏳ Interface change already in progress, ignoring duplicate call");
+      logger.log("⏳ Interface change already in progress, ignoring duplicate call");
       return;
     }
     
@@ -380,7 +385,7 @@ export const App = memo(() => {
     
     // If user selects an interface, automatically switch to real mode
     if (iface && captureMode !== 'real') {
-      console.log("Switching to real mode because interface was selected");
+      logger.log("Switching to real mode because interface was selected");
       setCaptureMode('real');
     }
     
@@ -408,7 +413,7 @@ export const App = memo(() => {
     if (status === 'error' && 
         captureMode === 'real' && 
         !userInitiatedChangeRef.current) {
-      console.log('🔄 Real capture failed, falling back to simulation mode');
+      logger.log('🔄 Real capture failed, falling back to simulation mode');
       setCaptureMode('simulated');
       clearPackets();
       clearNetwork();
@@ -532,4 +537,4 @@ export const App = memo(() => {
       </CaptureContext.Provider>
     </div>
   )
-}) 
+})

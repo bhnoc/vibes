@@ -3,6 +3,7 @@ import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js'
 import { useNetworkStore } from '../stores/networkStore'
 import { useSizeStore } from '../stores/sizeStore'
 import React, { createContext, useContext } from 'react'
+import { logger } from '../utils/logger'
 
 // Create a context for capture mode
 interface CaptureContextType {
@@ -47,7 +48,7 @@ export const UltraSimpleGraph = () => {
   useEffect(() => {
     if (!containerRef.current) return
 
-    console.log('🚀 ULTRA SIMPLE: Starting PIXI init')
+    logger.log('🚀 ULTRA SIMPLE: Starting PIXI init')
 
     const app = new Application()
     
@@ -59,7 +60,7 @@ export const UltraSimpleGraph = () => {
     }).then(() => {
       if (!containerRef.current) return
 
-      console.log('✅ ULTRA SIMPLE: PIXI initialized')
+      logger.log('✅ ULTRA SIMPLE: PIXI initialized')
       
       // Clear container and add canvas
       containerRef.current.innerHTML = ''
@@ -78,7 +79,7 @@ export const UltraSimpleGraph = () => {
       }
       appRef.current = app
       
-      console.log('✅ ULTRA SIMPLE: Scene setup complete')
+      logger.log('✅ ULTRA SIMPLE: Scene setup complete')
       
       // Start render loop
       const renderLoop = () => {
@@ -86,7 +87,7 @@ export const UltraSimpleGraph = () => {
           renderNodes()
           renderConnections()
         } catch (e) {
-          console.error('Render error:', e)
+          logger.error('Render error:', e)
         }
       }
       
@@ -95,9 +96,9 @@ export const UltraSimpleGraph = () => {
       // Initial render
       renderLoop()
       
-      console.log('✅ ULTRA SIMPLE: Ready!')
+      logger.log('✅ ULTRA SIMPLE: Ready!')
     }).catch(err => {
-      console.error('❌ ULTRA SIMPLE: PIXI failed:', err)
+      logger.error('❌ ULTRA SIMPLE: PIXI failed:', err)
     })
 
     return () => {
@@ -115,12 +116,12 @@ export const UltraSimpleGraph = () => {
     const layer = sceneRef.current.nodeLayer
     const rendered = renderedRef.current
     
-    console.log(`🎨 ULTRA SIMPLE: Rendering ${nodes.length} nodes`)
+    logger.log(`🎨 ULTRA SIMPLE: Rendering ${nodes.length} nodes`)
     
     // Add new nodes
     nodes.forEach(node => {
       if (!rendered.nodeContainers.has(node.id)) {
-        console.log(`➕ ULTRA SIMPLE: Adding node ${node.id}`)
+        logger.log(`➕ ULTRA SIMPLE: Adding node ${node.id}`)
         
         // Generate position
         let pos = rendered.nodePositions.get(node.id)
@@ -171,7 +172,7 @@ export const UltraSimpleGraph = () => {
     rendered.nodeContainers.forEach((container, nodeId) => {
       const node = nodes.find(n => n.id === nodeId)
       if (!node || (now - node.lastActive) > 15000) {
-        console.log(`➖ ULTRA SIMPLE: Removing node ${nodeId}`)
+        logger.log(`➖ ULTRA SIMPLE: Removing node ${nodeId}`)
         layer.removeChild(container)
         container.destroy()
         toRemove.push(nodeId)
@@ -196,7 +197,7 @@ export const UltraSimpleGraph = () => {
     const layer = sceneRef.current.connectionLayer
     const rendered = renderedRef.current
     
-    console.log(`🎨 ULTRA SIMPLE: Rendering ${connections.length} connections`)
+    logger.log(`🎨 ULTRA SIMPLE: Rendering ${connections.length} connections`)
     
     // Add new connections
     connections.forEach(connection => {
@@ -207,7 +208,7 @@ export const UltraSimpleGraph = () => {
         const targetPos = rendered.nodePositions.get(connection.target)
         
         if (sourcePos && targetPos) {
-          console.log(`➕ ULTRA SIMPLE: Adding connection ${key}`)
+          logger.log(`➕ ULTRA SIMPLE: Adding connection ${key}`)
           
           const line = new Graphics()
           line.clear()
@@ -232,7 +233,7 @@ export const UltraSimpleGraph = () => {
       )
       
       if (!connection || (now - connection.lastActive) > 5000) {
-        console.log(`➖ ULTRA SIMPLE: Removing connection ${key}`)
+        logger.log(`➖ ULTRA SIMPLE: Removing connection ${key}`)
         layer.removeChild(line)
         line.destroy()
         toRemove.push(key)
@@ -253,14 +254,14 @@ export const UltraSimpleGraph = () => {
   // Handle resize
   useEffect(() => {
     if (appRef.current && width && height) {
-      console.log('📐 ULTRA SIMPLE: Resizing')
+      logger.log('📐 ULTRA SIMPLE: Resizing')
       appRef.current.renderer.resize(width, height)
     }
   }, [width, height])
 
   // Debug logging
   useEffect(() => {
-    console.log(`📊 ULTRA SIMPLE: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
+    logger.log(`📊 ULTRA SIMPLE: Mode=${captureContextValue.captureMode}, Nodes=${nodes.length}, Connections=${connections.length}`)
   }, [captureContextValue.captureMode, nodes.length, connections.length])
 
   return (
@@ -273,4 +274,4 @@ export const UltraSimpleGraph = () => {
       }} 
     />
   )
-} 
+}

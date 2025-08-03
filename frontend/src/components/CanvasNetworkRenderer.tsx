@@ -4,6 +4,9 @@ import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
+import { usePinStore } from '../stores/pinStore'
+import { logger } from '../utils/logger'
+import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -49,6 +52,25 @@ function hslToHex(h: number, s: number, l: number): string {
   
   return rgbToHex(r, g, b);
 }
+
+function getProtocolColor(protocol?: string): string {
+  if (!protocol) return '#CCCCCC'; // Default color for unknown protocols
+
+  switch (protocol.toLowerCase()) {
+    case 'tcp':
+      return '#00FF00'; // Green
+    case 'udp':
+      return '#FF00FF'; // Magenta
+    case 'icmp':
+      return '#00FFFF'; // Cyan
+    case 'http':
+    case 'https':
+      return '#FFA500'; // Orange
+    default:
+      return '#FFFFFF'; // White for other protocols
+  }
+}
+
 
 // Generate packet-based color for connections
 function getPacketColor(sourceIp: string, targetIp: string, protocol?: string): string {
@@ -119,6 +141,7 @@ interface RenderedNode {
   vy: number // Velocity Y
   radius: number
   color: string
+  highlightColor: string
   alpha: number
   lastActive: number
   isDriftingAway: boolean // State for drifting behavior
@@ -169,24 +192,48 @@ class ObjectPool<T> {
 
 // High-performance Canvas Network Renderer
 export const CanvasNetworkRenderer: React.FC = React.memo(() => {
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number>()
   const lastFrameTime = useRef<number>(0)
   const fpsRef = useRef<number>(0)
   const frameCount = useRef<number>(0)
+  const lastLogTime = useRef<number>(0)
   
-  // Viewport state - start zoomed out to see the whole spread-out network
+  // Viewport state
   const viewportRef = useRef<Viewport>({
-    x: -400, // Center on the wider spread
-    y: -200, // Center on the taller spread
-    zoom: 0.3, // Much more zoomed out to see the expanded layout
+    x: 0,
+    y: 0,
+    zoom: 1.0, 
     width: 0,
     height: 0
   })
 
+  // Store hooks
+  const { nodes, connections } = useNetworkStore()
+  const { packets } = usePacketStore()
+  const { height, width } = useSizeStore()
+  const { verboseLogging } = useSettingsStore()
+  const { isPined } = usePinStore()
+  const { nodeSpacing } = usePhysicsStore()
+  const {
+    connectionPullStrength,
+    collisionRepulsion,
+    damping,
+    connectionLifetime,
+    driftAwayStrength,
+  } = usePhysicsStore()
+
+  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
+
+  const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
+  const PINNED_PULL_SCALING = 0.0005;
+
+
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
-    () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
+    () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', highlightColor: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
     (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.isDriftingAway = false }
   ), [])
 
@@ -200,42 +247,37 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const activeConnections = useRef<RenderedConnection[]>([])
   const nodePositions = useRef<Map<string, {x: number, y: number}>>(new Map())
 
-  // Store hooks
-  const { nodes, connections } = useNetworkStore()
-  const { packets } = usePacketStore()
-  const { width, height } = useSizeStore()
-  const { nodeSpacing } = usePhysicsStore()
-  const { 
-    connectionPullStrength, 
-    collisionRepulsion, 
-    damping,
-    connectionLifetime,
-    driftAwayStrength,
-  } = usePhysicsStore()
 
-  // Update viewport size
+
+  // Update viewport size and center it
   useEffect(() => {
     if (canvasRef.current && width && height) {
-      const canvas = canvasRef.current
-      const dpr = window.devicePixelRatio || 1
-      
+      const canvas = canvasRef.current;
+      const dpr = window.devicePixelRatio || 1;
+
       // Set actual size
-      canvas.width = width * dpr
-      canvas.height = height * dpr
-      canvas.style.width = `${width}px`
-      canvas.style.height = `${height}px`
-      
-      // Update viewport
-      viewportRef.current.width = width
-      viewportRef.current.height = height
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      // Update viewport dimensions
+      viewportRef.current.width = width;
+      viewportRef.current.height = height;
+
+      // Center the viewport only on the initial load, accounting for zoom
+      if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
+        viewportRef.current.x = (width - width / viewportRef.current.zoom) / 2;
+        viewportRef.current.y = (height - height / viewportRef.current.zoom) / 2;
+      }
       
       // Scale context for high DPI
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.scale(dpr, dpr)
+        ctx.scale(dpr, dpr);
       }
     }
-  }, [width, height])
+  }, [width, height]);
 
   // Viewport culling - only render visible objects
   const isInViewport = useCallback((x: number, y: number, radius = 10): boolean => {
@@ -368,34 +410,39 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         renderedNode.lastActive = node.lastActive;
         const age = now - node.lastActive;
         const isActive = age < activeAge;
-        renderedNode.radius = isActive ? 10 : 6;
         
-        let nodeColor = '#00ff41'; // Default green
-      if (node.id.includes('.')) {
+        const latestConnection = connections
+          .filter(c => c.source === node.id || c.target === node.id)
+          .sort((a, b) => b.lastActive - a.lastActive)[0];
+
+        renderedNode.color = getProtocolColor(latestConnection?.protocol);
+
+        let highlightColor = '#00ff41'; // Default green
+        if (node.id.includes('.')) {
           const parts = node.id.split('.').map(Number);
-        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-            const [firstOctet, , , fourthOctet] = parts;
-          if (firstOctet === 192) {
-              nodeColor = '#0080ff'; // Blue for home networks
-          } else if (firstOctet === 10) {
-              nodeColor = '#ff00ff'; // Magenta for corporate
-          } else if (firstOctet === 172) {
-              nodeColor = '#ff4500'; // Orange for other private
-          } else if (firstOctet === 8 || firstOctet === 1) {
-              nodeColor = '#ffff00'; // Yellow for public DNS
+          if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+            const [firstOctet] = parts;
+            if (firstOctet === 192) {
+              highlightColor = '#0080ff'; // Blue for home networks
+            } else if (firstOctet === 10) {
+              highlightColor = '#ff00ff'; // Magenta for corporate
+            } else if (firstOctet === 172) {
+              highlightColor = '#ff4500'; // Orange for other private
+            } else if (firstOctet === 8 || firstOctet === 1) {
+              highlightColor = '#ffff00'; // Yellow for public DNS
             }
           }
         } else {
-            let hash = 0;
-            for (let i = 0; i < node.id.length; i++) {
-              hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
-              hash = hash & hash;
-            }
-            const hue = Math.abs(hash) % 360;
-            nodeColor = hslToHex(hue, 90, 60);
+          let hash = 0;
+          for (let i = 0; i < node.id.length; i++) {
+            hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
+            hash = hash & hash;
+          }
+          const hue = Math.abs(hash) % 360;
+          highlightColor = hslToHex(hue, 90, 60);
         }
         
-        renderedNode.color = nodeColor;
+        renderedNode.highlightColor = highlightColor;
         renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
         activeNodes.current.set(nodeId, renderedNode);
       }
@@ -454,6 +501,20 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Apply forces
     activeNodes.current.forEach(node => {
+      if (isPined(node.id)) {
+        // Move pinned nodes to their anchor positions
+        if (!pinnedNodePositions.current.has(node.id)) {
+          const x = viewportRef.current.width - 100;
+          const y = (pinnedNodePositions.current.size * 50) + 100;
+          pinnedNodePositions.current.set(node.id, { x, y });
+        }
+        const pos = pinnedNodePositions.current.get(node.id)!;
+        node.x = pos.x;
+        node.y = pos.y;
+        node.vx = 0;
+        node.vy = 0;
+        return;
+      }
       // Check for removal conditions first
       const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
       const isOffscreen = 
@@ -517,11 +578,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const target = activeNodes.current.get(conn.targetId);
 
       if (source && target) {
+        const isSourcePinned = isPined(source.id);
+        const isTargetPinned = isPined(target.id);
+        
         // 1. Spring force pulls nodes together
         const dx = target.x - source.x;
         const dy = target.y - source.y;
         
-        const pullForce = connectionPullStrength * PULL_SCALING;
+        const pullForce = (isSourcePinned || isTargetPinned) ? PINNED_PULL_SCALING : connectionPullStrength * PULL_SCALING;
+
         source.vx += dx * pullForce * deltaTime;
         source.vy += dy * pullForce * deltaTime;
         target.vx -= dx * pullForce * deltaTime;
@@ -570,10 +635,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     updatePhysics(deltaTime);
 
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !width || !height) return;
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    
+    // Log dimensions every 2 seconds to avoid spamming the console
+    if (currentTime - lastLogTime.current > 2000) {
+      logger.log(`[Debug] Canvas dimensions received by renderer: width=${width} height=${height}`);
+      lastLogTime.current = currentTime;
+    }
 
     // Calculate FPS
     frameCount.current++
@@ -583,9 +654,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       lastFrameTime.current = currentTime
     }
 
-    // Clear canvas
+    // Clear canvas using logical dimensions, as context is already scaled by DPR
     ctx.fillStyle = 'black'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(0, 0, width, height)
+    
+    // DEBUG: Draw a border to check canvas boundaries
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 1; // 1 logical pixel will be scaled by DPR
+    ctx.strokeRect(0, 0, width, height);
+
 
     const vp = viewportRef.current
 
@@ -608,8 +685,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (conn.protocol) {
         const protocol = conn.protocol.toLowerCase();
         // Debug log to see what protocols we're getting
-        if (Math.random() < 0.01) { // Log 1% of connections to avoid spam
-          console.log(`🎨 Connection protocol: ${protocol} for ${conn.sourceId} -> ${conn.targetId}`);
+        if (verboseLogging && Math.random() < 0.01) { // Log 1% of connections to avoid spam
+          logger.log(`🎨 Connection protocol: ${protocol} for ${conn.sourceId} -> ${conn.targetId}`);
         }
         
         switch (protocol) {
@@ -634,14 +711,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
             strokeColor = `rgba(0, 255, 255, ${conn.alpha})`; // Cyan for others
             lineWidth = 1;
             // Log unknown protocols
-            if (Math.random() < 0.05) {
-              console.log(`🔍 Unknown protocol: ${protocol}`);
+            if (verboseLogging && Math.random() < 0.05) {
+              logger.log(`🔍 Unknown protocol: ${protocol}`);
             }
         }
       } else {
         // Debug: no protocol found
-        if (Math.random() < 0.01) {
-          console.log(`⚠️ No protocol found for connection ${conn.sourceId} -> ${conn.targetId}`);
+        if (verboseLogging && Math.random() < 0.01) {
+          logger.log(`⚠️ No protocol found for connection ${conn.sourceId} -> ${conn.targetId}`);
         }
       }
       
@@ -716,23 +793,38 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Render nodes with enhanced IP address display
     nodesToRender.forEach(node => {
       // Use the enhanced node color system
-      const rgb = hexToRgb(node.color)
-      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65] // fallback to green
+      const protocolRgb = hexToRgb(node.color)
+      const highlightRgb = hexToRgb(node.highlightColor)
       
-      // Draw main node circle
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      const [pr, pg, pb] = protocolRgb ? [protocolRgb.r, protocolRgb.g, protocolRgb.b] : [204, 204, 204] // fallback to gray
+      const [hr, hg, hb] = highlightRgb ? [highlightRgb.r, highlightRgb.g, highlightRgb.b] : [0, 255, 65] // fallback to green
+
+      // Draw main node circle with protocol color
+      ctx.fillStyle = `rgba(${pr}, ${pg}, ${pb}, ${node.alpha})`
       ctx.beginPath()
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
+
+      if (isPined(node.id)) {
+        ctx.strokeStyle = '#FFFF00'; // Yellow highlight for pinned nodes
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Draw pin emoji in the center
+        ctx.font = `${node.radius * 1.5}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('📌', node.x, node.y);
+      }
       
       // Add border for better visibility
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      ctx.strokeStyle = `rgba(${pr}, ${pg}, ${pb}, ${node.alpha})`
       ctx.lineWidth = 1
       ctx.stroke()
       
       // Add glow effect for active nodes (larger radius = more active)
       if (node.radius > 7) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.3})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha * 0.3})`
         ctx.beginPath()
         ctx.arc(node.x, node.y, node.radius * 1.5, 0, Math.PI * 2)
         ctx.fill()
@@ -740,7 +832,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       
       // Draw IP address label for nodes (if zoom is high enough)
       if (vp.zoom > 0.75 && node.id.includes('.')) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.9})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha * 0.9})`
         ctx.font = `${Math.max(8, 10 * vp.zoom)}px monospace`
         ctx.textAlign = 'center'
         
@@ -762,7 +854,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
         ctx.fillRect(node.x - textWidth/2 - 2, textY - 10, textWidth + 4, 12)
         
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha})`
         ctx.fillText(displayText, node.x, textY)
       }
     })
@@ -795,7 +887,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
       }, 1000) // Render every second when no data
     }
-  }, [updatePhysics, connectionLifetime])
+  }, [updatePhysics, connectionLifetime, width, height])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {
@@ -855,7 +947,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         viewportRef.current.x = -400
         viewportRef.current.y = -200
         viewportRef.current.zoom = 0.3
-        console.log('🔄 View reset to show full network')
+        logger.log('🔄 View reset to show full network')
       }
     }
 
@@ -916,4 +1008,4 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   )
 })
 
-CanvasNetworkRenderer.displayName = 'CanvasNetworkRenderer' 
+CanvasNetworkRenderer.displayName = 'CanvasNetworkRenderer'

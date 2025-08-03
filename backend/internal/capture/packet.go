@@ -65,7 +65,7 @@ type SimulatedCapture struct {
 // NewSimulatedCapture creates a new simulated capture
 func NewSimulatedCapture() *SimulatedCapture {
 	return &SimulatedCapture{
-		packetChan: make(chan *Packet, 100),
+		packetChan: make(chan *Packet, 1000), // Increased buffer for busy network simulation
 		stopChan:   make(chan bool),
 		running:    false,
 	}
@@ -98,15 +98,17 @@ func (s *SimulatedCapture) GetPacketChannel() <-chan *Packet {
 	return s.packetChan
 }
 
-// generatePackets simulates network traffic
+// generatePackets simulates realistic busy network traffic
 func (s *SimulatedCapture) generatePackets() {
-	// Create packet at different rates - optimized for immediate traffic
-	fastTicker := time.NewTicker(25 * time.Millisecond)  // Every 25ms - high frequency traffic
-	slowTicker := time.NewTicker(100 * time.Millisecond) // Every 100ms - medium frequency 
-	burstTicker := time.NewTicker(1 * time.Second)       // Every 1s - burst traffic
+	// Much higher packet rates for busy network simulation
+	ultraFastTicker := time.NewTicker(2 * time.Millisecond)   // Every 2ms - 500 packets/second
+	fastTicker := time.NewTicker(10 * time.Millisecond)       // Every 10ms - 100 packets/second  
+	mediumTicker := time.NewTicker(50 * time.Millisecond)     // Every 50ms - 20 packets/second
+	burstTicker := time.NewTicker(200 * time.Millisecond)     // Every 200ms - burst traffic
 	
+	defer ultraFastTicker.Stop()
 	defer fastTicker.Stop()
-	defer slowTicker.Stop()
+	defer mediumTicker.Stop()
 	defer burstTicker.Stop()
 
 	// Expanded network topology (500+ nodes across multiple subnets)
@@ -316,8 +318,11 @@ func (s *SimulatedCapture) generatePackets() {
 		}{internet[intIndex], localNetwork[dstIndex], protocol})
 	}
 
-	log.Println("Starting enhanced simulated packet capture with EXPANDED network")
-	log.Println("Traffic will begin immediately with proper timing...")
+	log.Println("Starting BUSY network simulation with high packet rates and diverse connections")
+	log.Println("Generating 600+ packets/second with realistic randomization...")
+
+	// Seed random number generator for better diversity
+	rand.Seed(time.Now().UnixNano())
 
 	for {
 		select {
@@ -325,56 +330,74 @@ func (s *SimulatedCapture) generatePackets() {
 			log.Println("Stopping simulated packet capture")
 			return
 			
-		// Regular traffic
-		case <-fastTicker.C:
-			// Local to gateway traffic (common) - add randomization for more realistic traffic
-			now := time.Now().UnixNano()
-			clientIndex := now % int64(len(localNetwork))
-			gatewayIndex := (now / 1000) % int64(len(gateways))
+		// Ultra-fast traffic - high-volume local traffic
+		case <-ultraFastTicker.C:
+			// Truly random selection for diverse connections
+			clientIndex := rand.Intn(len(localNetwork))
+			serverIndex := rand.Intn(len(servers))
 			
-			protocol := ProtocolTCP
-			if clientIndex % 3 == 0 {
-				protocol = ProtocolUDP
-			} else if clientIndex % 7 == 0 {
-				protocol = ProtocolICMP
-			}
+			// Random protocol distribution
+			protocols := []string{ProtocolTCP, ProtocolTCP, ProtocolTCP, ProtocolUDP, ProtocolICMP}
+			protocol := protocols[rand.Intn(len(protocols))]
 			
-			// Send from client to gateway with realistic size variation
-			packetSize := 100 + int(now%1400) // 100-1500 bytes
-			s.sendPacket(localNetwork[clientIndex], gateways[gatewayIndex], packetSize, protocol)
+			// Varied packet sizes for realism
+			packetSize := 64 + rand.Intn(1436) // 64-1500 bytes
+			s.sendPacket(localNetwork[clientIndex], servers[serverIndex], packetSize, protocol)
 			
-			// Sometimes respond from gateway to client with small delay
-			if now % 2 == 0 {
-				responseSize := 100 + int((now/2)%800) // 100-900 bytes
+			// Random bidirectional traffic (40% chance of response)
+			if rand.Float32() < 0.4 {
+				responseSize := 64 + rand.Intn(800) // Smaller responses
 				go func() {
-					time.Sleep(time.Duration(5 + now%20) * time.Millisecond) // 5-25ms delay
-					s.sendPacket(gateways[gatewayIndex], localNetwork[clientIndex], responseSize, protocol)
+					time.Sleep(time.Duration(1 + rand.Intn(10)) * time.Millisecond) // 1-10ms delay
+					s.sendPacket(servers[serverIndex], localNetwork[clientIndex], responseSize, protocol)
 				}()
 			}
+			
+		// Fast traffic - gateway/internet traffic  
+		case <-fastTicker.C:
+			// Random external to internal traffic
+			internetIndex := rand.Intn(len(internet))
+			localIndex := rand.Intn(len(localNetwork))
+			gatewayIndex := rand.Intn(len(gateways))
+			
+			protocol := ProtocolTCP
+			if rand.Float32() < 0.3 {  // 30% UDP traffic
+				protocol = ProtocolUDP
+			}
+			
+			packetSize := 200 + rand.Intn(1300) // 200-1500 bytes
+			
+			// Internet -> Gateway -> Local (common web traffic pattern)
+			s.sendPacket(internet[internetIndex], gateways[gatewayIndex], packetSize, protocol)
+			
+			// Forward to local with slight delay
+			go func() {
+				time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond) // 2-10ms delay
+				s.sendPacket(gateways[gatewayIndex], localNetwork[localIndex], packetSize-20, protocol)
+			}()
 		
-		// Occasional server traffic
-		case <-slowTicker.C:
-			// Predefined client-server communications with more realistic timing
-			now := time.Now().UnixNano()
-			pairIndex := now % int64(len(clientServerPairs))
+		// Medium frequency traffic - server communications
+		case <-mediumTicker.C:
+			// Random client-server communications for diversity
+			pairIndex := rand.Intn(len(clientServerPairs))
 			pair := clientServerPairs[pairIndex]
 			
 			// Send a request with realistic size
-			requestSize := 200 + int(now%1300) // 200-1500 bytes
+			requestSize := 200 + rand.Intn(1300) // 200-1500 bytes
 			s.sendPacket(pair.client, pair.server, requestSize, pair.protocol)
 			
 			// Server responds asynchronously with realistic delay
 			go func() {
-				responseDelay := time.Duration(10 + (now%40)) * time.Millisecond // 10-50ms
+				responseDelay := time.Duration(10 + rand.Intn(40)) * time.Millisecond // 10-50ms
 				time.Sleep(responseDelay)
-				responseSize := 300 + int((now/3)%1700) // 300-2000 bytes
+				responseSize := 300 + rand.Intn(1700) // 300-2000 bytes
 				s.sendPacket(pair.server, pair.client, responseSize, pair.protocol)
 			}()
 			
-			// Sometimes ping traffic with proper spacing
-			if now % 5 == 0 {
-				randomClientIndex := (now / 7) % int64(len(localNetwork))
-				randomGatewayIndex := (now / 11) % int64(len(gateways))
+			// Random ping traffic (20% chance)
+			if rand.Float32() < 0.2 {
+				randomClientIndex := rand.Intn(len(localNetwork))
+				randomGatewayIndex := rand.Intn(len(gateways))
 				randomClient := localNetwork[randomClientIndex]
 				randomGateway := gateways[randomGatewayIndex]
 				
@@ -383,55 +406,40 @@ func (s *SimulatedCapture) generatePackets() {
 				
 				// Ping response after realistic delay
 				go func() {
-					time.Sleep(time.Duration(5 + now%15) * time.Millisecond) // 5-20ms ping time
+					time.Sleep(time.Duration(5 + rand.Intn(15)) * time.Millisecond) // 5-20ms ping time
 					s.sendPacket(randomGateway, randomClient, 64, ProtocolICMP)
 				}()
 			}
 		
-		// Burst traffic
+		// Burst traffic - high volume data flows
 		case <-burstTicker.C:
-			// External traffic burst - simulate file transfer or heavy data flow
-			now := time.Now().UnixNano()
-			serverIndex := now % int64(len(servers))
+			// Random high-volume data transfer burst
+			serverIndex := rand.Intn(len(servers))
 			server := servers[serverIndex]
 			
-			externalIndex := (now / 13) % int64(len(internet))
+			externalIndex := rand.Intn(len(internet))
 			externalIP := internet[externalIndex]
 			
-			gatewayIndex := (now / 17) % int64(len(gateways))
+			gatewayIndex := rand.Intn(len(gateways))
 			gateway := gateways[gatewayIndex]
 			
-			// Simulate realistic data transfer burst
-			go func() {
-				// Initial request from internet
-				initialSize := 1200 + int(now%300) // 1200-1500 bytes
-				s.sendPacket(externalIP, gateway, initialSize, ProtocolTCP)
-				
-				time.Sleep(15 * time.Millisecond)
-				
-				// Gateway forwards to server
-				s.sendPacket(gateway, server, initialSize-50, ProtocolTCP)
-				
-				time.Sleep(25 * time.Millisecond)
-				
-				// Server responds with data burst (multiple packets)
-				for i := 0; i < 5; i++ {
-					packetSize := 800 + int((now+int64(i)*1000)%700) // Vary size per packet
-					s.sendPacket(server, gateway, packetSize, ProtocolTCP)
-					time.Sleep(time.Duration(8 + (now+int64(i))%12) * time.Millisecond) // 8-20ms between packets
-				}
-				
-				time.Sleep(30 * time.Millisecond)
-				
-				// Final acknowledgments
-				finalAckSize := 1400 + int((now/5)%100) // 1400-1500 bytes
-				s.sendPacket(gateway, externalIP, finalAckSize, ProtocolTCP)
-				
-				time.Sleep(10 * time.Millisecond)
-				
-				// Connection close
-				s.sendPacket(externalIP, gateway, 60, ProtocolTCP) // Small ACK
-			}()
+			// Multiple concurrent bursts for busy network simulation
+			go s.simulateDataBurst(externalIP, gateway, server)
+			
+			// Additional random bursts (30% chance of multiple simultaneous transfers)
+			if rand.Float32() < 0.3 {
+				go s.simulateDataBurst(
+					internet[rand.Intn(len(internet))], 
+					gateways[rand.Intn(len(gateways))], 
+					servers[rand.Intn(len(servers))])
+			}
+			
+			// Random local-to-local high volume transfer (20% chance)
+			if rand.Float32() < 0.2 {
+				go s.simulateLocalDataBurst(
+					localNetwork[rand.Intn(len(localNetwork))],
+					localNetwork[rand.Intn(len(localNetwork))])
+			}
 		}
 	}
 }
@@ -451,6 +459,74 @@ func (s *SimulatedCapture) sendPacket(src, dst string, size int, protocol string
 	default:
 		// Channel full, discard packet
 		log.Println("Packet channel full, discarding packet")
+	}
+}
+
+// simulateDataBurst creates a realistic high-volume data transfer
+func (s *SimulatedCapture) simulateDataBurst(external, gateway, server string) {
+	// Initial request from external source
+	initialSize := 1200 + rand.Intn(300) // 1200-1500 bytes
+	s.sendPacket(external, gateway, initialSize, ProtocolTCP)
+	
+	time.Sleep(time.Duration(10 + rand.Intn(20)) * time.Millisecond) // 10-30ms
+	
+	// Gateway forwards to server
+	s.sendPacket(gateway, server, initialSize-20, ProtocolTCP)
+	
+	time.Sleep(time.Duration(15 + rand.Intn(25)) * time.Millisecond) // 15-40ms
+	
+	// Server responds with burst of data packets (5-15 packets)
+	burstSize := 5 + rand.Intn(10)
+	for i := 0; i < burstSize; i++ {
+		packetSize := 800 + rand.Intn(700) // 800-1500 bytes
+		s.sendPacket(server, gateway, packetSize, ProtocolTCP)
+		time.Sleep(time.Duration(3 + rand.Intn(10)) * time.Millisecond) // 3-13ms between packets
+	}
+	
+	time.Sleep(time.Duration(20 + rand.Intn(30)) * time.Millisecond) // 20-50ms
+	
+	// Gateway forwards responses back to external
+	for i := 0; i < burstSize/2; i++ {
+		responseSize := 1200 + rand.Intn(300) // 1200-1500 bytes
+		s.sendPacket(gateway, external, responseSize, ProtocolTCP)
+		time.Sleep(time.Duration(5 + rand.Intn(15)) * time.Millisecond) // 5-20ms
+	}
+	
+	// Final acknowledgments
+	time.Sleep(time.Duration(10 + rand.Intn(20)) * time.Millisecond)
+	s.sendPacket(external, gateway, 60+rand.Intn(40), ProtocolTCP) // Small ACK
+}
+
+// simulateLocalDataBurst creates high-volume local network traffic
+func (s *SimulatedCapture) simulateLocalDataBurst(src, dst string) {
+	// Don't create a burst to self
+	if src == dst {
+		return
+	}
+	
+	// Initial handshake
+	s.sendPacket(src, dst, 100+rand.Intn(200), ProtocolTCP)
+	time.Sleep(time.Duration(5 + rand.Intn(10)) * time.Millisecond)
+	
+	// Response handshake
+	s.sendPacket(dst, src, 80+rand.Intn(120), ProtocolTCP)
+	time.Sleep(time.Duration(5 + rand.Intn(10)) * time.Millisecond)
+	
+	// Data transfer burst (10-30 packets)
+	burstSize := 10 + rand.Intn(20)
+	for i := 0; i < burstSize; i++ {
+		packetSize := 500 + rand.Intn(1000) // 500-1500 bytes
+		s.sendPacket(src, dst, packetSize, ProtocolTCP)
+		
+		// Random acknowledgments (30% chance)
+		if rand.Float32() < 0.3 {
+			go func() {
+				time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond)
+				s.sendPacket(dst, src, 64+rand.Intn(100), ProtocolTCP) // Small ACK
+			}()
+		}
+		
+		time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond) // 2-10ms between packets
 	}
 }
 

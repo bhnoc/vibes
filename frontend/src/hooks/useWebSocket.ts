@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore } from '../stores/networkStore';
 import { getWebSocketUrl } from '../utils/websocketUtils';
+import { logger } from '../utils/logger';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'waiting';
 type CaptureMode = 'real' | 'simulated' | 'unknown' | 'waiting';
@@ -90,7 +91,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
     const connectWebSocket = () => {
       if (retryCount.current >= MAX_RETRIES) {
         // Too many retries, degrade to simulation mode
-        console.warn(`⚠️ Failed to connect after ${MAX_RETRIES} attempts. Switching to simulation mode.`);
+        logger.warn(`⚠️ Failed to connect after ${MAX_RETRIES} attempts. Switching to simulation mode.`);
         
         setState({
           status: 'error',
@@ -105,12 +106,12 @@ export const useWebSocket = (url: string | null): WebSocketState => {
           
           // Try to connect to simulation WebSocket after a delay
           timeoutRef.current = setTimeout(() => {
-            console.log('Attempting to connect to simulation websocket...');
+            logger.log('Attempting to connect to simulation websocket...');
             const simulationWsUrl = getWebSocketUrl();
             const simulationWs = new WebSocket(simulationWsUrl);
             
             simulationWs.onopen = () => {
-              console.log('Connected to simulation websocket');
+              logger.log('Connected to simulation websocket');
               wsRef.current = simulationWs;
               setState({
                 status: 'connected',
@@ -121,7 +122,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
             };
             
             simulationWs.onerror = (error) => {
-              console.error('Failed to connect to simulation websocket:', error);
+              logger.error('Failed to connect to simulation websocket:', error);
               setState({
                 status: 'error',
                 error: 'Failed to connect to simulation websocket.',
@@ -138,14 +139,14 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         return;
       }
       
-      console.log(`Connecting to WebSocket at ${url} (attempt ${retryCount.current + 1}/${MAX_RETRIES})...`);
+      logger.log(`Connecting to WebSocket at ${url} (attempt ${retryCount.current + 1}/${MAX_RETRIES})...`);
       
       try {
         const ws = new WebSocket(url);
         wsRef.current = ws;
         
         ws.onopen = () => {
-          console.log('WebSocket connected successfully!');
+          logger.log('WebSocket connected successfully!');
           setState({
             status: 'connected',
             error: null,
@@ -158,7 +159,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         };
         
         ws.onclose = () => {
-          console.log('WebSocket connection closed');
+          logger.log('WebSocket connection closed');
           
           if (wsRef.current === ws) {
             setState(prev => ({
@@ -171,7 +172,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
             // Only attempt reconnect if not at max retries
             if (retryCount.current < MAX_RETRIES) {
               const delay = Math.pow(2, retryCount.current) * 1000; // Exponential backoff
-              console.log(`Will attempt to reconnect in ${delay/1000} seconds`);
+              logger.log(`Will attempt to reconnect in ${delay/1000} seconds`);
               
               timeoutRef.current = setTimeout(() => {
                 retryCount.current += 1;
@@ -182,7 +183,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         };
         
         ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
+          logger.error('WebSocket error:', error);
           
           // WebSocket error events don't provide a message, but we'll get a close event next
           setState(prev => ({
@@ -198,13 +199,13 @@ export const useWebSocket = (url: string | null): WebSocketState => {
             
             // Debug first few packets to confirm data flow
             if (!debugLoggedRef.current) {
-              console.log('FIRST PACKET RECEIVED:', data);
+              logger.log('FIRST PACKET RECEIVED:', data);
               debugLoggedRef.current = true;
             }
             
             // Check for error messages
             if (data.error) {
-              console.warn('Error message from server:', data);
+              logger.warn('Error message from server:', data);
               
               // Check if this is a permission-related error
               let errorMsg = '';
@@ -222,10 +223,10 @@ export const useWebSocket = (url: string | null): WebSocketState => {
               );
               
               if (isPermissionError) {
-                console.warn(`⚠️ Real capture failed and fell back to simulation: ${data.errorMsg || 'Permission denied'}`);
+                logger.warn(`⚠️ Real capture failed and fell back to simulation: ${data.errorMsg || 'Permission denied'}`);
                 
                 // Force simulation mode with clear visibility
-                console.log('CRITICAL: Forcing simulation mode for reliable operation');
+                logger.log('CRITICAL: Forcing simulation mode for reliable operation');
                 
                 // Close current connection
                 ws.close();
@@ -240,12 +241,12 @@ export const useWebSocket = (url: string | null): WebSocketState => {
                 
                 // Try to connect to simulation WebSocket immediately
                 timeoutRef.current = setTimeout(() => {
-                  console.log('Connecting to simulation websocket...');
+                  logger.log('Connecting to simulation websocket...');
                   const simulationWsUrl = getWebSocketUrl();
                   const simulationWs = new WebSocket(simulationWsUrl);
                   
                   simulationWs.onopen = () => {
-                    console.log('Connected to simulation websocket!');
+                    logger.log('Connected to simulation websocket!');
                     wsRef.current = simulationWs;
                     setState({
                       status: 'connected',
@@ -257,7 +258,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
                   
                   // Setup same error handlers
                   simulationWs.onerror = (err) => {
-                    console.error('Simulation WebSocket error:', err);
+                    logger.error('Simulation WebSocket error:', err);
                   };
                   
                   // Set up same message handler
@@ -270,7 +271,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
             
             // Process different message types
             if (data.type === 'mode') {
-              console.log('Received mode message:', data);
+              logger.log('Received mode message:', data);
               
               // Update state with actual capture mode
               setState(prev => ({
@@ -281,7 +282,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
               
               // If there was an error, log it
               if (data.error) {
-                console.warn(`Mode error: ${data.errorMsg}`);
+                logger.warn(`Mode error: ${data.errorMsg}`);
                 setState(prev => ({
                   ...prev,
                   error: data.errorMsg
@@ -291,7 +292,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
             else if (data.src && data.dst) {
               // This looks like a packet - debug the first 3 to ensure data flow
               if (packetCountRef.current < 3) {
-                console.log(`DEBUG PACKET #${packetCountRef.current + 1}:`, data);
+                logger.log(`DEBUG PACKET #${packetCountRef.current + 1}:`, data);
               }
               
               // Count packets for debugging
@@ -299,7 +300,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
               
               // Every 500 packets, log a summary for debugging  
               if (packetCountRef.current % 500 === 0) {
-                console.log(`Received ${packetCountRef.current} total packets`);
+                logger.log(`Received ${packetCountRef.current} total packets`);
               }
               
               // CRITICAL FIX: Use the new batched addPacket to prevent infinite loops
@@ -307,15 +308,15 @@ export const useWebSocket = (url: string | null): WebSocketState => {
               addPacket(data);
             }
             else {
-              console.log('Unknown message type:', data);
+              logger.log('Unknown message type:', data);
             }
             
           } catch (err) {
-            console.error('Error parsing WebSocket message:', err, event.data);
+            logger.error('Error parsing WebSocket message:', err, event.data);
           }
         };
       } catch (err) {
-        console.error('Error creating WebSocket:', err);
+        logger.error('Error creating WebSocket:', err);
         setState({
           status: 'error',
           error: `Failed to create WebSocket: ${(err as Error).message}`,
@@ -361,4 +362,4 @@ function getDeviceFromUrl(url: string): string {
   } catch (e) {
     return '';
   }
-} 
+}
