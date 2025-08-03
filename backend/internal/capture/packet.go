@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"time"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
@@ -17,9 +18,9 @@ import (
 
 // Protocol types
 const (
-	ProtocolTCP = "TCP"
-	ProtocolUDP = "UDP"
-	ProtocolICMP = "ICMP"
+	ProtocolTCP   = "TCP"
+	ProtocolUDP   = "UDP"
+	ProtocolICMP  = "ICMP"
 	ProtocolOther = "OTHER"
 )
 
@@ -28,8 +29,8 @@ type Packet struct {
 	Type      string `json:"type"`
 	Src       string `json:"src"`
 	Dst       string `json:"dst"`
-	SrcPort   int    `json:"src_port"`   // Source port number
-	DstPort   int    `json:"dst_port"`   // Destination port number
+	SrcPort   int    `json:"src_port"` // Source port number
+	DstPort   int    `json:"dst_port"` // Destination port number
 	Size      int    `json:"size"`
 	Protocol  string `json:"protocol"`
 	Timestamp int64  `json:"timestamp"`
@@ -52,7 +53,7 @@ func NewPacket(src, dst string, srcPort, dstPort, size int, protocol string) *Pa
 		Size:      size,
 		Protocol:  protocol,
 		Timestamp: time.Now().UnixMilli(), // Use millisecond precision for better timestamp resolution
-		Source:    "simulated", // Default to simulated
+		Source:    "simulated",            // Default to simulated
 	}
 }
 
@@ -67,7 +68,7 @@ func generateRealisticPorts(protocol string) (srcPort, dstPort int) {
 	case ProtocolTCP:
 		// Common TCP services
 		commonTCPPorts := []int{80, 443, 22, 21, 25, 53, 993, 995, 110, 143, 465, 587, 8080, 8443, 3306, 5432, 6379}
-		
+
 		if rand.Float32() < 0.6 { // 60% chance of well-known service
 			dstPort = commonTCPPorts[rand.Intn(len(commonTCPPorts))]
 			srcPort = 32768 + rand.Intn(32767) // Ephemeral port range
@@ -75,11 +76,11 @@ func generateRealisticPorts(protocol string) (srcPort, dstPort int) {
 			srcPort = 1024 + rand.Intn(64511)
 			dstPort = 1024 + rand.Intn(64511)
 		}
-		
+
 	case ProtocolUDP:
-		// Common UDP services  
+		// Common UDP services
 		commonUDPPorts := []int{53, 67, 68, 123, 161, 162, 514, 1194, 1701, 4500, 5060}
-		
+
 		if rand.Float32() < 0.5 { // 50% chance of well-known service
 			dstPort = commonUDPPorts[rand.Intn(len(commonUDPPorts))]
 			srcPort = 32768 + rand.Intn(32767) // Ephemeral port range
@@ -87,18 +88,18 @@ func generateRealisticPorts(protocol string) (srcPort, dstPort int) {
 			srcPort = 1024 + rand.Intn(64511)
 			dstPort = 1024 + rand.Intn(64511)
 		}
-		
+
 	case ProtocolICMP:
 		// ICMP doesn't use ports, but we can use type/code in port fields for visualization
 		srcPort = rand.Intn(256) // ICMP type (0-255)
 		dstPort = rand.Intn(256) // ICMP code (0-255)
-		
+
 	default:
 		// For other protocols, use random ports
 		srcPort = rand.Intn(65536)
 		dstPort = rand.Intn(65536)
 	}
-	
+
 	return srcPort, dstPort
 }
 
@@ -154,15 +155,15 @@ func (s *SimulatedCapture) GetPacketChannel() <-chan *Packet {
 
 // generatePackets simulates realistic busy network traffic
 func (s *SimulatedCapture) generatePackets() {
-	// Much higher packet rates for busy network simulation
-	loudTalkerTicker := time.NewTicker(5 * time.Millisecond) // Every 5ms - 200 packets/second for loud talkers
-	ultraFastTicker := time.NewTicker(2 * time.Millisecond)   // Every 2ms - 500 packets/second
-	fastTicker := time.NewTicker(10 * time.Millisecond)       // Every 10ms - 100 packets/second  
-	mediumTicker := time.NewTicker(50 * time.Millisecond)     // Every 50ms - 20 packets/second
-	burstTicker := time.NewTicker(200 * time.Millisecond)     // Every 200ms - burst traffic
-	
-	defer loudTalkerTicker.Stop()
-	defer ultraFastTicker.Stop()
+	// Ultra-high packet rates for 5000+ packets/second simulation
+	ultraTicker := time.NewTicker(200 * time.Microsecond)   // Every 0.2ms - 5000 packets/second
+	hyperTicker := time.NewTicker(333 * time.Microsecond)   // Every 0.33ms - 3000 packets/second
+	fastTicker := time.NewTicker(500 * time.Microsecond)    // Every 0.5ms - 2000 packets/second
+	mediumTicker := time.NewTicker(1 * time.Millisecond)    // Every 1ms - 1000 packets/second
+	burstTicker := time.NewTicker(2 * time.Millisecond)     // Every 2ms - 500 packets/second
+
+	defer ultraTicker.Stop()
+	defer hyperTicker.Stop()
 	defer fastTicker.Stop()
 	defer mediumTicker.Stop()
 	defer burstTicker.Stop()
@@ -200,7 +201,7 @@ func (s *SimulatedCapture) generatePackets() {
 		"192.168.1.240", "192.168.1.241", "192.168.1.242", "192.168.1.243", "192.168.1.244", "192.168.1.245", "192.168.1.246", "192.168.1.247", "192.168.1.248", "192.168.1.249",
 		"192.168.1.250",
 
-		// 192.168.2.x subnet (250 nodes) 
+		// 192.168.2.x subnet (250 nodes)
 		"192.168.2.10", "192.168.2.11", "192.168.2.12", "192.168.2.13", "192.168.2.14", "192.168.2.15", "192.168.2.16", "192.168.2.17", "192.168.2.18", "192.168.2.19",
 		"192.168.2.20", "192.168.2.21", "192.168.2.22", "192.168.2.23", "192.168.2.24", "192.168.2.25", "192.168.2.26", "192.168.2.27", "192.168.2.28", "192.168.2.29",
 		"192.168.2.30", "192.168.2.31", "192.168.2.32", "192.168.2.33", "192.168.2.34", "192.168.2.35", "192.168.2.36", "192.168.2.37", "192.168.2.38", "192.168.2.39",
@@ -227,7 +228,7 @@ func (s *SimulatedCapture) generatePackets() {
 		"192.168.2.240", "192.168.2.241", "192.168.2.242", "192.168.2.243", "192.168.2.244", "192.168.2.245", "192.168.2.246", "192.168.2.247", "192.168.2.248", "192.168.2.249",
 		"192.168.2.250",
 	}
-	
+
 	servers := []string{
 		"10.0.0.10", "10.0.0.11", "10.0.0.12", "10.0.0.13", "10.0.0.14", "10.0.0.15", "10.0.0.16", "10.0.0.17", "10.0.0.18", "10.0.0.19",
 		"10.0.0.20", "10.0.0.21", "10.0.0.22", "10.0.0.23", "10.0.0.24", "10.0.0.25", "10.0.0.26", "10.0.0.27", "10.0.0.28", "10.0.0.29",
@@ -235,10 +236,10 @@ func (s *SimulatedCapture) generatePackets() {
 		"10.0.0.40", "10.0.0.41", "10.0.0.42", "10.0.0.43", "10.0.0.44", "10.0.0.45", "10.0.0.46", "10.0.0.47", "10.0.0.48", "10.0.0.49",
 		"10.0.0.50", "10.0.0.51", "10.0.0.52", "10.0.0.53", "10.0.0.54", "10.0.0.55", "10.0.0.56", "10.0.0.57", "10.0.0.58", "10.0.0.59",
 	}
-	
+
 	// Multiple gateways
 	gateways := []string{"192.168.1.1", "192.168.2.1", "192.168.3.1"}
-	
+
 	internet := []string{
 		// Major cloud providers and CDNs (AWS, GCP, Azure, Cloudflare, etc)
 		"13.32.0.1", "13.33.0.1", "13.35.0.1", "13.48.0.1", "13.49.0.1", "13.51.0.1", "13.53.0.1", "13.54.0.1", "13.55.0.1", "13.56.0.1",
@@ -292,11 +293,11 @@ func (s *SimulatedCapture) generatePackets() {
 		"108.156.0.1", "108.156.1.1", "108.156.2.1", "108.156.3.1", "108.156.4.1", "108.156.5.1", "108.156.6.1", "108.156.7.1", "108.156.8.1", "108.156.9.1",
 		"205.251.192.1", "205.251.193.1", "205.251.194.1", "205.251.195.1", "205.251.196.1", "205.251.197.1", "205.251.198.1", "205.251.199.1", "205.251.200.1", "205.251.201.1",
 	}
-	
+
 	// Define traffic patterns for simulation
 	clientServerPairs := []struct {
-		client string
-		server string
+		client   string
+		server   string
 		protocol string
 	}{}
 
@@ -311,9 +312,9 @@ func (s *SimulatedCapture) generatePackets() {
 		if rand.Intn(10) < 3 {
 			protocol = ProtocolUDP
 		}
-		clientServerPairs = append(clientServerPairs, struct{
-			client string
-			server string
+		clientServerPairs = append(clientServerPairs, struct {
+			client   string
+			server   string
 			protocol string
 		}{localNetwork[srcIndex], localNetwork[dstIndex], protocol})
 	}
@@ -326,9 +327,9 @@ func (s *SimulatedCapture) generatePackets() {
 		if rand.Intn(10) < 2 {
 			protocol = ProtocolICMP
 		}
-		clientServerPairs = append(clientServerPairs, struct{
-			client string
-			server string
+		clientServerPairs = append(clientServerPairs, struct {
+			client   string
+			server   string
 			protocol string
 		}{localNetwork[srcIndex], gateways[gwIndex], protocol})
 	}
@@ -341,9 +342,9 @@ func (s *SimulatedCapture) generatePackets() {
 		if rand.Intn(10) < 3 {
 			protocol = ProtocolUDP
 		}
-		clientServerPairs = append(clientServerPairs, struct{
-			client string
-			server string
+		clientServerPairs = append(clientServerPairs, struct {
+			client   string
+			server   string
 			protocol string
 		}{localNetwork[srcIndex], servers[srvIndex], protocol})
 	}
@@ -356,9 +357,9 @@ func (s *SimulatedCapture) generatePackets() {
 		if rand.Intn(10) < 2 {
 			protocol = ProtocolUDP
 		}
-		clientServerPairs = append(clientServerPairs, struct{
-			client string
-			server string
+		clientServerPairs = append(clientServerPairs, struct {
+			client   string
+			server   string
 			protocol string
 		}{localNetwork[srcIndex], internet[intIndex], protocol})
 	}
@@ -371,15 +372,15 @@ func (s *SimulatedCapture) generatePackets() {
 		if rand.Intn(10) < 2 {
 			protocol = ProtocolUDP
 		}
-		clientServerPairs = append(clientServerPairs, struct{
-			client string
-			server string
+		clientServerPairs = append(clientServerPairs, struct {
+			client   string
+			server   string
 			protocol string
 		}{internet[intIndex], localNetwork[dstIndex], protocol})
 	}
 
-	log.Println("Starting BUSY network simulation with high packet rates and diverse connections")
-	log.Println("Generating 600+ packets/second with realistic randomization...")
+	log.Println("Starting ULTRA-HIGH THROUGHPUT network simulation with extreme packet rates")
+	log.Println("Generating 5000+ packets/second with realistic randomization...")
 
 	// Seed random number generator for better diversity
 	rand.Seed(time.Now().UnixNano())
@@ -389,8 +390,8 @@ func (s *SimulatedCapture) generatePackets() {
 		case <-s.stopChan:
 			log.Println("Stopping simulated packet capture")
 			return
-		
-		case <-loudTalkerTicker.C:
+
+		case <-ultraTicker.C:
 			src := loudTalkers[rand.Intn(len(loudTalkers))]
 			var dst string
 			destType := rand.Intn(3)
@@ -401,116 +402,116 @@ func (s *SimulatedCapture) generatePackets() {
 			} else {
 				dst = internet[rand.Intn(len(internet))]
 			}
-			
+
 			packetSize := 64 + rand.Intn(1436)
 			protocols := []string{ProtocolTCP, ProtocolUDP}
 			protocol := protocols[rand.Intn(len(protocols))]
 			s.sendPacket(src, dst, packetSize, protocol)
-			
+
 		// Ultra-fast traffic - high-volume local traffic
-		case <-ultraFastTicker.C:
+		case <-hyperTicker.C:
 			// Truly random selection for diverse connections
 			clientIndex := rand.Intn(len(localNetwork))
 			serverIndex := rand.Intn(len(servers))
-			
+
 			// Random protocol distribution
 			protocols := []string{ProtocolTCP, ProtocolTCP, ProtocolTCP, ProtocolUDP, ProtocolICMP}
 			protocol := protocols[rand.Intn(len(protocols))]
-			
+
 			// Varied packet sizes for realism
 			packetSize := 64 + rand.Intn(1436) // 64-1500 bytes
 			s.sendPacket(localNetwork[clientIndex], servers[serverIndex], packetSize, protocol)
-			
+
 			// Random bidirectional traffic (40% chance of response)
 			if rand.Float32() < 0.4 {
 				responseSize := 64 + rand.Intn(800) // Smaller responses
 				go func() {
-					time.Sleep(time.Duration(1 + rand.Intn(10)) * time.Millisecond) // 1-10ms delay
+					time.Sleep(time.Duration(1+rand.Intn(10)) * time.Millisecond) // 1-10ms delay
 					s.sendPacket(servers[serverIndex], localNetwork[clientIndex], responseSize, protocol)
 				}()
 			}
-			
-		// Fast traffic - gateway/internet traffic  
+
+		// Fast traffic - gateway/internet traffic
 		case <-fastTicker.C:
 			// Random external to internal traffic
 			internetIndex := rand.Intn(len(internet))
 			localIndex := rand.Intn(len(localNetwork))
 			gatewayIndex := rand.Intn(len(gateways))
-			
+
 			protocol := ProtocolTCP
-			if rand.Float32() < 0.3 {  // 30% UDP traffic
+			if rand.Float32() < 0.3 { // 30% UDP traffic
 				protocol = ProtocolUDP
 			}
-			
+
 			packetSize := 200 + rand.Intn(1300) // 200-1500 bytes
-			
+
 			// Internet -> Gateway -> Local (common web traffic pattern)
 			s.sendPacket(internet[internetIndex], gateways[gatewayIndex], packetSize, protocol)
-			
+
 			// Forward to local with slight delay
 			go func() {
-				time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond) // 2-10ms delay
+				time.Sleep(time.Duration(2+rand.Intn(8)) * time.Millisecond) // 2-10ms delay
 				s.sendPacket(gateways[gatewayIndex], localNetwork[localIndex], packetSize-20, protocol)
 			}()
-		
+
 		// Medium frequency traffic - server communications
 		case <-mediumTicker.C:
 			// Random client-server communications for diversity
 			pairIndex := rand.Intn(len(clientServerPairs))
 			pair := clientServerPairs[pairIndex]
-			
+
 			// Send a request with realistic size
 			requestSize := 200 + rand.Intn(1300) // 200-1500 bytes
 			s.sendPacket(pair.client, pair.server, requestSize, pair.protocol)
-			
+
 			// Server responds asynchronously with realistic delay
 			go func() {
-				responseDelay := time.Duration(10 + rand.Intn(40)) * time.Millisecond // 10-50ms
+				responseDelay := time.Duration(10+rand.Intn(40)) * time.Millisecond // 10-50ms
 				time.Sleep(responseDelay)
 				responseSize := 300 + rand.Intn(1700) // 300-2000 bytes
 				s.sendPacket(pair.server, pair.client, responseSize, pair.protocol)
 			}()
-			
+
 			// Random ping traffic (20% chance)
 			if rand.Float32() < 0.2 {
 				randomClientIndex := rand.Intn(len(localNetwork))
 				randomGatewayIndex := rand.Intn(len(gateways))
 				randomClient := localNetwork[randomClientIndex]
 				randomGateway := gateways[randomGatewayIndex]
-				
+
 				// Send ping
 				s.sendPacket(randomClient, randomGateway, 64, ProtocolICMP)
-				
+
 				// Ping response after realistic delay
 				go func() {
-					time.Sleep(time.Duration(5 + rand.Intn(15)) * time.Millisecond) // 5-20ms ping time
+					time.Sleep(time.Duration(5+rand.Intn(15)) * time.Millisecond) // 5-20ms ping time
 					s.sendPacket(randomGateway, randomClient, 64, ProtocolICMP)
 				}()
 			}
-		
+
 		// Burst traffic - high volume data flows
 		case <-burstTicker.C:
 			// Random high-volume data transfer burst
 			serverIndex := rand.Intn(len(servers))
 			server := servers[serverIndex]
-			
+
 			externalIndex := rand.Intn(len(internet))
 			externalIP := internet[externalIndex]
-			
+
 			gatewayIndex := rand.Intn(len(gateways))
 			gateway := gateways[gatewayIndex]
-			
+
 			// Multiple concurrent bursts for busy network simulation
 			go s.simulateDataBurst(externalIP, gateway, server)
-			
+
 			// Additional random bursts (30% chance of multiple simultaneous transfers)
 			if rand.Float32() < 0.3 {
 				go s.simulateDataBurst(
-					internet[rand.Intn(len(internet))], 
-					gateways[rand.Intn(len(gateways))], 
+					internet[rand.Intn(len(internet))],
+					gateways[rand.Intn(len(gateways))],
 					servers[rand.Intn(len(servers))])
 			}
-			
+
 			// Random local-to-local high volume transfer (20% chance)
 			if rand.Float32() < 0.2 {
 				go s.simulateLocalDataBurst(
@@ -525,7 +526,7 @@ func (s *SimulatedCapture) generatePackets() {
 func (s *SimulatedCapture) sendPacket(src, dst string, size int, protocol string) {
 	// Generate realistic ports based on protocol
 	srcPort, dstPort := generateRealisticPorts(protocol)
-	
+
 	packet := NewPacketWithPorts(
 		src,
 		dst,
@@ -534,7 +535,7 @@ func (s *SimulatedCapture) sendPacket(src, dst string, size int, protocol string
 		size,
 		protocol,
 	)
-	
+
 	select {
 	case s.packetChan <- packet:
 		// Successfully sent packet
@@ -549,33 +550,33 @@ func (s *SimulatedCapture) simulateDataBurst(external, gateway, server string) {
 	// Initial request from external source
 	initialSize := 1200 + rand.Intn(300) // 1200-1500 bytes
 	s.sendPacket(external, gateway, initialSize, ProtocolTCP)
-	
-	time.Sleep(time.Duration(10 + rand.Intn(20)) * time.Millisecond) // 10-30ms
-	
+
+	time.Sleep(time.Duration(10+rand.Intn(20)) * time.Millisecond) // 10-30ms
+
 	// Gateway forwards to server
 	s.sendPacket(gateway, server, initialSize-20, ProtocolTCP)
-	
-	time.Sleep(time.Duration(15 + rand.Intn(25)) * time.Millisecond) // 15-40ms
-	
+
+	time.Sleep(time.Duration(15+rand.Intn(25)) * time.Millisecond) // 15-40ms
+
 	// Server responds with burst of data packets (5-15 packets)
 	burstSize := 5 + rand.Intn(10)
 	for i := 0; i < burstSize; i++ {
 		packetSize := 800 + rand.Intn(700) // 800-1500 bytes
 		s.sendPacket(server, gateway, packetSize, ProtocolTCP)
-		time.Sleep(time.Duration(3 + rand.Intn(10)) * time.Millisecond) // 3-13ms between packets
+		time.Sleep(time.Duration(3+rand.Intn(10)) * time.Millisecond) // 3-13ms between packets
 	}
-	
-	time.Sleep(time.Duration(20 + rand.Intn(30)) * time.Millisecond) // 20-50ms
-	
+
+	time.Sleep(time.Duration(20+rand.Intn(30)) * time.Millisecond) // 20-50ms
+
 	// Gateway forwards responses back to external
 	for i := 0; i < burstSize/2; i++ {
 		responseSize := 1200 + rand.Intn(300) // 1200-1500 bytes
 		s.sendPacket(gateway, external, responseSize, ProtocolTCP)
-		time.Sleep(time.Duration(5 + rand.Intn(15)) * time.Millisecond) // 5-20ms
+		time.Sleep(time.Duration(5+rand.Intn(15)) * time.Millisecond) // 5-20ms
 	}
-	
+
 	// Final acknowledgments
-	time.Sleep(time.Duration(10 + rand.Intn(20)) * time.Millisecond)
+	time.Sleep(time.Duration(10+rand.Intn(20)) * time.Millisecond)
 	s.sendPacket(external, gateway, 60+rand.Intn(40), ProtocolTCP) // Small ACK
 }
 
@@ -585,30 +586,30 @@ func (s *SimulatedCapture) simulateLocalDataBurst(src, dst string) {
 	if src == dst {
 		return
 	}
-	
+
 	// Initial handshake
 	s.sendPacket(src, dst, 100+rand.Intn(200), ProtocolTCP)
-	time.Sleep(time.Duration(5 + rand.Intn(10)) * time.Millisecond)
-	
+	time.Sleep(time.Duration(5+rand.Intn(10)) * time.Millisecond)
+
 	// Response handshake
 	s.sendPacket(dst, src, 80+rand.Intn(120), ProtocolTCP)
-	time.Sleep(time.Duration(5 + rand.Intn(10)) * time.Millisecond)
-	
+	time.Sleep(time.Duration(5+rand.Intn(10)) * time.Millisecond)
+
 	// Data transfer burst (10-30 packets)
 	burstSize := 10 + rand.Intn(20)
 	for i := 0; i < burstSize; i++ {
 		packetSize := 500 + rand.Intn(1000) // 500-1500 bytes
 		s.sendPacket(src, dst, packetSize, ProtocolTCP)
-		
+
 		// Random acknowledgments (30% chance)
 		if rand.Float32() < 0.3 {
 			go func() {
-				time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond)
+				time.Sleep(time.Duration(2+rand.Intn(8)) * time.Millisecond)
 				s.sendPacket(dst, src, 64+rand.Intn(100), ProtocolTCP) // Small ACK
 			}()
 		}
-		
-		time.Sleep(time.Duration(2 + rand.Intn(8)) * time.Millisecond) // 2-10ms between packets
+
+		time.Sleep(time.Duration(2+rand.Intn(8)) * time.Millisecond) // 2-10ms between packets
 	}
 }
 
@@ -624,7 +625,7 @@ type RealCapture struct {
 // NewRealCapture creates a new real packet capture instance
 func NewRealCapture(iface string) *RealCapture {
 	return &RealCapture{
-		packetChan: make(chan *Packet, 100),
+		packetChan: make(chan *Packet, 10000), // Massive buffer for high-throughput real capture
 		stopChan:   make(chan bool),
 		running:    false,
 		iface:      iface,
@@ -642,7 +643,7 @@ func (r *RealCapture) Start() error {
 	// Open device
 	var err error
 	var inactiveHandle *pcap.InactiveHandle
-	
+
 	// First try to create an inactive handle
 	inactiveHandle, err = pcap.NewInactiveHandle(r.iface)
 	if err != nil {
@@ -650,7 +651,7 @@ func (r *RealCapture) Start() error {
 		return fmt.Errorf("error creating inactive handle for %s: %v", r.iface, err)
 	}
 	defer inactiveHandle.CleanUp()
-	
+
 	// Set options
 	if err = inactiveHandle.SetSnapLen(1600); err != nil {
 		log.Printf("Error setting snap length: %v", err)
@@ -664,7 +665,7 @@ func (r *RealCapture) Start() error {
 		log.Printf("Error setting timeout: %v", err)
 		return err
 	}
-	
+
 	// Try with root privileges first
 	r.handle, err = inactiveHandle.Activate()
 	if err != nil {
@@ -672,7 +673,7 @@ func (r *RealCapture) Start() error {
 		log.Printf("This may be a permissions issue. Real capture usually requires root/admin privileges.")
 		return fmt.Errorf("error activating capture on device %s: %v (may need root)", r.iface, err)
 	}
-	
+
 	// Set a filter to only capture IP packets
 	err = r.handle.SetBPFFilter("ip")
 	if err != nil {
@@ -680,7 +681,7 @@ func (r *RealCapture) Start() error {
 	}
 
 	log.Printf("Successfully started real packet capture on interface '%s'", r.iface)
-	
+
 	// Start packet processing
 	r.running = true
 	go r.capturePackets()
@@ -709,9 +710,9 @@ func (r *RealCapture) GetPacketChannel() <-chan *Packet {
 // capturePackets processes real network packets
 func (r *RealCapture) capturePackets() {
 	packetSource := gopacket.NewPacketSource(r.handle, r.handle.LinkType())
-	
+
 	log.Printf("Starting real packet processing on interface %s", r.iface)
-	
+
 	packetCount := 0
 	startTime := time.Now()
 
@@ -738,37 +739,37 @@ func (r *RealCapture) capturePackets() {
 			if ipLayer == nil {
 				continue
 			}
-			
+
 			ip, _ := ipLayer.(*layers.IPv4)
-			
+
 			// Extract IP addresses
 			srcIP := ip.SrcIP.String()
 			dstIP := ip.DstIP.String()
-			
+
 			// Extract protocol and port information
 			var protocol string
 			var srcPort, dstPort int
-			
+
 			// Check TCP layer
 			if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 				tcp, _ := tcpLayer.(*layers.TCP)
 				protocol = ProtocolTCP
 				srcPort = int(tcp.SrcPort)
 				dstPort = int(tcp.DstPort)
-				
+
 			} else if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
 				udp, _ := udpLayer.(*layers.UDP)
 				protocol = ProtocolUDP
 				srcPort = int(udp.SrcPort)
 				dstPort = int(udp.DstPort)
-				
+
 			} else if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
 				icmp, _ := icmpLayer.(*layers.ICMPv4)
 				protocol = ProtocolICMP
 				// For ICMP, use type and code as "port" values for visualization
 				srcPort = int(icmp.TypeCode.Type())
 				dstPort = int(icmp.TypeCode.Code())
-				
+
 			} else {
 				protocol = ProtocolOther
 				srcPort = 0
@@ -784,7 +785,7 @@ func (r *RealCapture) capturePackets() {
 				len(packet.Data()),
 				protocol,
 			)
-			
+
 			// Mark this packet as real (not simulated)
 			p.Source = "real"
 
@@ -792,12 +793,12 @@ func (r *RealCapture) capturePackets() {
 			case r.packetChan <- p:
 				// Successfully sent packet
 				packetCount++
-				
+
 				// Log occasional stats
-				if packetCount % 100 == 0 {
+				if packetCount%100 == 0 {
 					elapsed := time.Since(startTime).Seconds()
 					rate := float64(packetCount) / elapsed
-					log.Printf("Captured %d real packets (%.2f packets/sec) on interface %s", 
+					log.Printf("Captured %d real packets (%.2f packets/sec) on interface %s",
 						packetCount, rate, r.iface)
 				}
 			default:
@@ -815,14 +816,14 @@ func ListInterfaces() ([]pcap.Interface, error) {
 
 // PCAPReplayCapture implements PCAP file replay functionality
 type PCAPReplayCapture struct {
-	packetChan      chan *Packet
-	stopChan        chan bool
-	running         bool
-	pcapFile        string
-	replaySpeed     float64 // 1.0 = real-time, 2.0 = 2x speed, 0.5 = half speed
-	startTime       time.Time
-	endTime         time.Time
-	useTimeRange    bool
+	packetChan        chan *Packet
+	stopChan          chan bool
+	running           bool
+	pcapFile          string
+	replaySpeed       float64 // 1.0 = real-time, 2.0 = 2x speed, 0.5 = half speed
+	startTime         time.Time
+	endTime           time.Time
+	useTimeRange      bool
 	currentPacketTime time.Time
 	replayStartTime   time.Time
 }
@@ -845,19 +846,19 @@ func NewPCAPReplayCapture(config PCAPReplayConfig) *PCAPReplayCapture {
 		replaySpeed:  config.ReplaySpeed,
 		useTimeRange: false,
 	}
-	
+
 	// Set default replay speed if not specified
 	if replay.replaySpeed <= 0 {
 		replay.replaySpeed = 1.0
 	}
-	
+
 	// Set time range if specified
 	if !config.StartTime.IsZero() || !config.EndTime.IsZero() {
 		replay.useTimeRange = true
 		replay.startTime = config.StartTime
 		replay.endTime = config.EndTime
 	}
-	
+
 	return replay
 }
 
@@ -868,7 +869,7 @@ func (p *PCAPReplayCapture) Start() error {
 	}
 
 	log.Printf("Starting PCAP replay from file: %s (speed: %.2fx)", p.pcapFile, p.replaySpeed)
-	
+
 	if p.useTimeRange {
 		log.Printf("Time range: %s to %s", p.startTime.Format("15:04:05"), p.endTime.Format("15:04:05"))
 	}
@@ -880,10 +881,10 @@ func (p *PCAPReplayCapture) Start() error {
 	}
 
 	log.Printf("Successfully opened PCAP file: %s", p.pcapFile)
-	
+
 	p.running = true
 	p.replayStartTime = time.Now()
-	
+
 	// Start replay processing in goroutine
 	go p.replayPackets(handle)
 	return nil
@@ -908,16 +909,16 @@ func (p *PCAPReplayCapture) GetPacketChannel() <-chan *Packet {
 // replayPackets processes and replays packets from the PCAP file
 func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 	defer handle.Close()
-	
+
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	
+
 	log.Printf("Starting PCAP packet replay processing")
-	
+
 	packetCount := 0
 	skippedCount := 0
 	var firstPacketTime time.Time
 	var lastPacketTimestamp time.Time
-	
+
 	for {
 		select {
 		case <-p.stopChan:
@@ -937,13 +938,13 @@ func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 
 			// Get packet timestamp
 			packetTimestamp := packet.Metadata().Timestamp
-			
+
 			// Initialize first packet time for relative timing
 			if packetCount == 0 {
 				firstPacketTime = packetTimestamp
 				p.currentPacketTime = firstPacketTime
 			}
-			
+
 			// Check if packet is within time range (if specified)
 			if p.useTimeRange {
 				if !p.startTime.IsZero() && packetTimestamp.Before(p.startTime) {
@@ -960,16 +961,16 @@ func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 			if packetCount > 0 && p.replaySpeed > 0 {
 				// Calculate time difference from previous packet
 				timeDiff := packetTimestamp.Sub(lastPacketTimestamp)
-				
+
 				// Apply replay speed multiplier
 				adjustedDelay := time.Duration(float64(timeDiff) / p.replaySpeed)
-				
+
 				// Don't sleep for negative or very small delays
 				if adjustedDelay > time.Microsecond {
 					time.Sleep(adjustedDelay)
 				}
 			}
-			
+
 			lastPacketTimestamp = packetTimestamp
 
 			// Process network layer
@@ -983,37 +984,37 @@ func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 			if ipLayer == nil {
 				continue
 			}
-			
+
 			ip, _ := ipLayer.(*layers.IPv4)
-			
-			// Extract IP addresses  
+
+			// Extract IP addresses
 			srcIP := ip.SrcIP.String()
 			dstIP := ip.DstIP.String()
-			
+
 			// Extract protocol and port information
 			var protocol string
 			var srcPort, dstPort int
-			
+
 			// Parse protocol and port information
 			if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 				tcp, _ := tcpLayer.(*layers.TCP)
 				protocol = ProtocolTCP
 				srcPort = int(tcp.SrcPort)
 				dstPort = int(tcp.DstPort)
-				
+
 			} else if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
 				udp, _ := udpLayer.(*layers.UDP)
 				protocol = ProtocolUDP
 				srcPort = int(udp.SrcPort)
 				dstPort = int(udp.DstPort)
-				
+
 			} else if icmpLayer := packet.Layer(layers.LayerTypeICMPv4); icmpLayer != nil {
 				icmp, _ := icmpLayer.(*layers.ICMPv4)
 				protocol = ProtocolICMP
 				// For ICMP, use type and code as "port" values for visualization
 				srcPort = int(icmp.TypeCode.Type())
 				dstPort = int(icmp.TypeCode.Code())
-				
+
 			} else {
 				protocol = ProtocolOther
 				srcPort = 0
@@ -1036,13 +1037,13 @@ func (p *PCAPReplayCapture) replayPackets(handle *pcap.Handle) {
 			select {
 			case p.packetChan <- replayPacket:
 				packetCount++
-				
+
 				// Log progress for epic PCAP moments
 				if packetCount%1000 == 0 {
 					elapsed := time.Since(p.replayStartTime).Seconds()
 					rate := float64(packetCount) / elapsed
 					relativeTime := packetTimestamp.Sub(firstPacketTime)
-					log.Printf("🔥 PCAP REPLAY: %d packets replayed (%.1f pps) - at %s in original capture", 
+					log.Printf("🔥 PCAP REPLAY: %d packets replayed (%.1f pps) - at %s in original capture",
 						packetCount, rate, relativeTime)
 				}
 			default:
@@ -1098,27 +1099,27 @@ const (
 
 // TimeWindowConfig holds configuration for time window replay
 type TimeWindowConfig struct {
-	StorageDir   string        `json:"storage_dir"`
-	StartTime    time.Time     `json:"start_time"`
-	EndTime      time.Time     `json:"end_time"`
-	ReplaySpeed  float64       `json:"replay_speed"`
-	SamplingRate int           `json:"sampling_rate"`
+	StorageDir   string    `json:"storage_dir"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+	ReplaySpeed  float64   `json:"replay_speed"`
+	SamplingRate int       `json:"sampling_rate"`
 }
 
 // NewTimeWindowProcessor creates a new time window processor
 func NewTimeWindowProcessor(config TimeWindowConfig) *TimeWindowProcessor {
 	return &TimeWindowProcessor{
-		packetChan:      make(chan *Packet, 1000),
-		stopChan:        make(chan bool),
-		transitionChan:  make(chan string, 10),
-		seekChan:        make(chan time.Time, 10),
-		running:         false,
-		storageDir:      config.StorageDir,
-		startTime:       config.StartTime,
-		endTime:         config.EndTime,
-		replaySpeed:     config.ReplaySpeed,
-		currentIndex:    0,
-		currentOffset:   0,
+		packetChan:     make(chan *Packet, 1000),
+		stopChan:       make(chan bool),
+		transitionChan: make(chan string, 10),
+		seekChan:       make(chan time.Time, 10),
+		running:        false,
+		storageDir:     config.StorageDir,
+		startTime:      config.StartTime,
+		endTime:        config.EndTime,
+		replaySpeed:    config.ReplaySpeed,
+		currentIndex:   0,
+		currentOffset:  0,
 	}
 }
 
@@ -1128,7 +1129,7 @@ func (twp *TimeWindowProcessor) Start() error {
 		return fmt.Errorf("time window processor already running")
 	}
 
-	log.Printf("🕐 Starting time window processor: %s to %s (%.2fx speed)", 
+	log.Printf("🕐 Starting time window processor: %s to %s (%.2fx speed)",
 		twp.startTime.Format("15:04:05"), twp.endTime.Format("15:04:05"), twp.replaySpeed)
 
 	// Find all files spanning the time range
@@ -1158,11 +1159,11 @@ func (twp *TimeWindowProcessor) Stop() error {
 
 	twp.running = false
 	twp.stopChan <- true
-	
+
 	if twp.currentFile != nil {
 		twp.currentFile.Close()
 	}
-	
+
 	return nil
 }
 
@@ -1211,7 +1212,7 @@ func (twp *TimeWindowProcessor) fileSpansTimeWindow(filePath string) bool {
 	// Quick check: extract timestamp from filename if possible
 	// Format: capture_20240803_143000.pcap
 	basename := filepath.Base(filePath)
-	
+
 	// Try to parse timestamp from filename
 	if timeStr := twp.extractTimestampFromFilename(basename); timeStr != "" {
 		if fileTime, err := time.Parse("20060102_150405", timeStr); err == nil {
@@ -1301,13 +1302,13 @@ func (twp *TimeWindowProcessor) processTimeWindow() {
 			select {
 			case twp.packetChan <- packet:
 				packetCount++
-				
+
 				// Log progress
 				if packetCount%1000 == 0 {
 					elapsed := time.Since(twp.replayStartTime).Seconds()
 					rate := float64(packetCount) / elapsed
 					currentTime := time.Unix(packet.Timestamp/1000, 0)
-					log.Printf("🔥 TIME WINDOW: %d packets replayed (%.1f pps) - at %s", 
+					log.Printf("🔥 TIME WINDOW: %d packets replayed (%.1f pps) - at %s",
 						packetCount, rate, currentTime.Format("15:04:05"))
 				}
 			default:
@@ -1356,7 +1357,7 @@ func (twp *TimeWindowProcessor) readNextPacket() (*Packet, error) {
 
 	// Parse packet layers
 	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
-	
+
 	// Extract network layer
 	networkLayer := packet.NetworkLayer()
 	if networkLayer == nil {
@@ -1437,20 +1438,20 @@ func (twp *TimeWindowProcessor) transitionToNextFile() bool {
 // applyReplayTiming implements realistic timing for packet replay
 func (twp *TimeWindowProcessor) applyReplayTiming(packet *Packet) {
 	currentPacketTime := time.Unix(packet.Timestamp/1000, 0)
-	
+
 	if !twp.lastPacketTime.IsZero() && twp.replaySpeed > 0 {
 		// Calculate time difference from previous packet
 		timeDiff := currentPacketTime.Sub(twp.lastPacketTime)
-		
+
 		// Apply replay speed multiplier
 		adjustedDelay := time.Duration(float64(timeDiff) / twp.replaySpeed)
-		
+
 		// Don't sleep for very small delays
 		if adjustedDelay > time.Microsecond && adjustedDelay < time.Second {
 			time.Sleep(adjustedDelay)
 		}
 	}
-	
+
 	twp.lastPacketTime = currentPacketTime
 }
 
@@ -1466,7 +1467,7 @@ func (twp *TimeWindowProcessor) handleSeek(targetTime time.Time) {
 				log.Printf("Error opening file for seek: %v", err)
 				return
 			}
-			
+
 			// TODO: Implement precise seeking within file using packet timestamps
 			log.Printf("📍 Seeked to file: %s", filepath.Base(filePath))
 			break
@@ -1519,7 +1520,7 @@ func (d *DumpcapCapture) Start() error {
 	}
 
 	log.Printf("🚀 Starting dumpcap file monitoring in directory: %s", d.dumpcapDir)
-	
+
 	// Check if dumpcap directory exists
 	if _, err := os.Stat(d.dumpcapDir); os.IsNotExist(err) {
 		return fmt.Errorf("dumpcap directory does not exist: %s", d.dumpcapDir)
@@ -1538,14 +1539,14 @@ func (d *DumpcapCapture) Stop() error {
 
 	d.running = false
 	d.stopChan <- true
-	
+
 	if d.pcapHandle != nil {
 		d.pcapHandle.Close()
 	}
 	if d.fileWatcher != nil {
 		d.fileWatcher.Close()
 	}
-	
+
 	log.Printf("Stopped dumpcap file monitoring")
 	return nil
 }
@@ -1558,10 +1559,10 @@ func (d *DumpcapCapture) GetPacketChannel() <-chan *Packet {
 // monitorFiles continuously monitors for new dumpcap files and tails the latest one
 func (d *DumpcapCapture) monitorFiles() {
 	defer close(d.packetChan)
-	
+
 	ticker := time.NewTicker(1 * time.Second) // Check for new files every second
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-d.stopChan:
@@ -1572,7 +1573,7 @@ func (d *DumpcapCapture) monitorFiles() {
 				log.Printf("📂 Switching to new dumpcap file: %s", latestFile)
 				d.switchToFile(latestFile)
 			}
-			
+
 			// Read new packets from current file
 			if d.currentFile != "" {
 				d.readNewPackets()
@@ -1588,27 +1589,27 @@ func (d *DumpcapCapture) findLatestDumpcapFile() string {
 		log.Printf("Error globbing PCAP files: %v", err)
 		return ""
 	}
-	
+
 	if len(files) == 0 {
 		return ""
 	}
-	
+
 	// Find the most recently modified file
 	var latestFile string
 	var latestTime time.Time
-	
+
 	for _, file := range files {
 		info, err := os.Stat(file)
 		if err != nil {
 			continue
 		}
-		
+
 		if info.ModTime().After(latestTime) {
 			latestTime = info.ModTime()
 			latestFile = file
 		}
 	}
-	
+
 	return latestFile
 }
 
@@ -1623,10 +1624,10 @@ func (d *DumpcapCapture) switchToFile(filename string) {
 		d.fileWatcher.Close()
 		d.fileWatcher = nil
 	}
-	
+
 	d.currentFile = filename
 	d.lastPosition = 0
-	
+
 	// Open the new file for reading
 	var err error
 	d.fileWatcher, err = os.Open(filename)
@@ -1634,7 +1635,7 @@ func (d *DumpcapCapture) switchToFile(filename string) {
 		log.Printf("Failed to open dumpcap file %s: %v", filename, err)
 		return
 	}
-	
+
 	// Create PCAP handle for the file
 	d.pcapHandle, err = pcap.OpenOffline(filename)
 	if err != nil {
@@ -1643,7 +1644,7 @@ func (d *DumpcapCapture) switchToFile(filename string) {
 		d.fileWatcher = nil
 		return
 	}
-	
+
 	log.Printf("✅ Successfully opened dumpcap file: %s", filename)
 }
 
@@ -1652,28 +1653,28 @@ func (d *DumpcapCapture) readNewPackets() {
 	if d.pcapHandle == nil {
 		return
 	}
-	
+
 	// Get current file size
 	info, err := d.fileWatcher.Stat()
 	if err != nil {
 		return
 	}
-	
+
 	currentSize := info.Size()
 	if currentSize <= d.lastPosition {
 		return // No new data
 	}
-	
+
 	// Read packets from the current position
 	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
-	
+
 	packetCount := 0
 	for {
 		packet, err := packetSource.NextPacket()
 		if err != nil {
 			break // End of current data
 		}
-		
+
 		// Process the packet (similar to real capture)
 		if processedPacket := d.processPacket(packet); processedPacket != nil {
 			select {
@@ -1685,15 +1686,15 @@ func (d *DumpcapCapture) readNewPackets() {
 				// Channel full, skip packet to avoid blocking
 			}
 		}
-		
+
 		// Limit packets per read cycle to avoid overwhelming
 		if packetCount >= 100 {
 			break
 		}
 	}
-	
+
 	d.lastPosition = currentSize
-	
+
 	if packetCount > 0 {
 		log.Printf("📊 Read %d new packets from dumpcap file", packetCount)
 	}
@@ -1712,16 +1713,16 @@ func (d *DumpcapCapture) processPacket(packet gopacket.Packet) *Packet {
 	if ipLayer == nil {
 		return nil
 	}
-	
+
 	ip, _ := ipLayer.(*layers.IPv4)
-	
+
 	// Extract IP addresses
 	srcIP := ip.SrcIP.String()
 	dstIP := ip.DstIP.String()
-	
+
 	// Extract ports and determine protocol
 	srcPort, dstPort, protocol := extractPortsAndProtocol(packet)
-	
+
 	// Create packet
 	return NewPacketWithPorts(
 		srcIP,
@@ -1740,18 +1741,18 @@ func extractPortsAndProtocol(packet gopacket.Packet) (int, int, string) {
 		tcp, _ := tcpLayer.(*layers.TCP)
 		return int(tcp.SrcPort), int(tcp.DstPort), ProtocolTCP
 	}
-	
+
 	// Check for UDP
 	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
 		udp, _ := udpLayer.(*layers.UDP)
 		return int(udp.SrcPort), int(udp.DstPort), ProtocolUDP
 	}
-	
+
 	// Check for ICMP
 	if packet.Layer(layers.LayerTypeICMPv4) != nil {
 		return 0, 0, ProtocolICMP
 	}
-	
+
 	// Default to "Other" for unknown protocols
 	return 0, 0, ProtocolOther
-} 
+}

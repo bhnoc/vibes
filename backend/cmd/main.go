@@ -314,7 +314,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				case <-time.After(100 * time.Millisecond):
+				case <-time.After(1 * time.Millisecond):
 					// No packet available from time window, continue
 				}
 			} else {
@@ -324,13 +324,13 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				case <-time.After(100 * time.Millisecond):
+				case <-time.After(1 * time.Millisecond):
 					// No packet available, continue
 				}
 			}
 			
 			if packetReceived && packet != nil {
-				if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) || rand.Intn(2) == 0 {
+				if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) || rand.Intn(10) < 9 { // Send 90% of packets instead of 50%
 					if packetJSON, err := packet.ToJSON(); err == nil {
 						select {
 						case client.send <- packetJSON:
