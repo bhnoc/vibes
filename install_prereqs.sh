@@ -3,7 +3,7 @@
 # VIBES Network Visualizer Prerequisites Installer
 # ====================================
 # This script installs all required dependencies for the VIBES project in WSL
-# - Go 1.19+
+# - Go 1.21+
 # - Node.js 16+
 # - libpcap development libraries
 # - And more...
@@ -15,27 +15,14 @@ set -o errexit # Exit immediately if a command exits with a non-zero status
 ######################################################################
 export PATH=$PATH:/usr/local/bin
 ######################################################################
-#Front-End config:
+#Source all dependancy versions:
+source requirements.conf
+######################################################################
+
+######################################################################
 export FE_NAME="vibes-network-visualizer"
 export FE_PRIVATE=true
 export FE_VERSION="0.1.0"
-######################################################################
-export GO_VER="1.24.4"
-export NODE_VER="16"
-export REACT_VER="18.2.0"
-export ZUSTAND_VER="4.1.1"
-export TYPES_REACT_VER="18.0.17"
-export TYPES_REACTDOM_VER="18.0.6"
-export VITEJS_REACT_VER="2.1.0"
-export AUTOPREFIXER_VER="10.4.12"
-export POSTCSS_VER="8.4.16"
-export TYPESCRIPT_VER="4.6.4"
-export TAILWINDCSS_VER="3.1.8"
-export VITE_VER="3.1.0"
-export VITETS_VER="3.5.0"
-export WEBSOCKET_VER="1.5.3"
-export GOPACKET_VER="1.1.19"
-export GO_RUN="1.21"
 ######################################################################
 
 # Print styled messages
