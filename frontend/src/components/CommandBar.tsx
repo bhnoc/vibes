@@ -6,7 +6,7 @@ export const CommandBar = () => {
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
-  const { addPinnedIP, removePinnedIP, pinnedIPs } = usePinStore();
+  const { addPinningRule, removePinningRule, pinningRules, clearAllPins } = usePinStore();
   const { nodes } = useNetworkStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -22,41 +22,24 @@ export const CommandBar = () => {
     let output = '';
 
     if (action === '/pin') {
-      const target = args[0];
-      if (target) {
-        if (target.startsWith('port:')) {
-          const port = parseInt(target.split(':')[1]);
-          if (!isNaN(port)) {
-            const nodesToPin = nodes.filter(node => node.ports.has(port));
-            nodesToPin.forEach(node => addPinnedIP(node.id));
-            output = `Pinned ${nodesToPin.length} nodes with port ${port}`;
-          }
-        } else {
-          addPinnedIP(target);
-          output = `Pinned IP: ${target}`;
-        }
+      const rule = args[0];
+      if (rule) {
+        addPinningRule(rule);
+        output = `Added pinning rule: ${rule}`;
       }
     } else if (action === '/unpin') {
-        const target = args[0];
-        if (target) {
-            if (target.startsWith('port:')) {
-            const port = parseInt(target.split(':')[1]);
-            if (!isNaN(port)) {
-                const nodesToUnpin = nodes.filter(node => node.ports.has(port));
-                nodesToUnpin.forEach(node => removePinnedIP(node.id));
-                output = `Unpinned ${nodesToUnpin.length} nodes with port ${port}`;
-            }
-            } else {
-            removePinnedIP(target);
-            output = `Unpinned IP: ${target}`;
-            }
+        const rule = args[0];
+        if (rule === 'clear') {
+            clearAllPins();
+            output = 'All pinning rules have been cleared.';
+        } else if (rule) {
+            removePinningRule(rule);
+            output = `Removed pinning rule: ${rule}`;
         }
-    } else if (action === '/pinned') {
-      output = `Pinned IPs: ${Array.from(pinnedIPs).join(', ')}`;
-    } else if (action === '/list' && args[0] === 'pinned') {
-        output = `Pinned IPs: ${Array.from(pinnedIPs).join(', ')}`;
+    } else if (action === '/pinned' || (action === '/list' && args[0] === 'pinned')) {
+      output = `Active pinning rules: ${Array.from(pinningRules).join(', ')}`;
     } else if (action === '/help') {
-      output = `Available commands: /pin [ip|port:number], /unpin [ip|port:number], /pinned, /list pinned, /help, /whoami`;
+      output = `Available commands: /pin [ip|cidr|range], /unpin [ip|cidr|range|clear], /pinned, /list pinned, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {
@@ -116,11 +99,10 @@ export const CommandBar = () => {
           type="text"
           value={command}
           onChange={handleCommandChange}
-          placeholder="Press '`' to focus. Eg: /pin 1.1.1.1, /unpin port:443"
+          placeholder="Press '`' to focus. Eg: /pin 1.1.1.1, /unpin 10.0.0.0/24"
           className="command-input"
         />
       </form>
     </div>
   );
 };
-

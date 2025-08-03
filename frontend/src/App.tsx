@@ -7,6 +7,7 @@ import { useSizeStore } from './stores/sizeStore'
 import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 import { logger } from './utils/logger'
+import { useWebSocketPinning } from './hooks/useWebSocketPinning'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -78,6 +79,7 @@ const LoadingFallback = () => (
 )
 
 export const App = memo(() => {
+  useWebSocketPinning()
   // Simple routing based on URL hash
   const [currentRoute, setCurrentRoute] = useState<string>(window.location.hash.slice(1) || 'main')
   

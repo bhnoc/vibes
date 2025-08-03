@@ -71,6 +71,10 @@ function getProtocolColor(protocol?: string): string {
   }
 }
 
+function lerp(start: number, end: number, amt: number): number {
+  return (1 - amt) * start + amt * end
+}
+
 
 // Generate packet-based color for connections
 function getPacketColor(sourceIp: string, targetIp: string, protocol?: string): string {
@@ -394,7 +398,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const centerX = viewportRef.current.width / 2;
         const centerY = viewportRef.current.height / 2;
         const angle = Math.random() * 2 * Math.PI;
-        const radius = Math.random() * 500;
+        const radius = 500 + Math.random() * 300; // Spawn between 500 and 800px radius
         
         const position = {
           x: centerX + Math.cos(angle) * radius,
@@ -485,24 +489,30 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // --- Physics Constants ---
     // These factors scale the user-friendly values from the store 
     // into numbers that work well with the physics simulation.
-    const PULL_SCALING = 0.00001;
+    const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
-    const DRIFT_AWAY_SCALING = 0.000001;
-    const INACTIVE_REMOVAL_SECONDS = 15;
-
-    const INACTIVE_TIME_SECONDS = 10;
+//   const DRIFT_AWAY_SCALING = 0.000001;
+    const INACTIVE_REMOVAL_SECONDS = 6000;
+    const INACTIVITY_START_TIME = 3000;
     const CENTER_PULL_STRENGTH = 0.0000002;
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;
     const centerY = viewportRef.current.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 200; // Remove nodes this far outside the viewport
+    const offscreenMargin = 200;
+
+    const connectedNodeIds = new Set<string>();
+    activeConnections.current.forEach(conn => {
+      if (now - conn.lastActive < connectionLifetime) {
+        connectedNodeIds.add(conn.sourceId);
+        connectedNodeIds.add(conn.targetId);
+      }
+    });
 
     // Apply forces
     activeNodes.current.forEach(node => {
       if (isPined(node.id)) {
-        // Move pinned nodes to their anchor positions
         if (!pinnedNodePositions.current.has(node.id)) {
           const x = viewportRef.current.width - 100;
           const y = (pinnedNodePositions.current.size * 50) + 100;
@@ -515,32 +525,41 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         node.vy = 0;
         return;
       }
-      // Check for removal conditions first
-      const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
-      const isOffscreen = 
-        node.x < -offscreenMargin || 
+
+      const timeSinceActive = now - node.lastActive;
+
+      if (timeSinceActive > INACTIVE_REMOVAL_SECONDS * 1000) {
+        nodesToRemove.push(node.id);
+        return;
+      }
+
+      const isOffscreen =
+        node.x < -offscreenMargin ||
         node.x > viewportRef.current.width + offscreenMargin ||
         node.y < -offscreenMargin ||
         node.y > viewportRef.current.height + offscreenMargin;
 
-      if (isInactiveForRemoval || isOffscreen) {
+      if (isOffscreen) {
         nodesToRemove.push(node.id);
-        return; // Skip physics for nodes that are being removed
-      }
-      
-      const isInactive = (now - node.lastActive) > INACTIVE_TIME_SECONDS * 1000;
-      
-      if (isInactive) {
-        node.isDriftingAway = true;
+        return;
       }
 
-      // Only apply drift away force here. Center pull is handled with connections.
-      if (node.isDriftingAway) {
+      // Always apply drift unless the node is connected
+      if (!connectedNodeIds.has(node.id)) {
+        const driftForce = driftAwayStrength * 0.000001;
         const dx = node.x - centerX;
         const dy = node.y - centerY;
-        const driftForce = driftAwayStrength * DRIFT_AWAY_SCALING;
         node.vx += dx * driftForce * deltaTime;
         node.vy += dy * driftForce * deltaTime;
+      }
+      
+      // Handle fading for inactive nodes
+      if (timeSinceActive > INACTIVITY_START_TIME) {
+        const fadeDuration = (INACTIVE_REMOVAL_SECONDS * 1000) - INACTIVITY_START_TIME;
+        const fadeProgress = (timeSinceActive - INACTIVITY_START_TIME) / fadeDuration;
+        node.alpha = 1 - Math.min(1, fadeProgress);
+      } else {
+        node.alpha = 1; // Instantly restore alpha if it becomes active again
       }
     });
 
@@ -580,17 +599,38 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (source && target) {
         const isSourcePinned = isPined(source.id);
         const isTargetPinned = isPined(target.id);
-        
-        // 1. Spring force pulls nodes together
-        const dx = target.x - source.x;
-        const dy = target.y - source.y;
-        
-        const pullForce = (isSourcePinned || isTargetPinned) ? PINNED_PULL_SCALING : connectionPullStrength * PULL_SCALING;
+        const PULL_IN_SPEED = 0.1; // Aggressive pull-in
+        const ORBIT_DISTANCE = 30; // 30px orbit
 
-        source.vx += dx * pullForce * deltaTime;
-        source.vy += dy * pullForce * deltaTime;
-        target.vx -= dx * pullForce * deltaTime;
-        target.vy -= dy * pullForce * deltaTime;
+        if (isSourcePinned && !isTargetPinned) {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > ORBIT_DISTANCE) {
+            const targetX = source.x + (dx / distance) * ORBIT_DISTANCE;
+            const targetY = source.y + (dy / distance) * ORBIT_DISTANCE;
+            target.x = lerp(target.x, targetX, PULL_IN_SPEED);
+            target.y = lerp(target.y, targetY, PULL_IN_SPEED);
+          }
+        } else if (!isSourcePinned && isTargetPinned) {
+          const dx = source.x - target.x;
+          const dy = source.y - target.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > ORBIT_DISTANCE) {
+            const targetX = target.x + (dx / distance) * ORBIT_DISTANCE;
+            const targetY = target.y + (dy / distance) * ORBIT_DISTANCE;
+            source.x = lerp(source.x, targetX, PULL_IN_SPEED);
+            source.y = lerp(source.y, targetY, PULL_IN_SPEED);
+          }
+        } else {
+          const pullForce = connectionPullStrength * PULL_SCALING;
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          source.vx += dx * pullForce * deltaTime;
+          source.vy += dy * pullForce * deltaTime;
+          target.vx -= dx * pullForce * deltaTime;
+          target.vy -= dy * pullForce * deltaTime;
+        }
 
         // 2. Center pull for connected nodes
         const source_dx_center = centerX - source.x;
@@ -603,9 +643,17 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         target.vx += target_dx_center * CENTER_PULL_STRENGTH * deltaTime;
         target.vy += target_dy_center * CENTER_PULL_STRENGTH * deltaTime;
 
-        // When a connection is active, stop drifting
-        if (source.isDriftingAway) source.isDriftingAway = false;
-        if (target.isDriftingAway) target.isDriftingAway = false;
+        // When a connection is active, stop drifting and reset velocity
+        if (source.isDriftingAway) {
+          source.isDriftingAway = false;
+          source.vx = 0;
+          source.vy = 0;
+        }
+        if (target.isDriftingAway) {
+          target.isDriftingAway = false;
+          target.vx = 0;
+          target.vy = 0;
+        }
       }
     });
 

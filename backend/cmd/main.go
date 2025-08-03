@@ -5,74 +5,121 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/c-robinson/iplib"
 	"github.com/gorilla/websocket"
 	"vibes-network-visualizer/internal/capture"
 )
 
 const (
-	// Time allowed to write a message to the peer
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512
 )
 
 var (
-	addr     = flag.String("addr", ":8080", "http service address")
-	iface    = flag.String("iface", "", "network interface to capture (empty for simulated data)")
-	upgrader = websocket.Upgrader{
+	addr        = flag.String("addr", ":8080", "http service address")
+	iface       = flag.String("iface", "", "network interface to capture (empty for simulated data)")
+	pcapFile    = flag.String("pcap", "", "path to PCAP file for replay mode")
+	replaySpeed = flag.Float64("speed", 1.0, "replay speed multiplier (1.0 = real-time, 2.0 = 2x speed)")
+	upgrader    = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins for development
+			return true // Allow all origins
 		},
 	}
 )
 
-// Client represents a connected WebSocket client
 type Client struct {
-	conn         *websocket.Conn
-	send         chan []byte
-	disconnected chan struct{} // Channel to signal client disconnection
-	stopForwarder chan struct{} // Channel to signal packet forwarder to stop
+	conn          *websocket.Conn
+	send          chan []byte
+	disconnected  chan struct{}
+	stopForwarder chan struct{}
 }
 
-// ClientManager handles multiple client connections
 type ClientManager struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
+	clients       map[*Client]bool
+	broadcast     chan []byte
+	register      chan *Client
+	unregister    chan *Client
+	pinningRules  []string
+	rulesMutex    sync.RWMutex
 }
 
-// NewClientManager creates a new client manager
 func NewClientManager() *ClientManager {
 	return &ClientManager{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		clients:      make(map[*Client]bool),
+		broadcast:    make(chan []byte),
+		register:     make(chan *Client),
+		unregister:   make(chan *Client),
+		pinningRules: make([]string, 0),
 	}
 }
 
-// NewClient creates a new client
 func NewClient(conn *websocket.Conn) *Client {
 	return &Client{
-		conn:         conn,
-		send:         make(chan []byte, 256),
-		disconnected: make(chan struct{}), // Initialize the disconnected channel
-		stopForwarder: make(chan struct{}), // Initialize the stop forwarder channel
+		conn:          conn,
+		send:          make(chan []byte, 256),
+		disconnected:  make(chan struct{}),
+		stopForwarder: make(chan struct{}),
 	}
 }
 
-// Start begins the client manager process
+func (manager *ClientManager) isIPPinned(ipStr string) bool {
+	manager.rulesMutex.RLock()
+	defer manager.rulesMutex.RUnlock()
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	for _, rule := range manager.pinningRules {
+		if strings.Contains(rule, "/") { // CIDR
+			_, ipnet, err := net.ParseCIDR(rule)
+			if err == nil && ipnet.Contains(ip) {
+				return true
+			}
+		} else if strings.Contains(rule, "-") { // Range
+			parts := strings.Split(rule, "-")
+			startIPStr := parts[0]
+			endOctetStr := parts[1]
+
+			startIP := net.ParseIP(startIPStr)
+			if startIP == nil {
+				continue
+			}
+			
+			baseIPParts := strings.Split(startIPStr, ".")
+			if len(baseIPParts) != 4 {
+				continue
+			}
+			
+			endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endOctetStr)
+			endIP := net.ParseIP(endIPStr)
+			if endIP == nil {
+				continue
+			}
+
+			if iplib.CompareIPs(ip, startIP) >= 0 && iplib.CompareIPs(ip, endIP) <= 0 {
+				return true
+			}
+		} else { // Exact match
+			if ipStr == rule {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (manager *ClientManager) Start() {
 	for {
 		select {
@@ -82,11 +129,9 @@ func (manager *ClientManager) Start() {
 		case client := <-manager.unregister:
 			if _, ok := manager.clients[client]; ok {
 				delete(manager.clients, client)
-				// Signal the packet forwarder to stop first
 				close(client.stopForwarder)
-				// Give a brief moment for the forwarder to stop, then close send channel
 				go func() {
-					time.Sleep(50 * time.Millisecond) // Brief delay to let forwarder exit
+					time.Sleep(50 * time.Millisecond)
 					close(client.send)
 				}()
 				log.Printf("Client disconnected. Total clients: %d", len(manager.clients))
@@ -104,171 +149,148 @@ func (manager *ClientManager) Start() {
 	}
 }
 
-// Broadcast sends a message to all connected clients
-func (manager *ClientManager) Broadcast(message []byte) {
-	manager.broadcast <- message
-}
-
-// HandleWebSocket handles WebSocket connections
 func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Get interface parameter from URL
 	ifaceName := r.URL.Query().Get("interface")
-	
-	log.Printf("WebSocket connection request - interface parameter: '%s'", ifaceName)
-	
-	// Create appropriate capture system
+	pcapParam := r.URL.Query().Get("pcap")
+	speedParam := r.URL.Query().Get("speed")
+
 	var captureSystem capture.PacketCapture
-	var isRealCapture bool = false
-	var captureFailed bool = false
-	var captureErrorMsg string = ""
+	captureMode := "simulated"
 	
+	selectedPcapFile := *pcapFile
+	selectedReplaySpeed := *replaySpeed
+	selectedInterface := *iface
+
+	if pcapParam != "" {
+		selectedPcapFile = pcapParam
+	}
+	if speedParam != "" {
+		if speed, err := strconv.ParseFloat(speedParam, 64); err == nil && speed > 0 {
+			selectedReplaySpeed = speed
+		}
+	}
 	if ifaceName != "" {
-		log.Printf("Client requested real capture on interface: %s", ifaceName)
-		captureSystem = capture.NewRealCapture(ifaceName)
-		isRealCapture = true
-	} else {
-		log.Printf("Client using simulated capture")
-		captureSystem = capture.NewSimulatedCapture()
+		selectedInterface = ifaceName
 	}
 
-	// Start the capture
+	if selectedPcapFile != "" {
+		config := capture.PCAPReplayConfig{
+			FilePath:    selectedPcapFile,
+			ReplaySpeed: selectedReplaySpeed,
+		}
+		captureSystem = capture.NewPCAPReplayCapture(config)
+		captureMode = "pcap_replay"
+	} else if selectedInterface != "" {
+		captureSystem = capture.NewRealCapture(selectedInterface)
+		captureMode = "real"
+	} else {
+		captureSystem = capture.NewSimulatedCapture()
+		captureMode = "simulated"
+	}
+
+	// Try to start the capture with fallback handling
+	captureFailed := false
+	captureErrorMsg := ""
+	originalMode := captureMode
+	
 	if err := captureSystem.Start(); err != nil {
-		log.Printf("Failed to start capture: %v", err)
+		log.Printf("Failed to start %s capture: %v", captureMode, err)
+		captureFailed = true
+		captureErrorMsg = err.Error()
 		
-		if isRealCapture {
-			// For real capture failures, we'll set flags to notify the client
-			log.Printf("Real capture failed, will notify client via WS")
-			captureFailed = true
-			captureErrorMsg = err.Error()
-			
-			// Since real capture failed, fall back to simulation
-			log.Printf("Falling back to simulated capture")
-			captureSystem = capture.NewSimulatedCapture()
-			if err := captureSystem.Start(); err != nil {
-				// If even simulation fails, return error
-				http.Error(w, "Failed to start capture: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			
-			// Real capture failed, but we continue with simulation
-			log.Printf("*** FALLBACK TO SIMULATION (real capture failed) ***")
-		} else {
-			// For simulated mode, fail if even that doesn't work
+		// Fall back to simulation
+		log.Printf("Falling back to simulated capture")
+		captureSystem = capture.NewSimulatedCapture()
+		if err := captureSystem.Start(); err != nil {
 			http.Error(w, "Failed to start capture: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		captureMode = "simulated"
+		log.Printf("*** FALLBACK TO SIMULATION (%s failed) ***", originalMode)
 	} else {
-		// Log capture system type
-		if isRealCapture {
-			log.Printf("*** REAL CAPTURE ACTIVE on interface %s ***", ifaceName)
-		} else {
-			log.Printf("*** SIMULATION ACTIVE (not real traffic) ***")
+		// Log success based on mode
+		switch captureMode {
+		case "real":
+			log.Printf("*** 📡 REAL CAPTURE ACTIVE on interface %s ***", selectedInterface)
+		case "pcap_replay":
+			log.Printf("*** 🔥 PCAP REPLAY ACTIVE: %s (%.2fx speed) ***", selectedPcapFile, selectedReplaySpeed)
+		case "simulated":
+			log.Printf("*** 🎮 SIMULATION ACTIVE (synthetic traffic) ***")
 		}
 	}
-	
-	// Upgrade HTTP connection to WebSocket
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
-		captureSystem.Stop() // Stop the capture if we can't establish WebSocket
+		captureSystem.Stop()
 		return
 	}
 
 	client := NewClient(conn)
 	manager.register <- client
 
-	// Tell client what mode we're using (real or simulated)
+	// Send mode information to the client
 	var modeMessage []byte
-	
 	if captureFailed {
-		// If real capture failed, send clear error message
+		// Send error message with fallback info
 		modeMessage, _ = json.Marshal(map[string]interface{}{
 			"type": "mode",
-			"mode": "simulated",
-			"interface": ifaceName,
+			"mode": captureMode,
+			"interface": selectedInterface,
+			"pcapFile": selectedPcapFile,
+			"replaySpeed": selectedReplaySpeed,
 			"error": true,
 			"errorMsg": captureErrorMsg,
-			"requestedMode": "real",
+			"requestedMode": originalMode,
 		})
 	} else {
 		// Normal mode message
 		modeMessage, _ = json.Marshal(map[string]interface{}{
 			"type": "mode",
-			"mode": map[bool]string{true: "real", false: "simulated"}[isRealCapture],
-			"interface": ifaceName,
+			"mode": captureMode,
+			"interface": selectedInterface,
+			"pcapFile": selectedPcapFile,
+			"replaySpeed": selectedReplaySpeed,
 		})
 	}
 	client.send <- modeMessage
 
-	// Start packet forwarding for this client
-	packetForwarder := make(chan bool)
-	packetCount := 0
-	startTime := time.Now()
-	
 	go func() {
-		defer log.Printf("Packet forwarder exiting for %s", client.conn.RemoteAddr())
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Packet forwarder recovered from panic for %s: %v", client.conn.RemoteAddr(), r)
+				log.Printf("Packet forwarder recovered from panic: %v", r)
 			}
+			log.Printf("Packet forwarder exiting for %s", client.conn.RemoteAddr())
 		}()
 		
 		for packet := range captureSystem.GetPacketChannel() {
-			// Check if we should stop *before* trying to process/send
 			select {
 			case <-client.stopForwarder:
-				log.Printf("Packet forwarder received stop signal before processing packet for %s.", client.conn.RemoteAddr())
-				return
-			case <-packetForwarder:
-				log.Printf("Packet forwarder received manual stop signal before processing packet for %s.", client.conn.RemoteAddr())
 				return
 			default:
-				// Proceed
 			}
-
-			if packetJSON, err := packet.ToJSON(); err == nil {
-				// Try to send, but also listen for the stop signal concurrently
-				select {
-				case client.send <- packetJSON: // Attempt send
-					packetCount++
-					// Log packet info occasionally
-					if packetCount%100 == 0 {
-						elapsed := time.Since(startTime).Seconds()
-						rate := float64(packetCount) / elapsed
-						log.Printf("Forwarded %d packets (%.2f packets/sec) to %s - Last: %s->%s (%s)",
-							packetCount, rate, client.conn.RemoteAddr(), packet.Src, packet.Dst, packet.Protocol)
+			
+			if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) || rand.Intn(10) == 0 {
+				if packetJSON, err := packet.ToJSON(); err == nil {
+					select {
+					case client.send <- packetJSON:
+					case <-client.stopForwarder:
+						return
 					}
-				case <-client.stopForwarder:
-					log.Printf("Packet forwarder received stop signal while attempting to send to %s. Exiting.", client.conn.RemoteAddr())
-					return
-				case <-packetForwarder:
-					log.Printf("Packet forwarder received manual stop signal while attempting to send to %s. Exiting.", client.conn.RemoteAddr())
-					return
 				}
-			} else {
-				log.Printf("Error converting packet to JSON for client %s: %v", client.conn.RemoteAddr(), err)
 			}
 		}
-		log.Printf("Capture system channel closed for client %s.", client.conn.RemoteAddr())
 	}()
 
-	// Start client read/write pumps
 	go client.writePump(manager)
 	go client.readPump(manager)
 
-	// Wait for client to disconnect
 	<-client.disconnected
-	log.Printf("Client %s disconnected signal received in HandleWebSocket.", client.conn.RemoteAddr()) // Add log
-	close(packetForwarder)
-	log.Printf("Packet forwarder channel closed for %s.", client.conn.RemoteAddr()) // Add log
-	
-	// Stop the capture for this client
-	defer captureSystem.Stop()
+	captureSystem.Stop()
 }
 
-// writePump pumps messages from the hub to the websocket connection
 func (c *Client) writePump(manager *ClientManager) {
-	ticker := time.NewTicker(time.Second * 30)
+	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -278,28 +300,15 @@ func (c *Client) writePump(manager *ClientManager) {
 		select {
 		case message, ok := <-c.send:
 			if !ok {
-				// The manager closed the channel
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
-			// Send the message
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				log.Printf("Error writing message: %v", err)
 				return
 			}
-
-			// Process any additional messages in the queue
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				// Send each message separately
-				if err := c.conn.WriteMessage(websocket.TextMessage, <-c.send); err != nil {
-					log.Printf("Error writing queued message: %v", err)
-					return
-				}
-			}
 		case <-ticker.C:
-			// Send ping to keep connection alive
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -307,65 +316,103 @@ func (c *Client) writePump(manager *ClientManager) {
 	}
 }
 
-// readPump pumps messages from the WebSocket connection to the hub.
 func (c *Client) readPump(manager *ClientManager) {
 	defer func() {
 		manager.unregister <- c
 		c.conn.Close()
-		close(c.disconnected) // Signal that the client has disconnected
+		close(c.disconnected)
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
+	c.conn.SetPongHandler(func(string) error { 
+		c.conn.SetReadDeadline(time.Now().Add(pongWait)); 
+		return nil 
 	})
 
 	for {
-		_, _, err := c.conn.ReadMessage()
+		_, message, err := c.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
-			}
 			break
 		}
+		
+		var msg map[string]interface{}
+		if err := json.Unmarshal(message, &msg); err != nil {
+			continue
+		}
+
+		msgType, ok := msg["type"].(string)
+		if !ok {
+			continue
+		}
+
+		manager.rulesMutex.Lock()
+		switch msgType {
+		case "pinRule":
+			if rule, ok := msg["rule"].(string); ok {
+				manager.pinningRules = append(manager.pinningRules, rule)
+				log.Printf("Added pinning rule: %s", rule)
+			}
+		case "unpinRule":
+			if rule, ok := msg["rule"].(string); ok {
+				var newRules []string
+				for _, r := range manager.pinningRules {
+					if r != rule {
+						newRules = append(newRules, r)
+					}
+				}
+				manager.pinningRules = newRules
+				log.Printf("Removed pinning rule: %s", rule)
+			}
+		case "clearAllPins":
+			manager.pinningRules = make([]string, 0)
+			log.Printf("Cleared all pinning rules")
+		}
+		manager.rulesMutex.Unlock()
 	}
 }
 
 func main() {
 	flag.Parse()
 
+	// Show usage information if help is requested
+	if len(flag.Args()) > 0 && (flag.Args()[0] == "help" || flag.Args()[0] == "-help" || flag.Args()[0] == "--help") {
+		fmt.Println("VIBES Network Visualizer Backend")
+		fmt.Println("================================")
+		fmt.Println()
+		fmt.Println("Usage examples:")
+		fmt.Println("  Simulated mode:     go run main.go")
+		fmt.Println("  Real capture:       sudo go run main.go -iface eth0")
+		fmt.Println("  PCAP replay:        go run main.go -pcap /path/to/file.pcap")
+		fmt.Println("  PCAP replay 2x:     go run main.go -pcap /path/to/file.pcap -speed 2.0")
+		fmt.Println("  Custom port:        go run main.go -addr :9090")
+		fmt.Println()
+		fmt.Println("URL Parameters (override command line):")
+		fmt.Println("  ws://localhost:8080/ws?pcap=/path/file.pcap&speed=2.0")
+		fmt.Println("  ws://localhost:8080/ws?interface=eth0")
+		fmt.Println()
+		fmt.Printf("Available flags:\n")
+		flag.PrintDefaults()
+		return
+	}
+
+	log.Printf("🔥 Starting VIBES Backend Server")
+	
+	// Log the current configuration
+	if *pcapFile != "" {
+		log.Printf("📼 PCAP Replay Mode: %s (speed: %.2fx)", *pcapFile, *replaySpeed)
+	} else if *iface != "" {
+		log.Printf("📡 Real Capture Mode: interface %s", *iface)
+	} else {
+		log.Printf("🎮 Simulation Mode: generating synthetic traffic")
+	}
+
 	manager := NewClientManager()
 	go manager.Start()
 
-	// List available interfaces
-	interfaces, err := capture.ListInterfaces()
-	if err != nil {
-		log.Printf("Warning: Could not list network interfaces: %v", err)
-	} else {
-		log.Println("Available network interfaces:")
-		for _, iface := range interfaces {
-			log.Printf("- %s: %s", iface.Name, iface.Description)
-		}
-	}
-
-	// Set up HTTP handlers
 	http.HandleFunc("/ws", manager.HandleWebSocket)
-	
-	// Add endpoint to list network interfaces
 	http.HandleFunc("/api/interfaces", func(w http.ResponseWriter, r *http.Request) {
-		// Add CORS headers
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		
-		// Handle preflight OPTIONS request
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		
 		interfaces, err := capture.ListInterfaces()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -374,10 +421,6 @@ func main() {
 		json.NewEncoder(w).Encode(interfaces)
 	})
 
-	// Debug endpoint to show raw captured packets
-	http.HandleFunc("/debug/capture", handleDebugCapture)
-
-	// Serve static files
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "public/index.html")
 	})
@@ -387,186 +430,3 @@ func main() {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }
-
-// handleDebugCapture captures and displays raw packets from a specified interface
-func handleDebugCapture(w http.ResponseWriter, r *http.Request) {
-	// Get interface parameter from URL
-	ifaceName := r.URL.Query().Get("interface")
-	
-	if ifaceName == "" {
-		http.Error(w, "Please specify an interface with ?interface=<name>", http.StatusBadRequest)
-		return
-	}
-	
-	// Set headers for HTML response
-	w.Header().Set("Content-Type", "text/html")
-	
-	// Start HTML output
-	fmt.Fprintf(w, `
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>Debug Capture - %s</title>
-			<style>
-				body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
-				h1 { color: #0f0; }
-				.packet { margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 10px; }
-				.tcp { color: #0f0; }
-				.udp { color: #f0f; }
-				.icmp { color: #0ff; }
-				.error { color: #f00; }
-			</style>
-		</head>
-		<body>
-			<h1>Raw Packet Capture on Interface: %s</h1>
-			<div id="status">Starting capture...</div>
-			<div id="packets"></div>
-	`, ifaceName, ifaceName)
-	
-	// Create a flush function to ensure content gets to the browser
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-	
-	// Start the real capture
-	realCapture := capture.NewRealCapture(ifaceName)
-	
-	// Handle errors in starting capture
-	if err := realCapture.Start(); err != nil {
-		fmt.Fprintf(w, `<div class="error">ERROR: %s</div>`, err.Error())
-		fmt.Fprintf(w, `<div class="error">Real capture requires administrator/root privileges.</div>`)
-		fmt.Fprintf(w, `<div>Falling back to simulated capture for demonstration...</div>`)
-		
-		// Close the real capture if it was started
-		realCapture.Stop()
-		
-		// For debugging, show some simulated packets
-		simCapture := capture.NewSimulatedCapture()
-		simCapture.Start()
-		
-		// Show simulated packets
-		fmt.Fprintf(w, `<div style="background: #500; padding: 10px; margin: 10px 0; border: 1px solid #f00;">
-			<strong>⚠️ SHOWING SIMULATED DATA - NOT REAL NETWORK TRAFFIC ⚠️</strong>
-		</div>`)
-		
-		flusher.Flush()
-		
-		// Collect packets
-		packetCount := 0
-		packetChan := simCapture.GetPacketChannel()
-		
-		fmt.Fprintf(w, `<div id="packets">`)
-		for packetCount < 100 {
-			select {
-			case packet := <-packetChan:
-				packetJSON, _ := json.Marshal(packet)
-				
-				protocolClass := "other"
-				switch packet.Protocol {
-				case "TCP":
-					protocolClass = "tcp"
-				case "UDP":
-					protocolClass = "udp"
-				case "ICMP":
-					protocolClass = "icmp"
-				}
-				
-				fmt.Fprintf(w, `<div class="packet %s">
-					<div>Source: %s → Destination: %s</div>
-					<div>Protocol: %s, Size: %d bytes</div>
-					<div>Time: %s</div>
-					<pre>%s</pre>
-				</div>`,
-				protocolClass,
-				packet.Src, packet.Dst,
-				packet.Protocol, packet.Size,
-				time.Unix(packet.Timestamp, 0).Format("15:04:05.000"),
-				string(packetJSON))
-				
-				flusher.Flush()
-				packetCount++
-				
-			case <-time.After(5 * time.Second):
-				fmt.Fprintf(w, `<div class="error">Timeout waiting for packets</div>`)
-				flusher.Flush()
-				goto EndCapture
-			}
-		}
-		
-	EndCapture:
-		fmt.Fprintf(w, `</div>`)
-		simCapture.Stop()
-		
-		// End HTML
-		fmt.Fprintf(w, `
-			</body>
-			</html>
-		`)
-		return
-	}
-	
-	// Successfully started REAL capture
-	fmt.Fprintf(w, `<div id="status" style="color: #0f0; background: #050; padding: 10px; margin: 10px 0;">
-		✅ REAL CAPTURE ACTIVE - Showing actual network packets from %s
-	</div>`, ifaceName)
-	flusher.Flush()
-	
-	// Collect packets
-	packetCount := 0
-	packetChan := realCapture.GetPacketChannel()
-	
-	fmt.Fprintf(w, `<div id="packets">`)
-	for packetCount < 100 {
-		select {
-		case packet := <-packetChan:
-			packetJSON, _ := json.Marshal(packet)
-			
-			protocolClass := "other"
-			switch packet.Protocol {
-			case "TCP":
-				protocolClass = "tcp"
-			case "UDP":
-				protocolClass = "udp"
-			case "ICMP":
-				protocolClass = "icmp"
-			}
-			
-			fmt.Fprintf(w, `<div class="packet %s">
-				<div>Source: %s → Destination: %s</div>
-				<div>Protocol: %s, Size: %d bytes</div>
-				<div>Time: %s</div>
-				<pre>%s</pre>
-			</div>`,
-			protocolClass,
-			packet.Src, packet.Dst,
-			packet.Protocol, packet.Size,
-			time.Unix(packet.Timestamp, 0).Format("15:04:05.000"),
-			string(packetJSON))
-			
-			flusher.Flush()
-			packetCount++
-			
-		case <-time.After(10 * time.Second):
-			if packetCount == 0 {
-				fmt.Fprintf(w, `<div class="error">No packets received after 10 seconds. Your interface may be inactive or filtering packets.</div>`)
-			} else {
-				fmt.Fprintf(w, `<div>Capture complete: received %d packets</div>`, packetCount)
-			}
-			flusher.Flush()
-			goto EndRealCapture
-		}
-	}
-	
-EndRealCapture:
-	fmt.Fprintf(w, `</div>`)
-	realCapture.Stop()
-	
-	// End HTML
-	fmt.Fprintf(w, `
-		</body>
-		</html>
-	`)
-} 
-
