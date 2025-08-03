@@ -313,6 +313,8 @@ export const usePacketProcessor = () => {
       unprocessedPackets.forEach(packet => {
         const sourceNode = packet.src;
         const targetNode = packet.dst;
+        const srcPort = packet.src_port;
+        const dstPort = packet.dst_port;
         
         // Track the latest timestamp we've processed
         const packetTime = packet.timestamp || 0;
@@ -330,7 +332,7 @@ export const usePacketProcessor = () => {
         const existingSourceNode = allNodesForCollision.find(n => n.id === sourceNode);
         if (existingSourceNode) {
           logger.log(`⚡ UPDATING activity for existing source: ${sourceNode} at (${existingSourceNode.x}, ${existingSourceNode.y})`);
-          updateNodeActivity(sourceNode);
+          updateNodeActivity(sourceNode, srcPort);
         } else {
           logger.log(`➕ CREATING new source node: ${sourceNode}`);
           const desiredPosition = generatePosition(sourceNode, currentNodes);
@@ -352,7 +354,8 @@ export const usePacketProcessor = () => {
             y: collisionFreePosition.y,
             size: 10,
             lastActive: now,
-            packetSource: (packet as PacketWithSource).source
+            packetSource: (packet as PacketWithSource).source,
+            ports: new Set(srcPort ? [srcPort] : [])
           };
           addOrUpdateNode(newNode);
           nodesAddedThisBatch.push(newNode); // Track for collision detection
@@ -367,7 +370,7 @@ export const usePacketProcessor = () => {
         const existingTargetNode = updatedNodesForCollision.find(n => n.id === targetNode);
         if (existingTargetNode) {
           logger.log(`⚡ UPDATING activity for existing target: ${targetNode} at (${existingTargetNode.x}, ${existingTargetNode.y})`);
-          updateNodeActivity(targetNode);
+          updateNodeActivity(targetNode, dstPort);
         } else {
           logger.log(`➕ CREATING new target node: ${targetNode}`);
           const desiredPosition = generatePosition(targetNode, currentNodes);
@@ -384,7 +387,8 @@ export const usePacketProcessor = () => {
             y: collisionFreePosition.y,
             size: 10,
             lastActive: now,
-            packetSource: (packet as PacketWithSource).source
+            packetSource: (packet as PacketWithSource).source,
+            ports: new Set(dstPort ? [dstPort] : [])
           };
           addOrUpdateNode(newNode);
           nodesAddedThisBatch.push(newNode); // Track for collision detection
@@ -407,7 +411,9 @@ export const usePacketProcessor = () => {
           timestamp: packet.timestamp,
           packetSource: (packet as PacketWithSource).source,
           packetColor: packetColor,
-          lastActive: now
+          lastActive: now,
+          srcPort: srcPort,
+          dstPort: dstPort
         });
         
         // Track packet source for debugging

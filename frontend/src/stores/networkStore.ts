@@ -17,6 +17,7 @@ export interface Node {
   type?: string;
   packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
   packetColor?: string; // Color based on the packet that created this connection
+  ports: Set<number>;
 }
 
 export interface Connection {
@@ -29,6 +30,8 @@ export interface Connection {
   lastActive: number; // Timestamp of last activity
   packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
   packetColor?: string; // Color based on the packet that created this connection
+  srcPort?: number;
+  dstPort?: number;
 }
 
 interface NetworkState {
@@ -240,13 +243,18 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   connections: [],
   
   // DIRECT method to update node activity - bypasses batching
-  updateNodeActivity: (nodeId: string) => {
+  updateNodeActivity: (nodeId: string, port?: number) => {
     const now = Date.now();
     set((state) => {
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex !== -1) {
         const updatedNodes = [...state.nodes];
-        updatedNodes[nodeIndex] = { ...updatedNodes[nodeIndex], lastActive: now };
+        const existingNode = updatedNodes[nodeIndex];
+        const updatedPorts = new Set(existingNode.ports);
+        if (port) {
+          updatedPorts.add(port);
+        }
+        updatedNodes[nodeIndex] = { ...existingNode, lastActive: now, ports: updatedPorts };
         logger.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
         return { ...state, nodes: updatedNodes };
       }
@@ -264,20 +272,25 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       const nodeIndex = state.nodes.findIndex((n) => n.id === node.id);
       if (nodeIndex !== -1) {
         const updatedNodes = [...state.nodes];
-        updatedNodes[nodeIndex] = node;
+        const existingNode = updatedNodes[nodeIndex];
+        const mergedPorts = new Set([...(existingNode.ports || []), ...(node.ports || [])]);
+        updatedNodes[nodeIndex] = { ...existingNode, ...node, ports: mergedPorts };
         return { ...state, nodes: updatedNodes };
       } else {
         totalNodesAdded++;
         
+        // Ensure new nodes have an initialized ports set
+        const newNode = { ...node, ports: new Set(node.ports || []) };
+
         // Check if we're approaching the max node count
         if (state.nodes.length >= MAX_NODES) {
           // Perform pruning to make room for new node
           const prunedNodes = pruneOldestNodes(state.nodes);
-          return { ...state, nodes: [...prunedNodes, node] };
+          return { ...state, nodes: [...prunedNodes, newNode] };
         }
         
         // Otherwise just add the new node
-        return { ...state, nodes: [...state.nodes, node] };
+        return { ...state, nodes: [...state.nodes, newNode] };
       }
     });
   }, 10), // Throttle to 10ms to prevent too many updates
