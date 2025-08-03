@@ -364,4 +364,51 @@ body {
   0% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
   50% { box-shadow: 0 0 30px rgba(255, 0, 0, 0.8); }
   100% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
-} 
+}
+
+/* Command Bar */
+.command-bar-container {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  margin-left: 20px;
+}
+
+.command-input {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #00ff00;
+  color: #00ff00;
+  padding: 5px 10px;
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  width: 100%;
+  max-width: 600px;
+  outline: none;
+}
+
+.command-input::placeholder {
+  color: rgba(0, 255, 0, 0.5);
+}
+
+.console-output {
+  position: absolute;
+  bottom: 36px; /* Position above status bar */
+  left: 0;
+  right: 0;
+  height: 200px; /* Max height for 10 lines */
+  background: rgba(0, 0, 0, 0.85);
+  border-top: 1px solid #00ff00;
+  padding: 10px;
+  overflow-y: auto;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1.2;
+  z-index: 998;
+}
+
+.console-output div {
+  margin-bottom: 5px;
+}
+
+ 

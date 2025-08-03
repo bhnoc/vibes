@@ -20,17 +20,21 @@ import { PerformanceTestData } from './components/PerformanceTestData'
 const StatsPanel = lazy(() => import('./components/StatsPanel').then(module => ({ default: module.StatsPanel })))
 const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module => ({ default: module.IPDebugPage })))
 
+import { CommandBar } from './components/CommandBar';
+
 // Status bar component with active panel
 const StatusBar = memo(({ status, error }: { status: string; error: string | null }) => {
   const { nodes, connections } = useNetworkStore();
   const { packets } = usePacketStore();
   
   return (
-    <div className="status-bar" style={{ zIndex: 999 }}> {/* FIXED: Lower z-index so text isn't covered */}
+    <div className="status-bar" style={{ zIndex: 999, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
         <span className={`status ${status}`}>{status}</span>
         {error && <span className="error">{error}</span>}
       </div>
+      <CommandBar />
+      
       
       {/* Active Panel - Shows current network activity */}
       <div style={{ 

@@ -4,6 +4,7 @@ import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
+import { usePinStore } from '../stores/pinStore'
 import { logger } from '../utils/logger'
 import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
@@ -213,6 +214,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const { packets } = usePacketStore()
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
+  const { isPined } = usePinStore()
   const { nodeSpacing } = usePhysicsStore()
   const {
     connectionPullStrength,
@@ -496,6 +498,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Apply forces
     activeNodes.current.forEach(node => {
+      if (isPined(node.id)) {
+        return; // Skip physics for pinned nodes
+      }
       // Check for removal conditions first
       const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
       const isOffscreen = 
@@ -781,6 +786,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.beginPath()
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
+
+      if (isPined(node.id)) {
+        ctx.strokeStyle = '#FFFF00'; // Yellow highlight for pinned nodes
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       
       // Add border for better visibility
       ctx.strokeStyle = `rgba(${pr}, ${pg}, ${pb}, ${node.alpha})`
