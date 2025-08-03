@@ -75,6 +75,18 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   const renderCount = useRef(0);
   const lastRenderTime = useRef(Date.now());
   const [renderWarning, setRenderWarning] = useState<string>('');
+  const [stickyRenderWarning, setStickyRenderWarning] = useState<string>('');
+
+  useEffect(() => {
+    if (renderWarning) {
+      setStickyRenderWarning(renderWarning);
+      const timer = setTimeout(() => {
+        setStickyRenderWarning('');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [renderWarning]);
+
 
   // Update WebSocket stats
   useEffect(() => {
@@ -302,7 +314,7 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
               📡 WebSocket Data Flow
             </div>
             
-            {renderWarning && (
+            {stickyRenderWarning && (
               <div style={{ 
                 color: '#ff4444', 
                 marginBottom: '8px', 
@@ -311,7 +323,7 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
                 borderRadius: '2px',
                 fontSize: '10px'
               }}>
-                {renderWarning}
+                {stickyRenderWarning}
               </div>
             )}
             

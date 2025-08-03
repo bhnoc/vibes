@@ -52,6 +52,25 @@ function hslToHex(h: number, s: number, l: number): string {
   return rgbToHex(r, g, b);
 }
 
+function getProtocolColor(protocol?: string): string {
+  if (!protocol) return '#CCCCCC'; // Default color for unknown protocols
+
+  switch (protocol.toLowerCase()) {
+    case 'tcp':
+      return '#00FF00'; // Green
+    case 'udp':
+      return '#FF00FF'; // Magenta
+    case 'icmp':
+      return '#00FFFF'; // Cyan
+    case 'http':
+    case 'https':
+      return '#FFA500'; // Orange
+    default:
+      return '#FFFFFF'; // White for other protocols
+  }
+}
+
+
 // Generate packet-based color for connections
 function getPacketColor(sourceIp: string, targetIp: string, protocol?: string): string {
   // Create a unique identifier from the packet's source and destination
@@ -121,6 +140,7 @@ interface RenderedNode {
   vy: number // Velocity Y
   radius: number
   color: string
+  highlightColor: string
   alpha: number
   lastActive: number
   isDriftingAway: boolean // State for drifting behavior
@@ -208,7 +228,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
-    () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
+    () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', highlightColor: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
     (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.isDriftingAway = false }
   ), [])
 
@@ -385,34 +405,39 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         renderedNode.lastActive = node.lastActive;
         const age = now - node.lastActive;
         const isActive = age < activeAge;
-        renderedNode.radius = isActive ? 10 : 6;
         
-        let nodeColor = '#00ff41'; // Default green
-      if (node.id.includes('.')) {
+        const latestConnection = connections
+          .filter(c => c.source === node.id || c.target === node.id)
+          .sort((a, b) => b.lastActive - a.lastActive)[0];
+
+        renderedNode.color = getProtocolColor(latestConnection?.protocol);
+
+        let highlightColor = '#00ff41'; // Default green
+        if (node.id.includes('.')) {
           const parts = node.id.split('.').map(Number);
-        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-            const [firstOctet, , , fourthOctet] = parts;
-          if (firstOctet === 192) {
-              nodeColor = '#0080ff'; // Blue for home networks
-          } else if (firstOctet === 10) {
-              nodeColor = '#ff00ff'; // Magenta for corporate
-          } else if (firstOctet === 172) {
-              nodeColor = '#ff4500'; // Orange for other private
-          } else if (firstOctet === 8 || firstOctet === 1) {
-              nodeColor = '#ffff00'; // Yellow for public DNS
+          if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+            const [firstOctet] = parts;
+            if (firstOctet === 192) {
+              highlightColor = '#0080ff'; // Blue for home networks
+            } else if (firstOctet === 10) {
+              highlightColor = '#ff00ff'; // Magenta for corporate
+            } else if (firstOctet === 172) {
+              highlightColor = '#ff4500'; // Orange for other private
+            } else if (firstOctet === 8 || firstOctet === 1) {
+              highlightColor = '#ffff00'; // Yellow for public DNS
             }
           }
         } else {
-            let hash = 0;
-            for (let i = 0; i < node.id.length; i++) {
-              hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
-              hash = hash & hash;
-            }
-            const hue = Math.abs(hash) % 360;
-            nodeColor = hslToHex(hue, 90, 60);
+          let hash = 0;
+          for (let i = 0; i < node.id.length; i++) {
+            hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
+            hash = hash & hash;
+          }
+          const hue = Math.abs(hash) % 360;
+          highlightColor = hslToHex(hue, 90, 60);
         }
         
-        renderedNode.color = nodeColor;
+        renderedNode.highlightColor = highlightColor;
         renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
         activeNodes.current.set(nodeId, renderedNode);
       }
@@ -745,23 +770,26 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Render nodes with enhanced IP address display
     nodesToRender.forEach(node => {
       // Use the enhanced node color system
-      const rgb = hexToRgb(node.color)
-      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65] // fallback to green
+      const protocolRgb = hexToRgb(node.color)
+      const highlightRgb = hexToRgb(node.highlightColor)
       
-      // Draw main node circle
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      const [pr, pg, pb] = protocolRgb ? [protocolRgb.r, protocolRgb.g, protocolRgb.b] : [204, 204, 204] // fallback to gray
+      const [hr, hg, hb] = highlightRgb ? [highlightRgb.r, highlightRgb.g, highlightRgb.b] : [0, 255, 65] // fallback to green
+
+      // Draw main node circle with protocol color
+      ctx.fillStyle = `rgba(${pr}, ${pg}, ${pb}, ${node.alpha})`
       ctx.beginPath()
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
       
       // Add border for better visibility
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+      ctx.strokeStyle = `rgba(${pr}, ${pg}, ${pb}, ${node.alpha})`
       ctx.lineWidth = 1
       ctx.stroke()
       
       // Add glow effect for active nodes (larger radius = more active)
       if (node.radius > 7) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.3})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha * 0.3})`
         ctx.beginPath()
         ctx.arc(node.x, node.y, node.radius * 1.5, 0, Math.PI * 2)
         ctx.fill()
@@ -769,7 +797,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       
       // Draw IP address label for nodes (if zoom is high enough)
       if (vp.zoom > 0.75 && node.id.includes('.')) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha * 0.9})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha * 0.9})`
         ctx.font = `${Math.max(8, 10 * vp.zoom)}px monospace`
         ctx.textAlign = 'center'
         
@@ -791,7 +819,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
         ctx.fillRect(node.x - textWidth/2 - 2, textY - 10, textWidth + 4, 12)
         
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
+        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha})`
         ctx.fillText(displayText, node.x, textY)
       }
     })

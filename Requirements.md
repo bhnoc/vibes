@@ -119,6 +119,13 @@ VIBES is a next-generation network visualization tool with retro-inspired aesthe
 - **Dependencies**: BR-005 (Backend threat detection)
 - **Technical Details**:
   - Color-coded threat level indicators (green/yellow/orange/red)
+- Node coloring is determined by the protocol of the most recent connection:
+  - TCP: Green
+  - UDP: Magenta
+  - ICMP: Cyan
+  - HTTP/HTTPS: Orange
+  - Other: White
+- The outer highlight color of a node is based on its IP address network range.
   - Threat severity visual representations (pulsing, borders, glow effects)
   - Threat particle effects for active threats
   - Integration with existing node rendering system
