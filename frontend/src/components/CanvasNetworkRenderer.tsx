@@ -7,43 +7,6 @@ import { usePhysicsStore } from '../stores/physicsStore'
 import { logger } from '../utils/logger'
 import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
-// Helper function to get a color based on protocol
-function getProtocolColor(protocol?: string): string {
-  if (!protocol) return '#ffffff'; // Default to white if no protocol
-  switch (protocol.toLowerCase()) {
-    case 'tcp':
-      return '#00ff00'; // Green
-    case 'udp':
-      return '#ff00ff'; // Magenta
-    case 'icmp':
-      return '#00ffff'; // Cyan
-    default:
-      return '#ffffff'; // White for others
-  }
-}
-
-function getNodeIpColor(nodeId: string): string {
-  if (nodeId.includes('.')) {
-    const parts = nodeId.split('.').map(Number);
-    if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-      const [firstOctet] = parts;
-      if (firstOctet === 192) return '#0080ff'; // Blue for home networks
-      if (firstOctet === 10) return '#ff00ff'; // Magenta for corporate
-      if (firstOctet === 172) return '#ff4500'; // Orange for other private
-      if (firstOctet === 8 || firstOctet === 1) return '#ffff00'; // Yellow for public DNS
-    }
-  }
-  // Fallback for non-IP nodes
-  let hash = 0;
-  for (let i = 0; i < nodeId.length; i++) {
-    hash = ((hash << 5) - hash) + nodeId.charCodeAt(i);
-    hash = hash & hash;
-  }
-  const hue = Math.abs(hash) % 360;
-  return hslToHex(hue, 90, 60);
-}
-
-
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -424,12 +387,32 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const isActive = age < activeAge;
         renderedNode.radius = isActive ? 10 : 6;
         
-        const protocolColor = getProtocolColor(node.lastProtocol);
-        const ipColor = getNodeIpColor(node.id);
+        let nodeColor = '#00ff41'; // Default green
+      if (node.id.includes('.')) {
+          const parts = node.id.split('.').map(Number);
+        if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+            const [firstOctet, , , fourthOctet] = parts;
+          if (firstOctet === 192) {
+              nodeColor = '#0080ff'; // Blue for home networks
+          } else if (firstOctet === 10) {
+              nodeColor = '#ff00ff'; // Magenta for corporate
+          } else if (firstOctet === 172) {
+              nodeColor = '#ff4500'; // Orange for other private
+          } else if (firstOctet === 8 || firstOctet === 1) {
+              nodeColor = '#ffff00'; // Yellow for public DNS
+            }
+          }
+        } else {
+            let hash = 0;
+            for (let i = 0; i < node.id.length; i++) {
+              hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
+              hash = hash & hash;
+            }
+            const hue = Math.abs(hash) % 360;
+            nodeColor = hslToHex(hue, 90, 60);
+        }
         
-        renderedNode.color = protocolColor;
-        // Store the IP-based color for the glow effect in a new property
-        (renderedNode as any).glowColor = ipColor;
+        renderedNode.color = nodeColor;
         renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
         activeNodes.current.set(nodeId, renderedNode);
       }
@@ -647,28 +630,53 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       if (!source || !target) return;
 
-      const connectionIsActive = now - conn.lastActive < connectionLifetime;
-      if (!connectionIsActive) return;
-
-      // Use the pre-calculated packet color for consistency
-      let strokeColor = conn.color;
-      let lineWidth = 1;
-
-      // Make very active connections more prominent
-      if (conn.alpha > 0.8) {
-        lineWidth += 1;
-      }
+      // Protocol-based colors and styles using stored protocol
+      let strokeColor = `rgba(0, 255, 255, ${conn.alpha})` // Default cyan
+      let lineWidth = 1
       
-      // Add protocol-specific styles for emphasis
       if (conn.protocol) {
-        switch (conn.protocol.toLowerCase()) {
+        const protocol = conn.protocol.toLowerCase();
+        // Debug log to see what protocols we're getting
+        if (verboseLogging && Math.random() < 0.01) { // Log 1% of connections to avoid spam
+          logger.log(`🎨 Connection protocol: ${protocol} for ${conn.sourceId} -> ${conn.targetId}`);
+        }
+        
+        switch (protocol) {
           case 'tcp':
-            lineWidth = Math.max(lineWidth, 2);
+            strokeColor = `rgba(0, 255, 0, ${conn.alpha})`; // Bright green for TCP
+            lineWidth = 3; // Thicker line
             break;
           case 'udp':
-            lineWidth = Math.max(lineWidth, 1.5);
+            strokeColor = `rgba(255, 0, 255, ${conn.alpha})`; // Bright magenta for UDP
+            lineWidth = 2; // Medium line
             break;
+          case 'icmp':
+            strokeColor = `rgba(255, 255, 0, ${conn.alpha})`; // Bright yellow for ICMP
+            lineWidth = 2; // Medium line
+            break;
+          case 'http':
+          case 'https':
+            strokeColor = `rgba(255, 165, 0, ${conn.alpha})`; // Orange for HTTP/HTTPS
+            lineWidth = 2;
+            break;
+          default:
+            strokeColor = `rgba(0, 255, 255, ${conn.alpha})`; // Cyan for others
+            lineWidth = 1;
+            // Log unknown protocols
+            if (verboseLogging && Math.random() < 0.05) {
+              logger.log(`🔍 Unknown protocol: ${protocol}`);
+            }
         }
+      } else {
+        // Debug: no protocol found
+        if (verboseLogging && Math.random() < 0.01) {
+          logger.log(`⚠️ No protocol found for connection ${conn.sourceId} -> ${conn.targetId}`);
+        }
+      }
+      
+      // Make very active connections more prominent regardless of protocol
+      if (conn.alpha > 0.8) {
+        lineWidth += 1;
       }
       
       ctx.strokeStyle = strokeColor
@@ -736,20 +744,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Render nodes with enhanced IP address display
     nodesToRender.forEach(node => {
-      const glowColor = (node as any).glowColor || node.color;
-      const rgb = hexToRgb(glowColor);
-      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65]; // fallback to green
+      // Use the enhanced node color system
+      const rgb = hexToRgb(node.color)
+      const [r, g, b] = rgb ? [rgb.r, rgb.g, rgb.b] : [0, 255, 65] // fallback to green
       
       // Draw main node circle
-      const mainRgb = hexToRgb(node.color);
-      const [mainR, mainG, mainB] = mainRgb ? [mainRgb.r, mainRgb.g, mainRgb.b] : [255, 255, 255];
-      ctx.fillStyle = `rgba(${mainR}, ${mainG}, ${mainB}, ${node.alpha})`;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
       ctx.beginPath()
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
       
       // Add border for better visibility
-      ctx.strokeStyle = `rgba(${mainR}, ${mainG}, ${mainB}, ${node.alpha})`
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${node.alpha})`
       ctx.lineWidth = 1
       ctx.stroke()
       

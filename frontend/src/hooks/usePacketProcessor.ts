@@ -330,7 +330,7 @@ export const usePacketProcessor = () => {
         const existingSourceNode = allNodesForCollision.find(n => n.id === sourceNode);
         if (existingSourceNode) {
           logger.log(`⚡ UPDATING activity for existing source: ${sourceNode} at (${existingSourceNode.x}, ${existingSourceNode.y})`);
-          updateNodeActivity(sourceNode, packet.protocol);
+          updateNodeActivity(sourceNode);
         } else {
           logger.log(`➕ CREATING new source node: ${sourceNode}`);
           const desiredPosition = generatePosition(sourceNode, currentNodes);
@@ -367,7 +367,7 @@ export const usePacketProcessor = () => {
         const existingTargetNode = updatedNodesForCollision.find(n => n.id === targetNode);
         if (existingTargetNode) {
           logger.log(`⚡ UPDATING activity for existing target: ${targetNode} at (${existingTargetNode.x}, ${existingTargetNode.y})`);
-          updateNodeActivity(targetNode, packet.protocol);
+          updateNodeActivity(targetNode);
         } else {
           logger.log(`➕ CREATING new target node: ${targetNode}`);
           const desiredPosition = generatePosition(targetNode, currentNodes);

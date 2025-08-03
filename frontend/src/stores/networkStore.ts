@@ -15,7 +15,6 @@ export interface Node {
   highlighted?: boolean;
   lastActive: number; // Timestamp of last activity
   type?: string;
-  lastProtocol?: string; // To color nodes based on the last seen protocol
   packetSource?: 'real' | 'simulated' | string // For identifying real vs simulated packets
   packetColor?: string; // Color based on the packet that created this connection
 }
@@ -241,20 +240,13 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   connections: [],
   
   // DIRECT method to update node activity - bypasses batching
-  updateNodeActivity: (nodeId: string, protocol?: string) => {
+  updateNodeActivity: (nodeId: string) => {
     const now = Date.now();
     set((state) => {
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex !== -1) {
         const updatedNodes = [...state.nodes];
-        const updatedNode = { 
-          ...updatedNodes[nodeIndex], 
-          lastActive: now 
-        };
-        if (protocol) {
-          updatedNode.lastProtocol = protocol;
-        }
-        updatedNodes[nodeIndex] = updatedNode;
+        updatedNodes[nodeIndex] = { ...updatedNodes[nodeIndex], lastActive: now };
         logger.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
         return { ...state, nodes: updatedNodes };
       }
