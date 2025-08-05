@@ -314,20 +314,18 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				default:
-					// No packet available from time window, tiny sleep to prevent CPU spinning
-					time.Sleep(10 * time.Microsecond)
+				case <-time.After(1 * time.Millisecond):
+					// No packet available from time window, continue
 				}
 			} else {
-				// Normal live capture mode - NO TIMEOUT, MAXIMUM SPEED!
+				// Normal live capture mode
 				select {
 				case packet = <-captureSystem.GetPacketChannel():
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				default:
-					// No packet available, tiny sleep to prevent CPU spinning
-					time.Sleep(10 * time.Microsecond)
+				case <-time.After(1 * time.Millisecond):
+					// No packet available, continue
 				}
 			}
 			
@@ -624,7 +622,7 @@ func launchDumpcapProcess(iface string, outputDir string) error {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	outputFile := filepath.Join(outputDir, fmt.Sprintf("dumpcap_%s_%s.pcap", iface, timestamp))
 
-	// Build dumpcap command - REVERT TO WORKING CONFIG
+	// Build dumpcap command
 	args := []string{
 		"-i", iface,
 		"-w", outputFile,

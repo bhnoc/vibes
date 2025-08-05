@@ -494,8 +494,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
 //   const DRIFT_AWAY_SCALING = 0.000001;
-    const INACTIVE_REMOVAL_MS = 4000;
-    const INACTIVITY_FADE_START_MS = 2000;
+    const INACTIVE_REMOVAL_SECONDS = 6000;
+    const INACTIVITY_START_TIME = 3000;
     const CENTER_PULL_STRENGTH = 0.0000002;
 
     const now = Date.now();
@@ -547,7 +547,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       const timeSinceActive = now - node.lastActive;
 
-      if (timeSinceActive > INACTIVE_REMOVAL_MS) {
+      if (timeSinceActive > INACTIVE_REMOVAL_SECONDS * 1000) {
         nodesToRemove.push(node.id);
         return;
       }
@@ -573,9 +573,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
       
       // Handle fading for inactive nodes
-      if (timeSinceActive > INACTIVITY_FADE_START_MS) {
-        const fadeDuration = INACTIVE_REMOVAL_MS - INACTIVITY_FADE_START_MS;
-        const fadeProgress = (timeSinceActive - INACTIVITY_FADE_START_MS) / fadeDuration;
+      if (timeSinceActive > INACTIVITY_START_TIME) {
+        const fadeDuration = (INACTIVE_REMOVAL_SECONDS * 1000) - INACTIVITY_START_TIME;
+        const fadeProgress = (timeSinceActive - INACTIVITY_START_TIME) / fadeDuration;
         node.alpha = 1 - Math.min(1, fadeProgress);
       } else {
         node.alpha = 1; // Instantly restore alpha if it becomes active again

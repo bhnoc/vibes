@@ -1498,7 +1498,7 @@ type DumpcapCapture struct {
 	currentFile  string
 	fileWatcher  *os.File
 	pcapHandle   *pcap.Handle
-	lastPacketCount int64
+	lastPosition int64
 	iface        string
 }
 
@@ -1560,7 +1560,7 @@ func (d *DumpcapCapture) GetPacketChannel() <-chan *Packet {
 func (d *DumpcapCapture) monitorFiles() {
 	defer close(d.packetChan)
 
-	ticker := time.NewTicker(1 * time.Millisecond) // Check for new packets every 1ms - back to working speed
+	ticker := time.NewTicker(1 * time.Second) // Check for new files every second
 	defer ticker.Stop()
 
 	for {
@@ -1626,7 +1626,7 @@ func (d *DumpcapCapture) switchToFile(filename string) {
 	}
 
 	d.currentFile = filename
-	d.lastPacketCount = 0
+	d.lastPosition = 0
 
 	// Open the new file for reading
 	var err error
@@ -1650,53 +1650,36 @@ func (d *DumpcapCapture) switchToFile(filename string) {
 
 // readNewPackets reads any new packets that have been appended to the current file
 func (d *DumpcapCapture) readNewPackets() {
-	if d.currentFile == "" {
+	if d.pcapHandle == nil {
 		return
 	}
 
 	// Get current file size
-	info, err := os.Stat(d.currentFile)
+	info, err := d.fileWatcher.Stat()
 	if err != nil {
 		return
 	}
 
 	currentSize := info.Size()
-	
-	log.Printf("🔍 DUMPCAP DEBUG: File size is %d bytes", currentSize)
-
-	// REOPEN the PCAP file fresh each time to avoid corruption issues
-	handle, err := pcap.OpenOffline(d.currentFile)
-	if err != nil {
-		log.Printf("Error reopening PCAP file: %v", err)
-		return
+	if currentSize <= d.lastPosition {
+		return // No new data
 	}
-	defer handle.Close()
 
-	// Create packet source from fresh handle
-	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	// Read packets from the current position
+	packetSource := gopacket.NewPacketSource(d.pcapHandle, d.pcapHandle.LinkType())
 
-	newPacketCount := int64(0)
-	packetsSkipped := int64(0)
-	
-	// Read ALL packets from file, skip ones we've already processed
+	packetCount := 0
 	for {
 		packet, err := packetSource.NextPacket()
 		if err != nil {
-			break // End of file
-		}
-		
-		packetsSkipped++
-		
-		// Skip packets we've already processed
-		if packetsSkipped <= d.lastPacketCount {
-			continue
+			break // End of current data
 		}
 
-		// This is a new packet - process it
+		// Process the packet (similar to real capture)
 		if processedPacket := d.processPacket(packet); processedPacket != nil {
 			select {
 			case d.packetChan <- processedPacket:
-				newPacketCount++
+				packetCount++
 			case <-d.stopChan:
 				return
 			default:
@@ -1704,17 +1687,16 @@ func (d *DumpcapCapture) readNewPackets() {
 			}
 		}
 
-		// Limit new packets per cycle
-		if newPacketCount >= 10000 {
+		// Limit packets per read cycle to avoid overwhelming
+		if packetCount >= 100 {
 			break
 		}
 	}
 
-	// Update our packet counter
-	d.lastPacketCount = packetsSkipped
+	d.lastPosition = currentSize
 
-	if newPacketCount > 0 {
-		log.Printf("📊 Read %d new packets from dumpcap file (total: %d)", newPacketCount, d.lastPacketCount)
+	if packetCount > 0 {
+		log.Printf("📊 Read %d new packets from dumpcap file", packetCount)
 	}
 }
 
