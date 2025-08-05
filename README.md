@@ -44,6 +44,7 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 - **Language:** Go 1.21
 - **Real-Time Communication:** WebSockets (Gorilla WebSocket v1.5.3)
 - **Packet Capture:** Real packet capture (gopacket v1.1.19) and comprehensive simulated traffic generation
+- **PCAP Replay:** Full support for replaying captured traffic from PCAP files at variable speeds.
 - **Network Processing:** Support for TCP, UDP, ICMP, and other protocols
 - **Testing:** Comprehensive simulation testing framework with automated scenarios
 
@@ -54,7 +55,7 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
   - **Minimal DOM** - Lightweight DOM renderer for smaller networks (<100 objects)
 - **State Management:** Zustand v4.1.1
 - **Styling:** TailwindCSS v3.1.8
-- **Additional Libraries:** React Icons, Lodash
+- **Additional Libraries:** React Icons, Lodash, Pixi.js
 - **Performance:** Object pooling, viewport optimization, and 60fps animation loops
 - **Development Tools:** Comprehensive debugging panels and performance monitoring
 
@@ -67,7 +68,6 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 │   ├── internal/         # Private application code
 │   │   └── capture/      # Packet capture implementations (packet.go)
 │   ├── go.mod & go.sum   # Go module definitions
-│   ├── test_results/     # Simulation testing results
 │   ├── test_simulation.sh # Automated simulation testing script
 │   ├── check_timestamps.sh # Testing utilities
 │   └── SIMULATION_TESTING.md # Comprehensive testing documentation
@@ -84,8 +84,6 @@ Visual Interface for Browsing Entities and Structures (VIBES). This next-generat
 │   ├── vite.config.ts    # Vite build configuration
 │   ├── tailwind.config.cjs # TailwindCSS configuration
 │   └── tsconfig.json     # TypeScript configuration
-├── data/                 # Runtime data directory
-├── logs/                 # Application logs
 ├── install_prereqs.ps1  # Windows installation script
 ├── install_prereqs.sh   # Linux/WSL installation script
 ├── install_wsl_prereqs.bat # WSL setup script
