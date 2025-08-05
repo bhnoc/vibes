@@ -71,6 +71,10 @@ function getProtocolColor(protocol?: string): string {
   }
 }
 
+function lerp(start: number, end: number, amt: number): number {
+  return (1 - amt) * start + amt * end
+}
+
 
 // Generate packet-based color for connections
 function getPacketColor(sourceIp: string, targetIp: string, protocol?: string): string {
@@ -151,6 +155,7 @@ interface RenderedConnection {
   alpha: number
   color: string
   protocol?: string
+  dstPort?: number
   lastActive: number
   sourceId: string
   targetId: string
@@ -238,8 +243,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   ), [])
 
   const connectionPool = useMemo(() => new ObjectPool<RenderedConnection>(
-    () => ({ alpha: 0, color: '', protocol: '', lastActive: 0, sourceId: '', targetId: '' }),
-    (conn) => { conn.alpha = 0; conn.lastActive = 0; conn.color = ''; conn.protocol = ''; conn.sourceId = ''; conn.targetId = '' }
+    () => ({ alpha: 0, color: '', protocol: '', dstPort: 0, lastActive: 0, sourceId: '', targetId: '' }),
+    (conn) => { conn.alpha = 0; conn.lastActive = 0; conn.color = ''; conn.protocol = ''; conn.dstPort = 0; conn.sourceId = ''; conn.targetId = '' }
   ), [])
 
   // Active rendered objects
@@ -394,7 +399,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const centerX = viewportRef.current.width / 2;
         const centerY = viewportRef.current.height / 2;
         const angle = Math.random() * 2 * Math.PI;
-        const radius = Math.random() * 500;
+        const radius = 500 + Math.random() * 300; // Spawn between 500 and 800px radius
         
         const position = {
           x: centerX + Math.cos(angle) * radius,
@@ -467,6 +472,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const renderedConn = connectionPool.acquire()
         renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
         renderedConn.protocol = conn.protocol
+        renderedConn.dstPort = conn.dstPort;
         const connectionAge = now - conn.lastActive;
         renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
         renderedConn.lastActive = conn.lastActive
@@ -485,62 +491,94 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // --- Physics Constants ---
     // These factors scale the user-friendly values from the store 
     // into numbers that work well with the physics simulation.
-    const PULL_SCALING = 0.00001;
+    const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
-    const DRIFT_AWAY_SCALING = 0.000001;
-    const INACTIVE_REMOVAL_SECONDS = 15;
-
-    const INACTIVE_TIME_SECONDS = 10;
+//   const DRIFT_AWAY_SCALING = 0.000001;
+    const INACTIVE_REMOVAL_SECONDS = 6000;
+    const INACTIVITY_START_TIME = 3000;
     const CENTER_PULL_STRENGTH = 0.0000002;
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;
     const centerY = viewportRef.current.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 200; // Remove nodes this far outside the viewport
+    const offscreenMargin = 200;
 
-    // Apply forces
-    activeNodes.current.forEach(node => {
-      if (isPined(node.id)) {
-        // Move pinned nodes to their anchor positions
-        if (!pinnedNodePositions.current.has(node.id)) {
-          const x = viewportRef.current.width - 100;
-          const y = (pinnedNodePositions.current.size * 50) + 100;
-          pinnedNodePositions.current.set(node.id, { x, y });
+    const connectedNodeIds = new Set<string>();
+    activeConnections.current.forEach(conn => {
+      if (now - conn.lastActive < connectionLifetime) {
+        connectedNodeIds.add(conn.sourceId);
+        connectedNodeIds.add(conn.targetId);
+      }
+    });
+
+      // --- Pinned Node Positioning ---
+      const renderedNodes = Array.from(activeNodes.current.values());
+      const pinnedNodes = renderedNodes.filter(node => isPined(node.id));
+      const sortedPinnedNodes = pinnedNodes.sort((a, b) => a.id.localeCompare(b.id));
+      
+      const NODES_PER_COLUMN = 18;
+      const COLUMN_SPACING = 200;
+      const NODE_SPACING_Y = 50;
+
+      sortedPinnedNodes.forEach((node, index) => {
+        const column = Math.floor(index / NODES_PER_COLUMN);
+        const rowIndex = index % NODES_PER_COLUMN;
+        
+        const x = viewportRef.current.width - 100 - (column * COLUMN_SPACING);
+        const y = 100 + (rowIndex * NODE_SPACING_Y);
+
+        pinnedNodePositions.current.set(node.id, { x, y });
+      });
+
+
+      // Apply forces
+      activeNodes.current.forEach(node => {
+        if (isPined(node.id)) {
+          const pos = pinnedNodePositions.current.get(node.id);
+          if (pos) {
+            node.x = pos.x;
+            node.y = pos.y;
+            node.vx = 0;
+            node.vy = 0;
+          }
+          return; // Skip other physics for pinned nodes
         }
-        const pos = pinnedNodePositions.current.get(node.id)!;
-        node.x = pos.x;
-        node.y = pos.y;
-        node.vx = 0;
-        node.vy = 0;
+
+      const timeSinceActive = now - node.lastActive;
+
+      if (timeSinceActive > INACTIVE_REMOVAL_SECONDS * 1000) {
+        nodesToRemove.push(node.id);
         return;
       }
-      // Check for removal conditions first
-      const isInactiveForRemoval = (now - node.lastActive) > INACTIVE_REMOVAL_SECONDS * 1000;
-      const isOffscreen = 
-        node.x < -offscreenMargin || 
+
+      const isOffscreen =
+        node.x < -offscreenMargin ||
         node.x > viewportRef.current.width + offscreenMargin ||
         node.y < -offscreenMargin ||
         node.y > viewportRef.current.height + offscreenMargin;
 
-      if (isInactiveForRemoval || isOffscreen) {
+      if (isOffscreen) {
         nodesToRemove.push(node.id);
-        return; // Skip physics for nodes that are being removed
-      }
-      
-      const isInactive = (now - node.lastActive) > INACTIVE_TIME_SECONDS * 1000;
-      
-      if (isInactive) {
-        node.isDriftingAway = true;
+        return;
       }
 
-      // Only apply drift away force here. Center pull is handled with connections.
-      if (node.isDriftingAway) {
+      // Always apply drift unless the node is connected
+      if (!connectedNodeIds.has(node.id)) {
+        const driftForce = driftAwayStrength * 0.000001;
         const dx = node.x - centerX;
         const dy = node.y - centerY;
-        const driftForce = driftAwayStrength * DRIFT_AWAY_SCALING;
         node.vx += dx * driftForce * deltaTime;
         node.vy += dy * driftForce * deltaTime;
+      }
+      
+      // Handle fading for inactive nodes
+      if (timeSinceActive > INACTIVITY_START_TIME) {
+        const fadeDuration = (INACTIVE_REMOVAL_SECONDS * 1000) - INACTIVITY_START_TIME;
+        const fadeProgress = (timeSinceActive - INACTIVITY_START_TIME) / fadeDuration;
+        node.alpha = 1 - Math.min(1, fadeProgress);
+      } else {
+        node.alpha = 1; // Instantly restore alpha if it becomes active again
       }
     });
 
@@ -580,17 +618,49 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (source && target) {
         const isSourcePinned = isPined(source.id);
         const isTargetPinned = isPined(target.id);
-        
-        // 1. Spring force pulls nodes together
-        const dx = target.x - source.x;
-        const dy = target.y - source.y;
-        
-        const pullForce = (isSourcePinned || isTargetPinned) ? PINNED_PULL_SCALING : connectionPullStrength * PULL_SCALING;
+        const PULL_IN_SPEED = 0.1; // Aggressive pull-in
+        const ORBIT_DISTANCE = 30; // 30px orbit
 
-        source.vx += dx * pullForce * deltaTime;
-        source.vy += dy * pullForce * deltaTime;
-        target.vx -= dx * pullForce * deltaTime;
-        target.vy -= dy * pullForce * deltaTime;
+        if (isSourcePinned && !isTargetPinned) {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > ORBIT_DISTANCE) {
+            const targetX = source.x + (dx / distance) * ORBIT_DISTANCE;
+            const targetY = source.y + (dy / distance) * ORBIT_DISTANCE;
+            target.x = lerp(target.x, targetX, PULL_IN_SPEED);
+            target.y = lerp(target.y, targetY, PULL_IN_SPEED);
+          }
+        } else if (!isSourcePinned && isTargetPinned) {
+          const dx = source.x - target.x;
+          const dy = source.y - target.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > ORBIT_DISTANCE) {
+            const targetX = target.x + (dx / distance) * ORBIT_DISTANCE;
+            const targetY = target.y + (dy / distance) * ORBIT_DISTANCE;
+            source.x = lerp(source.x, targetX, PULL_IN_SPEED);
+            source.y = lerp(source.y, targetY, PULL_IN_SPEED);
+          }
+        } else {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+          const restLength = 40; // The desired distance between connected nodes
+
+          const displacement = distance - restLength;
+          const pullForce = connectionPullStrength * PULL_SCALING;
+          
+          // Apply a spring-like force (F = -kx)
+          const forceMagnitude = displacement * pullForce * 0.1; // Using a smaller multiplier for stability
+          
+          const fx = (dx / distance) * forceMagnitude;
+          const fy = (dy / distance) * forceMagnitude;
+
+          source.vx += fx * deltaTime;
+          source.vy += fy * deltaTime;
+          target.vx -= fx * deltaTime;
+          target.vy -= fy * deltaTime;
+        }
 
         // 2. Center pull for connected nodes
         const source_dx_center = centerX - source.x;
@@ -603,9 +673,17 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         target.vx += target_dx_center * CENTER_PULL_STRENGTH * deltaTime;
         target.vy += target_dy_center * CENTER_PULL_STRENGTH * deltaTime;
 
-        // When a connection is active, stop drifting
-        if (source.isDriftingAway) source.isDriftingAway = false;
-        if (target.isDriftingAway) target.isDriftingAway = false;
+        // When a connection is active, stop drifting and reset velocity
+        if (source.isDriftingAway) {
+          source.isDriftingAway = false;
+          source.vx = 0;
+          source.vy = 0;
+        }
+        if (target.isDriftingAway) {
+          target.isDriftingAway = false;
+          target.vx = 0;
+          target.vy = 0;
+        }
       }
     });
 
@@ -734,34 +812,41 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.lineTo(target.x, target.y)
       ctx.stroke()
       
-      // Add arrow indicator for direction (if zoom is high enough)
+      // Add arrow indicator for direction and port/protocol info (if zoom is high enough)
       if (vp.zoom > 0.8) {
         const dx = target.x - source.x
         const dy = target.y - source.y
         const len = Math.sqrt(dx * dx + dy * dy)
         
         if (len > 20) {
-          // Calculate arrow position (75% along the line)
-          const arrowX = source.x + dx * 0.75
-          const arrowY = source.y + dy * 0.75
+          // Calculate midpoint for text
+          const midX = source.x + dx * 0.5
+          const midY = source.y + dy * 0.5
           
-          // Calculate arrow direction
-          const angle = Math.atan2(dy, dx)
-          const arrowSize = 6
+          // --- Draw Port and Protocol Text ---
+          const protocolText = (conn.protocol?.toUpperCase() || '???');
+          const portText = conn.dstPort > 0 ? `:${conn.dstPort}` : '';
+          const fullText = `${protocolText}${portText}`;
           
-          ctx.fillStyle = strokeColor
-          ctx.beginPath()
-          ctx.moveTo(arrowX, arrowY)
-          ctx.lineTo(
-            arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
-            arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
-          )
-          ctx.lineTo(
-            arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
-            arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
-          )
-          ctx.closePath()
-          ctx.fill()
+          ctx.font = `${Math.max(9, 11 * vp.zoom)}px monospace`;
+          const textWidth = ctx.measureText(fullText).width;
+
+          // Rotate context to draw text along the line
+          ctx.save();
+          ctx.translate(midX, midY);
+          ctx.rotate(Math.atan2(dy, dx));
+          
+          // Add background for readability
+          ctx.fillStyle = `rgba(0, 0, 0, 0.7)`;
+          ctx.fillRect(-textWidth / 2 - 2, -6, textWidth + 4, 12);
+
+          // Draw the text
+          ctx.fillStyle = `rgba(0, 255, 255, ${conn.alpha})`; // Bright blue for port number
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(fullText, 0, 0);
+          
+          ctx.restore();
         }
       }
     })

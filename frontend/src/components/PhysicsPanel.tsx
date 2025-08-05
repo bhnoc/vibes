@@ -81,7 +81,7 @@ export const PhysicsPanel: React.FC = () => {
           label="Connection Pull"
           value={connectionPullStrength * 100}
           min="0"
-          max="500"
+          max="1000"
           onChange={(v: number) => setConnectionPullStrength(v / 100)}
           displayValue={connectionPullStrength.toFixed(2)}
         />
@@ -97,7 +97,7 @@ export const PhysicsPanel: React.FC = () => {
           label="Damping"
           value={damping * 1000}
           min="0"
-          max="1000"
+          max="100"
           onChange={(v: number) => setDamping(v / 1000)}
           displayValue={damping.toFixed(3)}
         />

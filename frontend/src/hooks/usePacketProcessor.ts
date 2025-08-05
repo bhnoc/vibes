@@ -397,8 +397,7 @@ export const usePacketProcessor = () => {
         }
         
         // Add connection with packet-based color
-        const connectionId = packet.id || 
-          `${sourceNode}-${targetNode}-${packet.timestamp}-${Math.random().toString(36).substring(2, 7)}`;
+        const connectionId = `${sourceNode}-${targetNode}`;
         
         const packetColor = getPacketColor(sourceNode, targetNode, packet.protocol);
         

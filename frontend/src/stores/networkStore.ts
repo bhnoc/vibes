@@ -322,7 +322,14 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       if (connectionIndex !== -1) {
         // Update existing connection
         const updatedConnections = [...state.connections];
-        updatedConnections[connectionIndex] = connection;
+        const existingConnection = updatedConnections[connectionIndex];
+        // Smart merge: preserve port numbers if the new packet doesn't have them
+        updatedConnections[connectionIndex] = {
+          ...existingConnection,
+          ...connection,
+          srcPort: connection.srcPort || existingConnection.srcPort,
+          dstPort: connection.dstPort || existingConnection.dstPort,
+        };
         return { ...state, connections: updatedConnections };
       } else {
         // Add new connection (with pruning if needed)
@@ -349,7 +356,9 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     // Add the lastActive timestamp
     const fullConnection: Connection = {
       ...connection as Connection,
-      lastActive: now
+      lastActive: now,
+      srcPort: connection.srcPort,
+      dstPort: connection.dstPort
     };
     
     // Call the new function

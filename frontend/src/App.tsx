@@ -7,6 +7,7 @@ import { useSizeStore } from './stores/sizeStore'
 import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 import { logger } from './utils/logger'
+import { useWebSocketPinning } from './hooks/useWebSocketPinning'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -78,26 +79,57 @@ const LoadingFallback = () => (
 )
 
 export const App = memo(() => {
-  // Simple routing based on URL hash
-  const [currentRoute, setCurrentRoute] = useState<string>(window.location.hash.slice(1) || 'main')
-  
-  // Start with real capture mode by default, using the 'any' interface
-  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'waiting'>('real')
-  const [selectedInterface, setSelectedInterface] = useState<string>('any')
-  const [interfaces, setInterfaces] = useState<Array<{ name: string; description: string }>>([])
-  const [initialLoad, setInitialLoad] = useState(true)
-  
-  // State for the unified debug panel
-  const [currentRenderer, setCurrentRenderer] = useState<string>('canvas')
-  const [performanceTestData, setPerformanceTestData] = useState<{
-    enabled: boolean;
-    nodeCount: number;
-    connectionCount: number;
-  }>({ enabled: false, nodeCount: 2000, connectionCount: 3000 })
-  
+  // --- State Declarations ---
+  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'waiting'>('simulated');
+  const [interfaces, setInterfaces] = useState<{ name: string; description: string }[]>([]);
+  const [selectedInterface, setSelectedInterface] = useState<string>('');
+  const [currentRenderer, setCurrentRenderer] = useState('canvas');
+  const [currentRoute, setCurrentRoute] = useState(window.location.hash.slice(1) || 'main');
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
+  const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
+
+  useEffect(() => {
+    if (captureMode !== 'waiting') {
+      setShowSettings(false);
+    }
+  }, [captureMode]);
+
+  // --- Store Hooks ---
   const { packets, clearPackets } = usePacketStore()
   const { clearNetwork } = useNetworkStore()
   const { setSize } = useSizeStore()
+
+
+  // WebSocket connection
+  const wsUrl = useMemo(() => {
+    // Only create a WebSocket URL if we're not in waiting mode
+    if (captureMode === 'waiting') {
+      logger.log('In waiting mode, not connecting to any WebSocket');
+      return null;
+    }
+    
+    // Get host from environment variables or fall back to localhost
+    const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
+    const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
+    
+    if (captureMode === 'real') {
+      // Real mode - include interface parameter only if one is explicitly selected
+      if (selectedInterface) {
+        return `ws://${wsHost}:${wsPort}/ws?interface=${selectedInterface}`;
+      } else {
+        return `ws://${wsHost}:${wsPort}/ws`; // Let backend use command line interface
+      }
+    } else if (captureMode === 'simulated') {
+      // Only connect to simulation if explicitly in simulation mode
+      return `ws://${wsHost}:${wsPort}/ws`;
+    } else {
+      // Return null to prevent any connection when not ready
+      return null;
+    }
+  }, [captureMode, selectedInterface]);
+  
+  useWebSocketPinning(wsUrl);
   
   // Handle hash-based routing
   useEffect(() => {
@@ -275,30 +307,6 @@ export const App = memo(() => {
     fetchInterfaces();
   }, [captureMode]);
   
-  // WebSocket connection
-  const wsUrl = useMemo(() => {
-    // Only create a WebSocket URL if we're not in waiting mode
-    if (captureMode === 'waiting') {
-      logger.log('In waiting mode, not connecting to any WebSocket');
-      return null;
-    }
-    
-    // Get host from environment variables or fall back to localhost
-    const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
-    const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
-    
-    if (captureMode === 'real' && selectedInterface) {
-      // Real mode with selected interface
-      return `ws://${wsHost}:${wsPort}/ws?interface=${selectedInterface}`;
-    } else if (captureMode === 'simulated') {
-      // Only connect to simulation if explicitly in simulation mode
-      return `ws://${wsHost}:${wsPort}/ws`;
-    } else {
-      // Return null to prevent any connection when not ready
-      return null;
-    }
-  }, [captureMode, selectedInterface]);
-  
   logger.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
   
   // Always call useWebSocket, but it won't connect if url is null
@@ -435,7 +443,25 @@ export const App = memo(() => {
         captureMode: actualCaptureMode !== 'unknown' ? actualCaptureMode : captureMode,
         captureInterface: selectedInterface 
       }}>
-        {/* Route navigation */}
+        {/* Route navigation & Settings Button */}
+        <div style={{
+          position: 'fixed',
+          top: '10px',
+          left: '10px',
+          zIndex: 1000,
+          display: 'flex',
+          gap: '10px'
+        }}>
+          {!showSettings && (
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="settings-button"
+            >
+              Settings
+            </button>
+          )}
+        </div>
+
         <div style={{
           position: 'fixed',
           top: '10px',
@@ -476,17 +502,20 @@ export const App = memo(() => {
               {memoizedRenderer}
             </div>
             
-            <div className="sidebar">
-              <div className="sidebar-section">
-                <SettingsPanel 
-                  captureMode={captureMode}
-                  onCaptureModeChange={handleCaptureModeChange} 
-                  interfaces={interfaces}
-                  selectedInterface={selectedInterface}
-                  onInterfaceSelect={handleInterfaceSelect}
-                />
+            {showSettings && (
+              <div className="sidebar">
+                <div className="sidebar-section">
+                  <SettingsPanel 
+                    captureMode={captureMode}
+                    onCaptureModeChange={handleCaptureModeChange} 
+                    interfaces={interfaces}
+                    selectedInterface={selectedInterface}
+                    onInterfaceSelect={handleInterfaceSelect}
+                    onMinimize={() => setShowSettings(false)}
+                  />
+                </div>
               </div>
-            </div>
+            )}
             
             {/* Performance Test Data Generator */}
             <PerformanceTestData 

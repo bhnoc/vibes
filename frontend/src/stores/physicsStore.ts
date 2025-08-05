@@ -18,11 +18,11 @@ export interface PhysicsSettings {
 }
 
 const defaultPhysics = {
-    connectionPullStrength: 5.00,
+    connectionPullStrength: 1.30,
     collisionRepulsion: 1.25,
-    damping: 0.095,
-    connectionLifetime: 2000,
-    nodeSpacing: 135,
+    damping: 0.06,
+    connectionLifetime: 1200,
+    nodeSpacing: 150,
     driftAwayStrength: 3.0,
 }
 
