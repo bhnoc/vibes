@@ -59,7 +59,7 @@ interface NetworkState {
 }
 
 // Constants for node expiration - per user requirement: 30 seconds of no packets
-const NODE_EXPIRATION_TIME = 30000; // 30 seconds of inactivity before node starts fading
+const NODE_EXPIRATION_TIME = 6000; // 6 seconds of inactivity before node starts fading
 const CONNECTION_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before connection removal as requested
 
 // OPTIMIZED LIMITS: Set to 500 nodes as requested for performance
