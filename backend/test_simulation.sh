@@ -72,7 +72,7 @@ test_long_duration_websocket() {
 const WebSocket = require('ws');
 const fs = require('fs');
 
-const ws = new WebSocket('ws://localhost:${BACKEND_PORT}/ws'); // No interface param = simulation mode
+const ws = new WebSocket('ws://localhost:${BACKEND_PORT}/ws?interface=simulation'); // Force simulation mode
 const packets = [];
 let packetCount = 0;
 let modeConfirmed = false;

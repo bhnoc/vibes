@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/rand"
+	// "math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -26,24 +26,63 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512
+	flowTimeout    = 60 * time.Second
 )
 
 var (
-	addr        = flag.String("addr", ":8080", "http service address")
-	iface       = flag.String("iface", "", "network interface to capture (empty for simulated data)")
-	pcapFile    = flag.String("pcap", "", "path to PCAP file for replay mode")
-	replaySpeed = flag.Float64("speed", 1.0, "replay speed multiplier (1.0 = real-time, 2.0 = 2x speed)")
-	storageDir  = flag.String("storage", "/data/pcaps", "directory containing PCAP archives for time window playback")
-	useDumpcap  = flag.Bool("dumpcap", false, "use external dumpcap for high-performance capture (requires dumpcap to be running)")
-	dumpcapDir  = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
+	addr          = flag.String("addr", ":8080", "http service address")
+	iface         = flag.String("iface", "", "network interface to capture (empty for simulated data)")
+	pcapFile      = flag.String("pcap", "", "path to PCAP file for replay mode")
+	replaySpeed   = flag.Float64("speed", 1.0, "replay speed multiplier (1.0 = real-time, 2.0 = 2x speed)")
+	storageDir    = flag.String("storage", "/data/pcaps", "directory containing PCAP archives for time window playback")
+	useDumpcap    = flag.Bool("dumpcap", false, "use external dumpcap for high-performance capture (requires dumpcap to be running)")
+	dumpcapDir    = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
 	launchDumpcap = flag.Bool("launch-dumpcap", false, "automatically launch dumpcap process if not running")
-	upgrader    = websocket.Upgrader{
+	upgrader      = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins
 		},
 	}
 )
 
+// Flow represents a network flow
+type Flow struct {
+	lastSeen    time.Time
+	packetCount int
+	sampleCount int
+}
+
+// FlowTracker manages active network flows
+type FlowTracker struct {
+	flows  map[string]*Flow
+	mutex  sync.Mutex
+	ticker *time.Ticker
+}
+
+// NewFlowTracker creates a new FlowTracker
+func NewFlowTracker() *FlowTracker {
+	ft := &FlowTracker{
+		flows:  make(map[string]*Flow),
+		ticker: time.NewTicker(10 * time.Second),
+	}
+	go ft.cleanupExpiredFlows()
+	return ft
+}
+
+// cleanupExpiredFlows removes flows that have not seen packets for a while
+func (ft *FlowTracker) cleanupExpiredFlows() {
+	for range ft.ticker.C {
+		ft.mutex.Lock()
+		for key, flow := range ft.flows {
+			if time.Since(flow.lastSeen) > flowTimeout {
+				delete(ft.flows, key)
+			}
+		}
+		ft.mutex.Unlock()
+	}
+}
+
+// Client represents a single WebSocket client
 type Client struct {
 	conn          *websocket.Conn
 	send          chan []byte
@@ -51,18 +90,21 @@ type Client struct {
 	stopForwarder chan struct{}
 }
 
+// ClientManager manages all connected clients
 type ClientManager struct {
-	clients            map[*Client]bool
-	broadcast          chan []byte
-	register           chan *Client
-	unregister         chan *Client
-	pinningRules       []string
-	rulesMutex         sync.RWMutex
+	clients             map[*Client]bool
+	broadcast           chan []byte
+	register            chan *Client
+	unregister          chan *Client
+	pinningRules        []string
+	rulesMutex          sync.RWMutex
 	timeWindowProcessor *capture.TimeWindowProcessor
 	currentCaptureMode  string
 	originalCapture     capture.PacketCapture
+	flowTracker         *FlowTracker
 }
 
+// NewClientManager creates a new ClientManager
 func NewClientManager() *ClientManager {
 	return &ClientManager{
 		clients:      make(map[*Client]bool),
@@ -70,9 +112,11 @@ func NewClientManager() *ClientManager {
 		register:     make(chan *Client),
 		unregister:   make(chan *Client),
 		pinningRules: make([]string, 0),
+		flowTracker:  NewFlowTracker(),
 	}
 }
 
+// NewClient creates a new Client
 func NewClient(conn *websocket.Conn) *Client {
 	return &Client{
 		conn:          conn,
@@ -82,6 +126,7 @@ func NewClient(conn *websocket.Conn) *Client {
 	}
 }
 
+// isIPPinned checks if an IP address is pinned
 func (manager *ClientManager) isIPPinned(ipStr string) bool {
 	manager.rulesMutex.RLock()
 	defer manager.rulesMutex.RUnlock()
@@ -106,12 +151,12 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 			if startIP == nil {
 				continue
 			}
-			
+
 			baseIPParts := strings.Split(startIPStr, ".")
 			if len(baseIPParts) != 4 {
 				continue
 			}
-			
+
 			endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endOctetStr)
 			endIP := net.ParseIP(endIPStr)
 			if endIP == nil {
@@ -130,6 +175,40 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 	return false
 }
 
+// shouldSendPacket implements intelligent flow-based sampling
+func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
+	if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) {
+		return true
+	}
+
+	flowKey := fmt.Sprintf("%s:%d-%s:%d", packet.Src, packet.SrcPort, packet.Dst, packet.DstPort)
+	manager.flowTracker.mutex.Lock()
+	defer manager.flowTracker.mutex.Unlock()
+
+	flow, exists := manager.flowTracker.flows[flowKey]
+	if !exists {
+		manager.flowTracker.flows[flowKey] = &Flow{
+			lastSeen:    time.Now(),
+			packetCount: 1,
+			sampleCount: 1,
+		}
+		return true
+	}
+
+	flow.lastSeen = time.Now()
+	flow.packetCount++
+
+	// Simple dynamic sampling: send 1 in every N packets for a given flow
+	// This can be made more sophisticated (e.g., based on flow byte size)
+	if flow.packetCount%10 == 0 {
+		flow.sampleCount++
+		return true
+	}
+
+	return false
+}
+
+// Start begins the client manager's event loop
 func (manager *ClientManager) Start() {
 	for {
 		select {
@@ -159,6 +238,7 @@ func (manager *ClientManager) Start() {
 	}
 }
 
+// HandleWebSocket handles incoming WebSocket connections
 func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ifaceName := r.URL.Query().Get("interface")
 	pcapParam := r.URL.Query().Get("pcap")
@@ -166,7 +246,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 
 	var captureSystem capture.PacketCapture
 	captureMode := "simulated"
-	
+
 	selectedPcapFile := *pcapFile
 	selectedReplaySpeed := *replaySpeed
 	selectedInterface := *iface
@@ -191,10 +271,8 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		captureSystem = capture.NewPCAPReplayCapture(config)
 		captureMode = "pcap_replay"
 	} else if *useDumpcap {
-		// Check dumpcap status and optionally launch it
 		if err := handleDumpcapSetup(selectedInterface, *dumpcapDir); err != nil {
 			log.Printf("❌ Dumpcap setup failed: %v", err)
-			// Fall back to real capture if available
 			if selectedInterface != "" {
 				log.Printf("⚠️ Falling back to real capture mode")
 				captureSystem = capture.NewRealCapture(selectedInterface)
@@ -216,17 +294,15 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		captureMode = "simulated"
 	}
 
-	// Try to start the capture with fallback handling
 	captureFailed := false
 	captureErrorMsg := ""
 	originalMode := captureMode
-	
+
 	if err := captureSystem.Start(); err != nil {
 		log.Printf("Failed to start %s capture: %v", captureMode, err)
 		captureFailed = true
 		captureErrorMsg = err.Error()
-		
-		// Fall back to simulation
+
 		log.Printf("Falling back to simulated capture")
 		captureSystem = capture.NewSimulatedCapture()
 		if err := captureSystem.Start(); err != nil {
@@ -236,7 +312,6 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		captureMode = "simulated"
 		log.Printf("*** FALLBACK TO SIMULATION (%s failed) ***", originalMode)
 	} else {
-		// Log success based on mode
 		switch captureMode {
 		case "real":
 			log.Printf("*** 📡 REAL CAPTURE ACTIVE on interface %s ***", selectedInterface)
@@ -258,32 +333,28 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 
 	client := NewClient(conn)
 	manager.register <- client
-	
-	// Store original capture for live mode switching
+
 	manager.originalCapture = captureSystem
 	manager.currentCaptureMode = captureMode
 
-	// Send mode information to the client
 	var modeMessage []byte
 	if captureFailed {
-		// Send error message with fallback info
 		modeMessage, _ = json.Marshal(map[string]interface{}{
-			"type": "mode",
-			"mode": captureMode,
-			"interface": selectedInterface,
-			"pcapFile": selectedPcapFile,
-			"replaySpeed": selectedReplaySpeed,
-			"error": true,
-			"errorMsg": captureErrorMsg,
+			"type":          "mode",
+			"mode":          captureMode,
+			"interface":     selectedInterface,
+			"pcapFile":      selectedPcapFile,
+			"replaySpeed":   selectedReplaySpeed,
+			"error":         true,
+			"errorMsg":      captureErrorMsg,
 			"requestedMode": originalMode,
 		})
 	} else {
-		// Normal mode message
 		modeMessage, _ = json.Marshal(map[string]interface{}{
-			"type": "mode",
-			"mode": captureMode,
-			"interface": selectedInterface,
-			"pcapFile": selectedPcapFile,
+			"type":        "mode",
+			"mode":        captureMode,
+			"interface":   selectedInterface,
+			"pcapFile":    selectedPcapFile,
 			"replaySpeed": selectedReplaySpeed,
 		})
 	}
@@ -296,18 +367,17 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			}
 			log.Printf("Packet forwarder exiting for %s", client.conn.RemoteAddr())
 		}()
-		
+
 		for {
 			select {
 			case <-client.stopForwarder:
 				return
 			default:
 			}
-			
+
 			var packet *capture.Packet
 			var packetReceived bool
-			
-			// Check if we're in time window mode
+
 			if manager.timeWindowProcessor != nil && manager.currentCaptureMode == "time_window" {
 				select {
 				case packet = <-manager.timeWindowProcessor.GetPacketChannel():
@@ -315,22 +385,19 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 				case <-client.stopForwarder:
 					return
 				case <-time.After(1 * time.Millisecond):
-					// No packet available from time window, continue
 				}
 			} else {
-				// Normal live capture mode
 				select {
 				case packet = <-captureSystem.GetPacketChannel():
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
 				case <-time.After(1 * time.Millisecond):
-					// No packet available, continue
 				}
 			}
-			
+
 			if packetReceived && packet != nil {
-				if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) || rand.Intn(10) < 9 { // Send 90% of packets instead of 50%
+				if manager.shouldSendPacket(packet) {
 					if packetJSON, err := packet.ToJSON(); err == nil {
 						select {
 						case client.send <- packetJSON:
@@ -386,9 +453,9 @@ func (c *Client) readPump(manager *ClientManager) {
 
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { 
-		c.conn.SetReadDeadline(time.Now().Add(pongWait)); 
-		return nil 
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
 	})
 
 	for {
@@ -396,7 +463,7 @@ func (c *Client) readPump(manager *ClientManager) {
 		if err != nil {
 			break
 		}
-		
+
 		var msg map[string]interface{}
 		if err := json.Unmarshal(message, &msg); err != nil {
 			continue
@@ -429,7 +496,7 @@ func (c *Client) readPump(manager *ClientManager) {
 			manager.pinningRules = make([]string, 0)
 			log.Printf("Cleared all pinning rules")
 		case "select_time_window":
-			manager.rulesMutex.Unlock() // Unlock before time window operations
+			manager.rulesMutex.Unlock()
 			manager.handleTimeWindowCommand(msg, c)
 			continue
 		case "switch_to_live":
@@ -449,32 +516,31 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 	startTimeStr, startOk := msg["start_time"].(string)
 	endTimeStr, endOk := msg["end_time"].(string)
 	speed, speedOk := msg["speed"].(float64)
-	
+
 	if !startOk || !endOk {
 		log.Printf("Invalid time window command: missing start_time or end_time")
 		return
 	}
-	
+
 	startTime, err := time.Parse(time.RFC3339, startTimeStr)
 	if err != nil {
 		log.Printf("Invalid start_time format: %v", err)
 		return
 	}
-	
+
 	endTime, err := time.Parse(time.RFC3339, endTimeStr)
 	if err != nil {
 		log.Printf("Invalid end_time format: %v", err)
 		return
 	}
-	
+
 	replaySpeed := 1.0
 	if speedOk && speed > 0 {
 		replaySpeed = speed
 	}
-	
+
 	log.Printf("🕰️ Time Window Request: %s to %s (%.2fx speed)", startTime.Format("15:04:05"), endTime.Format("15:04:05"), replaySpeed)
-	
-	// Create time window processor
+
 	config := capture.TimeWindowConfig{
 		StorageDir:   *storageDir,
 		StartTime:    startTime,
@@ -483,68 +549,62 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 		SamplingRate: 10, // Default sampling rate
 	}
 	processor := capture.NewTimeWindowProcessor(config)
-	
-	// Stop current capture if running
+
 	if manager.originalCapture != nil {
 		manager.originalCapture.Stop()
 	}
-	
-	// Start time window playback
+
 	if err := processor.Start(); err != nil {
 		log.Printf("Failed to start time window playback: %v", err)
 		response, _ := json.Marshal(map[string]interface{}{
-			"type": "time_window_error",
+			"type":  "time_window_error",
 			"error": err.Error(),
 		})
 		client.send <- response
 		return
 	}
-	
+
 	manager.timeWindowProcessor = processor
 	manager.currentCaptureMode = "time_window"
-	
-	// Send success response
+
 	response, _ := json.Marshal(map[string]interface{}{
-		"type": "time_window_active",
+		"type":       "time_window_active",
 		"start_time": startTimeStr,
-		"end_time": endTimeStr,
-		"speed": replaySpeed,
+		"end_time":   endTimeStr,
+		"speed":      replaySpeed,
 	})
 	client.send <- response
-	
+
 	log.Printf("⚡ Time window playback activated!")
 }
 
 func (manager *ClientManager) handleSwitchToLive(client *Client) {
 	log.Printf("🔄 Switching back to live mode...")
-	
-	// Stop time window processor
+
 	if manager.timeWindowProcessor != nil {
 		manager.timeWindowProcessor.Stop()
 		manager.timeWindowProcessor = nil
 	}
-	
-	// Restart original capture
+
 	if manager.originalCapture != nil {
 		if err := manager.originalCapture.Start(); err != nil {
 			log.Printf("Failed to restart live capture: %v", err)
 			response, _ := json.Marshal(map[string]interface{}{
-				"type": "switch_to_live_error",
+				"type":  "switch_to_live_error",
 				"error": err.Error(),
 			})
 			client.send <- response
 			return
 		}
 	}
-	
+
 	manager.currentCaptureMode = "live"
-	
-	// Send success response
+
 	response, _ := json.Marshal(map[string]interface{}{
 		"type": "live_mode_active",
 	})
 	client.send <- response
-	
+
 	log.Printf("📡 Live mode reactivated!")
 }
 
@@ -554,115 +614,102 @@ func (manager *ClientManager) handleSeekToTime(msg map[string]interface{}, clien
 		log.Printf("Invalid seek command: missing time")
 		return
 	}
-	
+
 	seekTime, err := time.Parse(time.RFC3339, timeStr)
 	if err != nil {
 		log.Printf("Invalid seek time format: %v", err)
 		return
 	}
-	
+
 	if manager.timeWindowProcessor == nil {
 		log.Printf("No time window processor active for seeking")
 		response, _ := json.Marshal(map[string]interface{}{
-			"type": "seek_error",
+			"type":  "seek_error",
 			"error": "No time window active",
 		})
 		client.send <- response
 		return
 	}
-	
+
 	log.Printf("⏰ Seeking to time: %s", seekTime.Format("15:04:05"))
-	
+
 	if err := manager.timeWindowProcessor.SeekToTime(seekTime); err != nil {
 		log.Printf("Failed to seek to time: %v", err)
 		response, _ := json.Marshal(map[string]interface{}{
-			"type": "seek_error",
+			"type":  "seek_error",
 			"error": err.Error(),
 		})
 		client.send <- response
 		return
 	}
-	
-	// Send success response
+
 	response, _ := json.Marshal(map[string]interface{}{
 		"type": "seek_complete",
 		"time": timeStr,
 	})
 	client.send <- response
-	
+
 	log.Printf("🎯 Seek complete!")
 }
 
-// checkDumpcapRunning checks if dumpcap is already running
 func checkDumpcapRunning() bool {
 	cmd := exec.Command("pgrep", "-f", "dumpcap")
 	err := cmd.Run()
 	return err == nil
 }
 
-// checkDumpcapInstalled checks if dumpcap is installed and available
 func checkDumpcapInstalled() bool {
 	cmd := exec.Command("which", "dumpcap")
 	err := cmd.Run()
 	return err == nil
 }
 
-// launchDumpcapProcess starts dumpcap with the specified interface and output directory
 func launchDumpcapProcess(iface string, outputDir string) error {
 	if !checkDumpcapInstalled() {
 		return fmt.Errorf("dumpcap not found in PATH - please install Wireshark/dumpcap")
 	}
 
-	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create dumpcap output directory: %v", err)
 	}
 
-	// Generate output filename with timestamp
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	outputFile := filepath.Join(outputDir, fmt.Sprintf("dumpcap_%s_%s.pcap", iface, timestamp))
 
-	// Build dumpcap command
 	args := []string{
 		"-i", iface,
 		"-w", outputFile,
-		"-b", "duration:3600", // Rotate every hour
-		"-b", "filesize:1000000", // Rotate at 1GB
+		"-b", "duration:3600",
+		"-b", "filesize:1000000",
 	}
 
 	log.Printf("🚀 Launching dumpcap: dumpcap %s", strings.Join(args, " "))
-	
+
 	cmd := exec.Command("dumpcap", args...)
-	
-	// Start dumpcap in background
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start dumpcap: %v", err)
 	}
 
 	log.Printf("✅ Dumpcap process started with PID %d", cmd.Process.Pid)
 	log.Printf("📁 Writing to: %s", outputFile)
-	
-	// Give dumpcap a moment to start writing
+
 	time.Sleep(2 * time.Second)
-	
+
 	return nil
 }
 
-// handleDumpcapSetup checks dumpcap status and optionally launches it
 func handleDumpcapSetup(iface string, outputDir string) error {
 	log.Printf("🔍 Checking dumpcap status...")
-	
-	// Check if dumpcap is installed
+
 	if !checkDumpcapInstalled() {
 		return fmt.Errorf("dumpcap not installed - please install Wireshark or dumpcap")
 	}
 	log.Printf("✅ Dumpcap is installed")
-	
-	// Check if dumpcap is already running
+
 	if checkDumpcapRunning() {
 		log.Printf("✅ Dumpcap process is already running")
-		
-		// Check if output directory has recent PCAP files
+
 		if hasRecentPcapFiles(outputDir) {
 			log.Printf("✅ Found recent PCAP files in %s", outputDir)
 			return nil
@@ -672,48 +719,44 @@ func handleDumpcapSetup(iface string, outputDir string) error {
 		}
 	} else {
 		log.Printf("❌ Dumpcap is not running")
-		
+
 		if *launchDumpcap {
 			log.Printf("🚀 Auto-launching dumpcap...")
 			if err := launchDumpcapProcess(iface, outputDir); err != nil {
 				return fmt.Errorf("failed to auto-launch dumpcap: %v", err)
 			}
 		} else {
-			return fmt.Errorf("dumpcap is not running. Options:\n" +
-				"  1. Start dumpcap manually: dumpcap -i %s -w %s/capture.pcap\n" +
-				"  2. Use auto-launch: add -launch-dumpcap flag", iface, outputDir)
+			return fmt.Errorf("dumpcap is not running. Options:\n  1. Start dumpcap manually: dumpcap -i %s -w %s/capture.pcap\n  2. Use auto-launch: add -launch-dumpcap flag", iface, outputDir)
 		}
 	}
-	
+
 	return nil
 }
 
-// hasRecentPcapFiles checks if there are PCAP files modified in the last 5 minutes
 func hasRecentPcapFiles(dir string) bool {
 	files, err := filepath.Glob(filepath.Join(dir, "*.pcap"))
 	if err != nil {
 		return false
 	}
-	
+
 	cutoff := time.Now().Add(-5 * time.Minute)
 	for _, file := range files {
 		info, err := os.Stat(file)
 		if err != nil {
 			continue
 		}
-		
+
 		if info.ModTime().After(cutoff) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 func main() {
 	flag.Parse()
 
-	// Show usage information if help is requested
 	if len(flag.Args()) > 0 && (flag.Args()[0] == "help" || flag.Args()[0] == "-help" || flag.Args()[0] == "--help") {
 		fmt.Println("VIBES Network Visualizer Backend")
 		fmt.Println("================================")
@@ -743,8 +786,7 @@ func main() {
 	}
 
 	log.Printf("🔥 Starting VIBES Backend Server")
-	
-	// Log the current configuration
+
 	if *pcapFile != "" {
 		log.Printf("📼 PCAP Replay Mode: %s (speed: %.2fx)", *pcapFile, *replaySpeed)
 	} else if *useDumpcap {
