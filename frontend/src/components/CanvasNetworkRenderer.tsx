@@ -504,24 +504,26 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // --- Pinned Node Positioning ---
+    // --- Pinned Node Positioning (Bottom of Screen) ---
     const renderedNodes = Array.from(activeNodes.current.values());
     const pinnedNodes = renderedNodes.filter(node => isPined(node.id));
     const sortedPinnedNodes = pinnedNodes.sort((a, b) => a.id.localeCompare(b.id));
     
-    const NODES_PER_COLUMN = 18;
-    const COLUMN_SPACING = 200;
-    const NODE_SPACING_Y = 50;
+    const NODES_PER_ROW = 20; // Max nodes per row at the bottom
+    const ROW_SPACING_Y = 60;
+    const NODE_SPACING_X = 100;
+    const bottomMargin = 60;
 
     sortedPinnedNodes.forEach((node, index) => {
-      const column = Math.floor(index / NODES_PER_COLUMN);
-      const rowIndex = index % NODES_PER_COLUMN;
+      const row = Math.floor(index / NODES_PER_ROW);
+      const colIndex = index % NODES_PER_ROW;
       
-      const x = viewportRef.current.width - 100 - (column * COLUMN_SPACING);
-      const y = 100 + (rowIndex * NODE_SPACING_Y);
+      const x = 100 + (colIndex * NODE_SPACING_X);
+      const y = viewportRef.current.height - bottomMargin - (row * ROW_SPACING_Y);
 
       pinnedNodePositions.current.set(node.id, { x, y });
     });
+
 
     // --- Apply Forces ---
     activeNodes.current.forEach(node => {
@@ -614,29 +616,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (source && target) {
         const isSourcePinned = isPined(source.id);
         const isTargetPinned = isPined(target.id);
-        const PULL_IN_SPEED = 0.1;
-        const ORBIT_DISTANCE = 30;
+        const PULL_IN_SPEED = 0.08; // A slightly stronger pull
 
         if (isSourcePinned && !isTargetPinned) {
-          const dx = target.x - source.x;
-          const dy = target.y - source.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > ORBIT_DISTANCE) {
-            const targetX = source.x + (dx / distance) * ORBIT_DISTANCE;
-            const targetY = source.y + (dy / distance) * ORBIT_DISTANCE;
-            target.x = lerp(target.x, targetY, PULL_IN_SPEED);
-            target.y = lerp(target.y, targetY, PULL_IN_SPEED);
-          }
+          // Pull target towards source
+          target.x = lerp(target.x, source.x, PULL_IN_SPEED);
+          target.y = lerp(target.y, source.y, PULL_IN_SPEED);
         } else if (!isSourcePinned && isTargetPinned) {
-          const dx = source.x - target.x;
-          const dy = source.y - target.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > ORBIT_DISTANCE) {
-            const targetX = target.x + (dx / distance) * ORBIT_DISTANCE;
-            const targetY = target.y + (dy / distance) * ORBIT_DISTANCE;
-            source.x = lerp(source.x, targetX, PULL_IN_SPEED);
-            source.y = lerp(source.y, targetY, PULL_IN_SPEED);
-          }
+          // Pull source towards target
+          source.x = lerp(source.x, target.x, PULL_IN_SPEED);
+          source.y = lerp(source.y, target.y, PULL_IN_SPEED);
+        } else if (isSourcePinned && isTargetPinned) {
+            // Both are pinned, do nothing
         } else {
           const dx = target.x - source.x;
           const dy = target.y - source.y;
@@ -683,7 +674,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       node.y += node.vy * deltaTime;
     });
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength]);
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {
