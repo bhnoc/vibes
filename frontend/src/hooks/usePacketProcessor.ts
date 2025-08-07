@@ -425,7 +425,7 @@ export const usePacketProcessor = () => {
           packetSourcesRef.current.unknown++;
         }
       });
-      
+
       // Update our tracking - use timestamp instead of count
       lastProcessedTimestampRef.current = latestTimestamp;
       lastProcessedCountRef.current = packets.length; // Keep for debugging
@@ -435,7 +435,6 @@ export const usePacketProcessor = () => {
       
       // Periodically clean up old network elements
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
-        limitNetworkSize(3000, 5000);
         
         // Periodically reposition overlapping nodes to maintain spacing
         const { repositionOverlappingNodes } = useNetworkStore.getState();

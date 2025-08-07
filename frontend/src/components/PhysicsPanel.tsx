@@ -1,5 +1,6 @@
 import React from 'react';
 import { usePhysicsStore } from '../stores/physicsStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { FiRefreshCw } from 'react-icons/fi';
 
 interface RangeSliderProps {
@@ -109,6 +110,15 @@ export const PhysicsPanel: React.FC = () => {
           step="100"
           onChange={setConnectionLifetime}
           displayValue={`${connectionLifetime} ms`}
+        />
+        <RangeSlider 
+          label="Max Nodes"
+          value={useSettingsStore.getState().maxNodes}
+          min="500"
+          max="50000"
+          step="500"
+          onChange={useSettingsStore.getState().setMaxNodes}
+          displayValue={`${useSettingsStore.getState().maxNodes}`}
         />
       </div>
     </div>
