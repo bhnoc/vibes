@@ -52,6 +52,14 @@ if [[ "$(uname -r)" != *WSL* ]] && [[ "$(uname -r)" != *Microsoft* ]]; then
   fi
 fi
 
+# Detect Ubuntu version
+UBUNTU_VERSION=""
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  UBUNTU_VERSION="$VERSION_ID"
+  print_step "Detected Ubuntu version: $UBUNTU_VERSION"
+fi
+
 # Check if script is run as root
 if [ "$EUID" -eq 0 ]; then
   print_error "Please don't run this script as root/sudo"
@@ -108,6 +116,25 @@ fi
 
 # Install Node.js and npm
 print_header "Installing Node.js and npm"
+
+install_nodejs() {
+  # For Ubuntu 24.04+, use the new nodesource approach with signed-by
+  if [[ -n "$UBUNTU_VERSION" ]] && [[ "$(echo "$UBUNTU_VERSION >= 24.04" | bc -l 2>/dev/null || echo 0)" == "1" ]]; then
+    print_step "Using updated Node.js installation method for Ubuntu 24.04+"
+    sudo apt-get install -y ca-certificates curl gnupg
+    sudo mkdir -p /etc/apt/keyrings
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_VER}.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+    sudo apt-get update
+    sudo apt-get install -y nodejs
+  else
+    print_step "Setting up Node.js repository..."
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VER}.x | sudo -E bash -
+    print_step "Installing Node.js..."
+    sudo apt-get install -y nodejs
+  fi
+}
+
 if command -v node &> /dev/null; then
   NODE_VERSION=$(node -v)
   print_step "Node.js $NODE_VERSION is already installed"
@@ -117,20 +144,40 @@ if command -v node &> /dev/null; then
   if [[ $NODE_MAJOR -lt $NODE_VER ]]; then
     print_warning "Your Node.js version is too old. Version $NODE_VER+ is required."
     print_step "Upgrading Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VER}.x | sudo -E bash -
-    sudo apt-get install -y nodejs
+    install_nodejs
   fi
 else
-  print_step "Setting up Node.js repository..."
-  curl -fsSL https://deb.nodesource.com/setup_${NODE_VER}.x | sudo -E bash -
-  print_step "Installing Node.js..."
-  sudo apt-get install -y nodejs
+  install_nodejs
   print_step "Node.js installation complete"
 fi
 
-# Install libpcap for packet capture
-print_header "Installing libpcap development libraries"
-sudo apt-get install -y libpcap-dev
+# Install libpcap for packet capture, addressing dependencies to use latest
+print_header "Installing libpcap development libraries and resolving dependencies (aiming for latest)"
+
+# Check for and unhold any potentially conflicting packages first
+HELD_PACKAGES=$(apt-mark showhold)
+if [ -n "$HELD_PACKAGES" ]; then
+  print_warning "Found held packages that might cause dependency issues: $HELD_PACKAGES"
+  print_step "Attempting to unhold them to allow for latest versions."
+  for pkg in $HELD_PACKAGES; do
+    print_step "Unholding $pkg..."
+    sudo apt-mark unhold "$pkg" || true # Use || true to prevent script from exiting if unhold fails for some reason
+  done
+  print_step "Held packages unheld. Running apt update and upgrade again."
+  sudo apt update
+  sudo apt upgrade -y
+  sudo apt --fix-broken install -y
+fi
+
+# Now attempt to install libpcap-dev and related packages, expecting them to update to compatible latest versions
+print_step "Attempting to install or upgrade libpcap-dev and its dependencies."
+if ! sudo apt-get install -y libpcap-dev libdbus-1-dev libnl-3-dev libnl-route-3-dev; then
+  print_error "Failed to install libpcap-dev and its dependencies even after unholding and upgrading."
+  print_error "This might mean that compatible latest versions of the -dev packages are not available in your repositories,"
+  print_error "or there are deeper dependency conflicts. You might need to add specific repositories or consider alternative approaches."
+  exit 1
+fi
+print_step "Dependency resolution and libpcap-dev installation complete."
 
 # Install frontend dependencies
 print_header "Setting up frontend environment"
@@ -224,4 +271,3 @@ print_warning "Note: you'll need to run the backend with sudo for packet capture
 print_warning "      Example: sudo -E $(which go) run backend/cmd/main.go"
 
 print_header "Ready to build the sickest network visualizer ever! 🚀"
-
