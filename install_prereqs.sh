@@ -201,9 +201,12 @@ else
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireshark-common
 
   # Add current user to wireshark group for non-root capture
-  if [ -n "$SUDO_USER" ]; then
+  if [ -n "${SUDO_USER:-}" ]; then
     sudo usermod -aG wireshark "$SUDO_USER"
     print_step "Added $SUDO_USER to wireshark group (logout/login required for non-sudo capture)"
+  elif [ -n "${USER:-}" ]; then
+    sudo usermod -aG wireshark "$USER"
+    print_step "Added $USER to wireshark group (logout/login required for non-sudo capture)"
   fi
 
   # Verify installation

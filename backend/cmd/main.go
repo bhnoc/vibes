@@ -765,6 +765,10 @@ func launchDumpcapProcess(iface string, outputDir string) error {
 
 	cmd := exec.Command("dumpcap", args...)
 
+	// Capture stderr to see any error messages
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start dumpcap: %v", err)
 	}
@@ -772,7 +776,37 @@ func launchDumpcapProcess(iface string, outputDir string) error {
 	log.Printf("✅ Dumpcap process started with PID %d", cmd.Process.Pid)
 	log.Printf("📁 Writing to: %s", outputFile)
 
+	// Wait a moment and check if process is still running
 	time.Sleep(2 * time.Second)
+
+	// Check if process exited early (which would indicate an error)
+	var waitStatus error
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case waitStatus = <-done:
+		// Process exited - this is bad, it should still be running
+		stderrOutput := stderr.String()
+		if stderrOutput != "" {
+			return fmt.Errorf("dumpcap exited immediately: %v\nOutput: %s", waitStatus, stderrOutput)
+		}
+		return fmt.Errorf("dumpcap exited immediately: %v", waitStatus)
+	case <-time.After(500 * time.Millisecond):
+		// Process still running after 500ms - good!
+		log.Printf("✅ Dumpcap is running (PID %d)", cmd.Process.Pid)
+	}
+
+	// Verify process is in process list
+	if !checkDumpcapRunning() {
+		stderrOutput := stderr.String()
+		if stderrOutput != "" {
+			return fmt.Errorf("dumpcap process not found after launch. Stderr: %s", stderrOutput)
+		}
+		return fmt.Errorf("dumpcap process not found after launch - it may have crashed")
+	}
 
 	return nil
 }
