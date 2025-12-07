@@ -280,24 +280,27 @@ export const usePacketProcessor = () => {
   // SIMPLIFIED: Process packets directly without complex batching
   useEffect(() => {
     if (processingRef.current) {
-      logger.log('🚫 Processing already in progress, skipping...');
+      console.log('🚫 Processing already in progress, skipping...');
       return;
     }
-    
+
     // FIXED: Use timestamp-based tracking instead of array length
     // Filter to packets newer than what we've already processed
     const unprocessedPackets = packets.filter(packet => {
       const packetTime = packet.timestamp || 0;
       return packetTime > lastProcessedTimestampRef.current;
     });
-    
+
     if (unprocessedPackets.length === 0) {
-      logger.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
+      // Only log occasionally to avoid spam
+      if (Math.random() < 0.01) {
+        console.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
+      }
       return;
     }
-    
+
     processingRef.current = true;
-    logger.log(`🔄 TIMESTAMP-BASED Processing: ${unprocessedPackets.length} new packets (total: ${packets.length})`);
+    console.log(`🔄 Processing ${unprocessedPackets.length} new packets (total in store: ${packets.length})`);
     
     try {
       // Get store state fresh each time (don't rely on stale closure)
@@ -430,8 +433,10 @@ export const usePacketProcessor = () => {
       lastProcessedTimestampRef.current = latestTimestamp;
       lastProcessedCountRef.current = packets.length; // Keep for debugging
       processingRef.current = false;
-      
-      logger.log(`✅ TIMESTAMP-BASED Processing complete: processed ${unprocessedPackets.length} packets, latest timestamp: ${latestTimestamp}`);
+
+      // Get current node count for debug
+      const currentNodeCount = useNetworkStore.getState().nodes.length;
+      console.log(`✅ Processing complete: processed ${unprocessedPackets.length} packets, nodes in store: ${currentNodeCount}`);
       
       // Periodically clean up old network elements
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {

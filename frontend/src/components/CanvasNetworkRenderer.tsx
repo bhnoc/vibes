@@ -213,8 +213,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     height: 0
   })
 
-  // Store hooks - NOTE: We intentionally DON'T subscribe to nodes/connections here
-  // to avoid re-renders on every packet. updateRenderObjects fetches fresh data via getState()
+  // Store hooks
+  const { nodes, connections } = useNetworkStore()
   const { packets } = usePacketStore()
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
@@ -228,8 +228,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     driftAwayStrength,
   } = usePhysicsStore()
 
-  // Debug logging disabled to reduce noise - uncomment to debug re-renders
-  // console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
@@ -367,10 +367,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const now = Date.now()
     const activeAge = 30000 // 30 seconds for "active" state
 
-    // Get fresh data from store to avoid stale closure issues
-    const { nodes: storeNodes, connections: storeConnections } = useNetworkStore.getState();
-
-    const storeNodesById = new Map(storeNodes.map(n => [n.id, n]));
+    const storeNodesById = new Map(nodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
 
     // Remove nodes that are no longer in the store
@@ -414,7 +411,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const age = now - node.lastActive;
         const isActive = age < activeAge;
         
-        const latestConnection = storeConnections
+        const latestConnection = connections
           .filter(c => c.source === node.id || c.target === node.id)
           .sort((a, b) => b.lastActive - a.lastActive)[0];
 
@@ -454,7 +451,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Process connections
     const nodeIds = new Set(Array.from(activeNodes.current.keys()))
-    const recentConnections = storeConnections
+    const recentConnections = connections
       .filter(conn => nodeIds.has(conn.source) && nodeIds.has(conn.target))
       .slice(0, 5000)
 
@@ -481,7 +478,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
-  }, [generatePosition, nodePool, connectionPool, connectionLifetime])
+  }, [nodes, connections, generatePosition, nodePool, connectionPool])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
@@ -663,16 +660,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // 4. Handle removal from local render map ONLY (don't touch store during render loop)
-    // Removing from store during physics causes re-render cascade and flashing
+    // 4. Handle removal and update positions
     if (nodesToRemove.length > 0) {
-      nodesToRemove.forEach(id => {
-        const nodeToRelease = activeNodes.current.get(id);
-        if (nodeToRelease) {
-          nodePool.release(nodeToRelease);
-        }
-        activeNodes.current.delete(id);
-      });
+      const removeFunc = useNetworkStore.getState().removeNode;
+      nodesToRemove.forEach(id => removeFunc(id));
     }
 
     activeNodes.current.forEach(node => {
@@ -683,7 +674,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       node.y += node.vy * deltaTime;
     });
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool]);
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {

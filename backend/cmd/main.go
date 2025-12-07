@@ -187,37 +187,64 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 	return false
 }
 
+// Packet send statistics
+var (
+	packetsSentTotal     int64
+	packetsDroppedTotal  int64
+	lastPacketStatLog    time.Time
+	packetStatMutex      sync.Mutex
+)
+
 // shouldSendPacket implements intelligent flow-based sampling
 func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
+	shouldSend := false
+
 	if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) {
-		return true
-	}
+		shouldSend = true
+	} else {
+		flowKey := fmt.Sprintf("%s:%d-%s:%d", packet.Src, packet.SrcPort, packet.Dst, packet.DstPort)
+		manager.flowTracker.mutex.Lock()
 
-	flowKey := fmt.Sprintf("%s:%d-%s:%d", packet.Src, packet.SrcPort, packet.Dst, packet.DstPort)
-	manager.flowTracker.mutex.Lock()
-	defer manager.flowTracker.mutex.Unlock()
+		flow, exists := manager.flowTracker.flows[flowKey]
+		if !exists {
+			manager.flowTracker.flows[flowKey] = &Flow{
+				lastSeen:    time.Now(),
+				packetCount: 1,
+				sampleCount: 1,
+			}
+			shouldSend = true
+		} else {
+			flow.lastSeen = time.Now()
+			flow.packetCount++
 
-	flow, exists := manager.flowTracker.flows[flowKey]
-	if !exists {
-		manager.flowTracker.flows[flowKey] = &Flow{
-			lastSeen:    time.Now(),
-			packetCount: 1,
-			sampleCount: 1,
+			// Simple dynamic sampling: send 1 in every N packets for a given flow
+			// This can be made more sophisticated (e.g., based on flow byte size)
+			if flow.packetCount%10 == 0 {
+				flow.sampleCount++
+				shouldSend = true
+			}
 		}
-		return true
+		manager.flowTracker.mutex.Unlock()
 	}
 
-	flow.lastSeen = time.Now()
-	flow.packetCount++
-
-	// Simple dynamic sampling: send 1 in every N packets for a given flow
-	// This can be made more sophisticated (e.g., based on flow byte size)
-	if flow.packetCount%10 == 0 {
-		flow.sampleCount++
-		return true
+	// Update stats
+	packetStatMutex.Lock()
+	if shouldSend {
+		packetsSentTotal++
+	} else {
+		packetsDroppedTotal++
 	}
 
-	return false
+	// Log every 5 seconds
+	if time.Since(lastPacketStatLog) > 5*time.Second {
+		log.Printf("📤 Packet stats: sent=%d, dropped=%d (sampling ratio: %.1f%%)",
+			packetsSentTotal, packetsDroppedTotal,
+			float64(packetsSentTotal)/float64(packetsSentTotal+packetsDroppedTotal)*100)
+		lastPacketStatLog = time.Now()
+	}
+	packetStatMutex.Unlock()
+
+	return shouldSend
 }
 
 // Start begins the client manager's event loop
