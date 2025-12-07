@@ -96,11 +96,11 @@ export const PhysicsPanel: React.FC = () => {
         />
         <RangeSlider
           label="Damping"
-          value={damping * 1000}
+          value={damping * 100}
           min="0"
-          max="200"
-          onChange={(v: number) => setDamping(v / 1000)}
-          displayValue={damping.toFixed(3)}
+          max="99"
+          onChange={(v: number) => setDamping(v / 100)}
+          displayValue={`${(damping * 100).toFixed(0)}%`}
         />
         <RangeSlider 
           label="Connection Lifetime"

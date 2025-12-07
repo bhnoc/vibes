@@ -76,114 +76,25 @@ interface PacketWithSource extends Record<string, any> {
   source?: 'real' | 'simulated' | string;
 }
 
-// Dynamic radial positioning that expands as more nodes are added
-const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, y: number } => {
-  const parts = ip.split('.');
-  
-  if (parts.length !== 4) {
-    // Fallback for non-IP addresses - use hash for spiral positioning
-    let hash = 0;
-    for (let i = 0; i < ip.length; i++) {
-      hash = ((hash << 5) - hash) + ip.charCodeAt(i);
-      hash = hash & hash;
-    }
-    
-    // Count non-IP nodes to expand their radius
-    const nonIpNodes = existingNodes.filter(n => !n.id.includes('.')).length;
-    const expansionFactor = Math.floor(nonIpNodes / 10); // Expand every 10 nodes
-    
-    const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
-    const baseRadius = 50 + expansionFactor * 20;
-    const radius = baseRadius + (Math.abs(hash >> 8) % 100); // Tighter range
-    
-    return {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius
-    };
+// Simple hash-based positioning - spreads nodes across a large area
+// Each unique IP gets a deterministic position based on its hash
+const generatePosition = (ip: string): { x: number, y: number } => {
+  // Create a hash from the IP string
+  let hash = 0;
+  for (let i = 0; i < ip.length; i++) {
+    hash = ((hash << 5) - hash) + ip.charCodeAt(i);
+    hash = hash & hash;
   }
-  
-  const [a, b, c, d] = parts.map(Number);
-  
-  // Count nodes in each IP category for dynamic expansion
-  const nodeCategories = {
-    home: existingNodes.filter(n => n.id.startsWith('192.168.')).length,
-    corporate: existingNodes.filter(n => n.id.startsWith('10.')).length,
-    enterprise: existingNodes.filter(n => n.id.startsWith('172.')).length,
-    dns: existingNodes.filter(n => n.id.startsWith('8.') || n.id.startsWith('1.')).length,
-    other: existingNodes.filter(n => n.id.includes('.') && 
-      !n.id.startsWith('192.168.') && 
-      !n.id.startsWith('10.') && 
-      !n.id.startsWith('172.') && 
-      !n.id.startsWith('8.') && 
-      !n.id.startsWith('1.')).length
+
+  // Use hash to generate angle and radius
+  // Spread across a much larger area: 200-600px from center
+  const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
+  const radius = 200 + (Math.abs(hash >> 8) % 400); // 200-600px range
+
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius
   };
-  
-  // Calculate expansion factors based on node density
-  const baseExpansion = Math.floor(existingNodes.length / 50); // Global expansion every 50 nodes
-  
-  // Determine base ring/layer with dynamic expansion
-  let baseRadius = 100; // Default radius from center
-  let sectorOffset = 0; // Angular offset for IP type grouping
-  let categoryExpansion = 0;
-  
-  if (a === 192 && b === 168) {
-    // 192.168.x.x - Most common, closest to center
-    categoryExpansion = Math.floor(nodeCategories.home / 15); // Expand every 15 home nodes
-    baseRadius = 30 + baseExpansion * 10 + categoryExpansion * 15;
-    sectorOffset = 0; // 0-90 degrees
-  } else if (a === 10) {
-    // 10.x.x.x - Second ring
-    categoryExpansion = Math.floor(nodeCategories.corporate / 12); // Expand every 12 corporate nodes
-    baseRadius = 60 + baseExpansion * 10 + categoryExpansion * 20;
-    sectorOffset = 90; // 90-180 degrees
-  } else if (a === 172 && b >= 16 && b <= 31) {
-    // 172.16-31.x.x - Third ring
-    categoryExpansion = Math.floor(nodeCategories.enterprise / 10); // Expand every 10 enterprise nodes
-    baseRadius = 90 + baseExpansion * 10 + categoryExpansion * 25;
-    sectorOffset = 180; // 180-270 degrees
-  } else if ([8, 1].includes(a)) {
-    // Public DNS (8.8.8.8, 1.1.1.1) - Special close position
-    categoryExpansion = Math.floor(nodeCategories.dns / 5); // Expand every 5 DNS nodes
-    baseRadius = 20 + baseExpansion * 5 + categoryExpansion * 10;
-    sectorOffset = 270; // 270-360 degrees
-  } else {
-    // Other IPs - Outer ring
-    categoryExpansion = Math.floor(nodeCategories.other / 8); // Expand every 8 other nodes
-    baseRadius = 120 + baseExpansion * 15 + categoryExpansion * 30;
-    sectorOffset = (a % 4) * 90; // Distribute in all sectors
-  }
-  
-  // Add variation within the sector based on IP components
-  const sectorAngle = 90; // Each IP type gets 90 degree sector
-  const angleWithinSector = ((c * 256 + d) % 1000) / 1000 * sectorAngle;
-  const finalAngle = (sectorOffset + angleWithinSector) * (Math.PI / 180);
-  
-  // Add radius variation based on subnet (smaller now since base expands)
-  const radiusVariation = (b % 10) * 2; // Reduced variation
-  const finalRadius = baseRadius + radiusVariation;
-  
-  // Calculate final position
-  const x = Math.cos(finalAngle) * finalRadius;
-  const y = Math.sin(finalAngle) * finalRadius;
-  
-  // Create a unique hash from all IP components for consistent jitter
-  const ipHash = a * 1000000 + b * 10000 + c * 100 + d;
-  
-  // Add small random offset to prevent exact overlaps (reduced since we have expansion)
-  const jitterX = ((ipHash % 10) - 5); // -5 to +5px jitter
-  const jitterY = (((ipHash >> 8) % 10) - 5);
-  
-  const finalPosition = { 
-    x: x + jitterX, 
-    y: y + jitterY 
-  };
-  
-  // Debug log position generation occasionally
-  if (Math.random() < 0.05) { // Log 5% of position generations
-    logger.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
-  }
-  
-  return finalPosition;
 };
 
 // Collision detection and avoidance system
@@ -260,8 +171,8 @@ function findCollisionFreePosition(
 
 export const usePacketProcessor = () => {
   const { packets } = usePacketStore();
-  const { addOrUpdateNode, addConnection, limitNetworkSize, nodes, updateNodeActivity } = useNetworkStore();
-  const { nodeSpacing } = usePhysicsStore(); // Get dynamic node spacing from physics store
+  const { addOrUpdateNode, addConnection, updateNodeActivity } = useNetworkStore();
+  const { nodeSpacing } = usePhysicsStore();
   
   // Console log occasional packet source statistics
   const packetSourcesRef = useRef<{real: number, simulated: number, unknown: number}>({
@@ -304,7 +215,7 @@ export const usePacketProcessor = () => {
     
     try {
       // Get store state fresh each time (don't rely on stale closure)
-      const { nodes: currentNodes, addOrUpdateNode, addConnection, limitNetworkSize, updateNodeActivity } = useNetworkStore.getState();
+      const { nodes: currentNodes, addOrUpdateNode, addConnection, updateNodeActivity } = useNetworkStore.getState();
       
       const now = Date.now();
       let latestTimestamp = lastProcessedTimestampRef.current;
@@ -348,7 +259,7 @@ export const usePacketProcessor = () => {
           updateNodeActivity(sourceNode, srcPort);
         } else {
           logger.log(`➕ CREATING new source node: ${sourceNode}`);
-          const desiredPosition = generatePosition(sourceNode, currentNodes);
+          const desiredPosition = generatePosition(sourceNode);
           // Reduced debug logging for better performance
           if (Math.random() < 0.1) { // Only log 10% of creations
             logger.log(`🎯 Desired position for ${sourceNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
@@ -386,7 +297,7 @@ export const usePacketProcessor = () => {
           updateNodeActivity(targetNode, dstPort);
         } else {
           logger.log(`➕ CREATING new target node: ${targetNode}`);
-          const desiredPosition = generatePosition(targetNode, currentNodes);
+          const desiredPosition = generatePosition(targetNode);
           logger.log(`🎯 Desired position for ${targetNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
           logger.log(`🔍 Checking collision against ${updatedNodesForCollision.length} nodes:`, updatedNodesForCollision.map(n => `${n.id}:(${n.x},${n.y})`));
           
@@ -448,23 +359,17 @@ export const usePacketProcessor = () => {
       const currentNodeCount = useNetworkStore.getState().nodes.length;
       console.log(`✅ Processing complete: valid=${validPackets}, invalid=${invalidPackets}, nodes in store: ${currentNodeCount}, nodesAddedThisBatch: ${nodesAddedThisBatch.length}`);
       
-      // Periodically clean up old network elements
+      // Periodically log stats
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
-        
-        // Periodically reposition overlapping nodes to maintain spacing
-        const { repositionOverlappingNodes } = useNetworkStore.getState();
-        repositionOverlappingNodes();
-        
         lastAutocleanTimeRef.current = Date.now();
-        
-        // Log source stats every 15 seconds
-        const total = packetSourcesRef.current.real + 
-                      packetSourcesRef.current.simulated + 
+
+        const total = packetSourcesRef.current.real +
+                      packetSourcesRef.current.simulated +
                       packetSourcesRef.current.unknown;
-        
+
         const freshNodes = useNetworkStore.getState().nodes;
         logger.log(`📊 Packet stats: Total: ${total}, Real: ${packetSourcesRef.current.real}, ` +
-                   `Simulated: ${packetSourcesRef.current.simulated}, Processed nodes: ${processedNodesRef.current.size}, Rendered nodes: ${freshNodes.length}`);
+                   `Simulated: ${packetSourcesRef.current.simulated}, Nodes: ${freshNodes.length}`);
       }
       
     } catch (error) {

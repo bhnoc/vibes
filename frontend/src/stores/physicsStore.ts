@@ -18,16 +18,16 @@ export interface PhysicsSettings {
 }
 
 const defaultPhysics = {
-    connectionPullStrength: 6.60,
-    collisionRepulsion: 1.25,
-    damping: 0.060,  // Low damping = nodes slow down quickly (this is friction, not retention)
-    connectionLifetime: 7500,  // 7.5 seconds - connections stay visible and active
-    nodeSpacing: 41,
-    driftAwayStrength: 0.22,
+    connectionPullStrength: 0.5,   // REDUCED - gentle pull between connected nodes
+    collisionRepulsion: 3.0,       // INCREASED - strong repulsion to keep nodes apart
+    damping: 0.85,                 // High = nodes retain velocity (0.85 = keep 85% per frame)
+    connectionLifetime: 5000,      // 5 seconds
+    nodeSpacing: 80,               // Minimum spacing between nodes
+    driftAwayStrength: 0.5,        // Push unconnected nodes away from center
 }
 
 // Version number for physics settings - increment to force reset when defaults change
-const PHYSICS_SETTINGS_VERSION = 3;
+const PHYSICS_SETTINGS_VERSION = 4;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
