@@ -39,8 +39,8 @@ export const usePhysicsStore = create<PhysicsSettings>()(
       resetPhysicsDefaults: () => set({ ...defaultPhysics }),
     }),
     {
-      name: 'physics-settings-storage', 
-      storage: createJSONStorage(() => localStorage), 
+      name: 'physics-settings-storage',
+      storage: createJSONStorage(() => localStorage),
     }
   )
 ) 

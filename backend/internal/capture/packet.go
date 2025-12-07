@@ -1554,12 +1554,26 @@ func (d *DumpcapCapture) monitorFiles() {
 	ticker := time.NewTicker(1 * time.Second) // Check for new files every second
 	defer ticker.Stop()
 
+	log.Printf("📂 Dumpcap monitor started, watching directory: %s", d.dumpcapDir)
+
+	checkCount := 0
 	for {
 		select {
 		case <-d.stopChan:
 			return
 		case <-ticker.C:
+			checkCount++
 			latestFile := d.findLatestDumpcapFile()
+
+			// Log status every 10 seconds
+			if checkCount % 10 == 0 {
+				if latestFile == "" {
+					log.Printf("⚠️ No PCAP files found in %s", d.dumpcapDir)
+				} else {
+					log.Printf("📂 Monitoring file: %s (processed %d packets)", d.currentFile, d.packetsProcessedInFile)
+				}
+			}
+
 			if latestFile != "" && latestFile != d.currentFile {
 				d.switchToFile(latestFile)
 			}

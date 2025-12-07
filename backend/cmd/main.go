@@ -732,10 +732,20 @@ func checkDumpcapInstalled() bool {
 	return err == nil
 }
 
+func killExistingDumpcap() {
+	log.Printf("🔪 Killing any existing dumpcap processes...")
+	cmd := exec.Command("pkill", "-9", "dumpcap")
+	cmd.Run() // Ignore error - it's fine if no dumpcap was running
+	time.Sleep(500 * time.Millisecond) // Give it time to die
+}
+
 func launchDumpcapProcess(iface string, outputDir string) error {
 	if !checkDumpcapInstalled() {
 		return fmt.Errorf("dumpcap not found in PATH - please install Wireshark/dumpcap")
 	}
+
+	// Kill any existing dumpcap processes first
+	killExistingDumpcap()
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create dumpcap output directory: %v", err)
