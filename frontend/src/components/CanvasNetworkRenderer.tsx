@@ -699,7 +699,17 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // 4. Handle removal and update positions
     if (nodesToRemove.length > 0) {
       const removeFunc = useNetworkStore.getState().removeNode;
-      nodesToRemove.forEach(id => removeFunc(id));
+      nodesToRemove.forEach(id => {
+        // Remove from store
+        removeFunc(id);
+        // Also remove from local render cache immediately
+        activeNodes.current.delete(id);
+      });
+
+      // Also clean up any connections that reference removed nodes
+      activeConnections.current = activeConnections.current.filter(conn =>
+        activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId)
+      );
     }
 
     // Max velocity to prevent nodes from shooting across screen
