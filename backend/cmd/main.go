@@ -284,16 +284,32 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	} else if *useDumpcap {
 		if err := handleDumpcapSetup(selectedInterface, *dumpcapDir); err != nil {
 			log.Printf("❌ Dumpcap setup failed: %v", err)
-			if selectedInterface != "" {
-				log.Printf("⚠️ Falling back to real capture mode (interface %s specified)", selectedInterface)
-				captureSystem = capture.NewRealCapture(selectedInterface)
-				captureMode = "real"
-			} else {
-				// No interface specified - this is a configuration error, fail hard
-				log.Printf("❌ Dumpcap mode requires -iface flag or interface query param")
-				http.Error(w, "Dumpcap mode requires an interface to be specified (-iface flag)", http.StatusBadRequest)
+
+			// Send error to frontend via WebSocket - don't silently fall back
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				log.Printf("WebSocket upgrade failed: %v", upgradeErr)
 				return
 			}
+
+			hint := "Install dumpcap: sudo apt install wireshark-common"
+			if strings.Contains(err.Error(), "not running") {
+				hint = "Start dumpcap manually or use -launch-dumpcap flag"
+			} else if strings.Contains(err.Error(), "auto-launch") {
+				hint = "Check interface name is correct and you have capture permissions (may need sudo)"
+			}
+
+			errorMsg, _ := json.Marshal(map[string]interface{}{
+				"type":          "capture_error",
+				"error":         true,
+				"requestedMode": "dumpcap",
+				"errorMsg":      fmt.Sprintf("Dumpcap setup failed: %v", err),
+				"hint":          hint,
+				"interface":     selectedInterface,
+			})
+			conn.WriteMessage(websocket.TextMessage, errorMsg)
+			conn.Close()
+			return
 		} else {
 			captureSystem = capture.NewDumpcapCapture(*dumpcapDir, selectedInterface)
 			captureMode = "dumpcap"
@@ -319,8 +335,36 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		// When dumpcap or real capture is explicitly requested, don't silently fall back to simulation
 		if *useDumpcap || *iface != "" || *pcapFile != "" {
 			log.Printf("❌ %s mode was explicitly requested but failed to start", originalMode)
-			log.Printf("❌ NOT falling back to simulation - check your configuration")
-			http.Error(w, fmt.Sprintf("Failed to start %s capture: %s", originalMode, err.Error()), http.StatusInternalServerError)
+			log.Printf("❌ NOT falling back to simulation - sending error to frontend")
+
+			// Send error details to frontend via WebSocket
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				log.Printf("WebSocket upgrade failed: %v", upgradeErr)
+				return
+			}
+
+			hint := ""
+			switch originalMode {
+			case "dumpcap":
+				hint = "Check that dumpcap is installed, the interface exists, and you have capture permissions (may need sudo)"
+			case "real":
+				hint = "Check that the interface exists and you have capture permissions (may need sudo)"
+			case "pcap_replay":
+				hint = "Check that the PCAP file exists and is readable"
+			}
+
+			errorMsg, _ := json.Marshal(map[string]interface{}{
+				"type":          "capture_error",
+				"error":         true,
+				"requestedMode": originalMode,
+				"errorMsg":      fmt.Sprintf("Failed to start %s capture: %v", originalMode, err),
+				"hint":          hint,
+				"interface":     selectedInterface,
+				"pcapFile":      selectedPcapFile,
+			})
+			conn.WriteMessage(websocket.TextMessage, errorMsg)
+			conn.Close()
 			return
 		}
 

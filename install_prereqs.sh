@@ -190,6 +190,31 @@ else
   sudo npm install -g npm@9
 fi
 
+# Install dumpcap for high-performance packet capture
+print_header "Installing dumpcap (Wireshark packet capture tool)"
+if command -v dumpcap &> /dev/null; then
+  print_step "dumpcap is already installed: $(which dumpcap)"
+else
+  print_step "Installing wireshark-common (provides dumpcap)..."
+  # Pre-configure wireshark to allow non-root capture (will prompt if interactive)
+  echo "wireshark-common wireshark-common/install-setuid boolean true" | sudo debconf-set-selections
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireshark-common
+
+  # Add current user to wireshark group for non-root capture
+  if [ -n "$SUDO_USER" ]; then
+    sudo usermod -aG wireshark "$SUDO_USER"
+    print_step "Added $SUDO_USER to wireshark group (logout/login required for non-sudo capture)"
+  fi
+
+  # Verify installation
+  if command -v dumpcap &> /dev/null; then
+    print_step "dumpcap installed successfully: $(dumpcap --version | head -1)"
+  else
+    print_error "dumpcap installation failed!"
+    exit 1
+  fi
+fi
+
 # Install libpcap for packet capture, addressing dependencies to use latest
 print_header "Installing libpcap development libraries and resolving dependencies (aiming for latest)"
 
