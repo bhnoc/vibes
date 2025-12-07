@@ -1,9 +1,37 @@
 import { create } from 'zustand';
-import { throttle } from 'lodash';
 import { useSettingsStore } from './settingsStore';
 import { usePhysicsStore } from './physicsStore';
 import { usePinStore } from './pinStore';
 import { logger } from '../utils/logger';
+
+// Batching system for nodes and connections to prevent dropped updates
+// Unlike lodash throttle which drops calls, this batches them
+const nodeBatch: Map<string, any> = new Map();
+const connectionBatch: Map<string, any> = new Map();
+let batchFlushScheduled = false;
+
+const scheduleBatchFlush = () => {
+  if (batchFlushScheduled) return;
+  batchFlushScheduled = true;
+
+  setTimeout(() => {
+    batchFlushScheduled = false;
+
+    // Flush nodes
+    if (nodeBatch.size > 0) {
+      const nodes = Array.from(nodeBatch.values());
+      nodeBatch.clear();
+      useNetworkStore.getState()._batchAddNodes(nodes);
+    }
+
+    // Flush connections
+    if (connectionBatch.size > 0) {
+      const connections = Array.from(connectionBatch.values());
+      connectionBatch.clear();
+      useNetworkStore.getState()._batchAddConnections(connections);
+    }
+  }, 16); // ~60fps batch rate
+};
 
 // Types
 export interface Node {
@@ -41,6 +69,9 @@ interface NetworkState {
   updateNodeActivity: (nodeId: string, port?: number) => void;
   addOrUpdateNode: (node: Node) => void;
   addOrUpdateConnection: (connection: Connection) => void;
+  // Internal batch methods (called by the batching system)
+  _batchAddNodes: (nodes: Node[]) => void;
+  _batchAddConnections: (connections: Connection[]) => void;
   // Legacy/compatibility API methods
   addNode: (id: string, data?: Partial<Node>) => void;
   addConnection: (connection: Partial<Connection>) => void;
@@ -235,39 +266,44 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     });
   },
   
-  // Add or update a node (replace if exists)
-  addOrUpdateNode: throttle((node: Node) => {
-    totalNodesProcessed++;
-    lastNodeAddTime = Date.now();
-    
-    set((state) => {
-      // Normal flow - find and update node if it exists
-      const nodeIndex = state.nodes.findIndex((n) => n.id === node.id);
-      if (nodeIndex !== -1) {
-        const updatedNodes = [...state.nodes];
-        const existingNode = updatedNodes[nodeIndex];
-        const mergedPorts = new Set([...(existingNode.ports || []), ...(node.ports || [])]);
-        updatedNodes[nodeIndex] = { ...existingNode, ...node, ports: mergedPorts };
-        return { ...state, nodes: updatedNodes };
-      } else {
-        totalNodesAdded++;
-        
-        // Ensure new nodes have an initialized ports set
-        const newNode = { ...node, ports: new Set(node.ports || []) };
+  // Add or update a node - batched to prevent dropped updates
+  addOrUpdateNode: (node: Node) => {
+    nodeBatch.set(node.id, node);
+    scheduleBatchFlush();
+  },
 
-        // Check if we're approaching the max node count
-        const maxNodes = useSettingsStore.getState().maxNodes;
-        if (state.nodes.length >= maxNodes) {
-          // Perform pruning to make room for new node
-          const prunedNodes = pruneOldestNodes(state.nodes, maxNodes);
-          return { ...state, nodes: [...prunedNodes, newNode] };
+  // Internal: process batched nodes
+  _batchAddNodes: (nodes: Node[]) => {
+    if (nodes.length === 0) return;
+
+    totalNodesProcessed += nodes.length;
+    lastNodeAddTime = Date.now();
+
+    set((state) => {
+      const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
+
+      nodes.forEach(node => {
+        const existing = nodeMap.get(node.id);
+        if (existing) {
+          const mergedPorts = new Set([...(existing.ports || []), ...(node.ports || [])]);
+          nodeMap.set(node.id, { ...existing, ...node, ports: mergedPorts });
+        } else {
+          totalNodesAdded++;
+          nodeMap.set(node.id, { ...node, ports: new Set(node.ports || []) });
         }
-        
-        // Otherwise just add the new node
-        return { ...state, nodes: [...state.nodes, newNode] };
+      });
+
+      let updatedNodes = Array.from(nodeMap.values());
+
+      // Prune if over limit
+      const maxNodes = useSettingsStore.getState().maxNodes;
+      if (updatedNodes.length > maxNodes) {
+        updatedNodes = pruneOldestNodes(updatedNodes, maxNodes);
       }
+
+      return { ...state, nodes: updatedNodes };
     });
-  }, 10), // Throttle to 10ms to prevent too many updates
+  },
   
   // COMPATIBILITY FUNCTION: Add node with separate id and data params (old API)
   addNode: (id: string, data: Partial<Node> = {}) => {
@@ -285,37 +321,45 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     useNetworkStore.getState().addOrUpdateNode(node);
   },
   
-  // Add or update a connection (replace if exists)
-  addOrUpdateConnection: throttle((connection: Connection) => {
+  // Add or update a connection - batched to prevent dropped updates
+  addOrUpdateConnection: (connection: Connection) => {
+    connectionBatch.set(connection.id, connection);
+    scheduleBatchFlush();
+  },
+
+  // Internal: process batched connections
+  _batchAddConnections: (connections: Connection[]) => {
+    if (connections.length === 0) return;
+
     set((state) => {
-      const connectionIndex = state.connections.findIndex(
-        (c) => c.id === connection.id
-      );
-      
-      if (connectionIndex !== -1) {
-        // Update existing connection
-        const updatedConnections = [...state.connections];
-        const existingConnection = updatedConnections[connectionIndex];
-        // Smart merge: preserve port numbers if the new packet doesn't have them
-        updatedConnections[connectionIndex] = {
-          ...existingConnection,
-          ...connection,
-          srcPort: connection.srcPort || existingConnection.srcPort,
-          dstPort: connection.dstPort || existingConnection.dstPort,
-        };
-        return { ...state, connections: updatedConnections };
-      } else {
-        // Add new connection (with pruning if needed)
-        const maxNodes = useSettingsStore.getState().maxNodes;
-        if (state.connections.length > maxNodes * 3) {
-          // Keep connection count in check relative to node count (increased ratio)
-          const prunedConnections = pruneOldestConnections(state.connections, maxNodes);
-          return { ...state, connections: [...prunedConnections, connection] };
+      const connMap = new Map(state.connections.map(c => [c.id, c]));
+
+      connections.forEach(connection => {
+        const existing = connMap.get(connection.id);
+        if (existing) {
+          // Smart merge: preserve port numbers if new packet doesn't have them
+          connMap.set(connection.id, {
+            ...existing,
+            ...connection,
+            srcPort: connection.srcPort || existing.srcPort,
+            dstPort: connection.dstPort || existing.dstPort,
+          });
+        } else {
+          connMap.set(connection.id, connection);
         }
-        return { ...state, connections: [...state.connections, connection] };
+      });
+
+      let updatedConnections = Array.from(connMap.values());
+
+      // Prune if over limit
+      const maxNodes = useSettingsStore.getState().maxNodes;
+      if (updatedConnections.length > maxNodes * 3) {
+        updatedConnections = pruneOldestConnections(updatedConnections, maxNodes);
       }
+
+      return { ...state, connections: updatedConnections };
     });
-  }, 10), // Throttle to 10ms
+  },
   
   // COMPATIBILITY FUNCTION: Add connection (old API wrapper for addOrUpdateConnection)
   addConnection: (connection: Partial<Connection>) => {

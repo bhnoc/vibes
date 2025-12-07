@@ -500,7 +500,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
-  }, [nodes, connections, generatePosition, nodePool, connectionPool])
+  }, [nodes, connections, generatePosition, nodePool, connectionPool, connectionLifetime])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
