@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore, Node } from '../stores/networkStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { usePhysicsStore } from '../stores/physicsStore';
 import { logger } from '../utils/logger';
 
 // SHARED CONSTANTS - Export these to prevent collision detection mismatches between modules
@@ -261,7 +261,7 @@ function findCollisionFreePosition(
 export const usePacketProcessor = () => {
   const { packets } = usePacketStore();
   const { addOrUpdateNode, addConnection, limitNetworkSize, nodes, updateNodeActivity } = useNetworkStore();
-  const { nodeSpacing } = useSettingsStore(); // Get dynamic node spacing
+  const { nodeSpacing } = usePhysicsStore(); // Get dynamic node spacing from physics store
   
   // Console log occasional packet source statistics
   const packetSourcesRef = useRef<{real: number, simulated: number, unknown: number}>({
@@ -355,7 +355,7 @@ export const usePacketProcessor = () => {
             logger.log(`🔍 Checking collision against ${allNodesForCollision.length} nodes`);
           }
           
-          const collisionFreePosition = findCollisionFreePosition(desiredPosition, allNodesForCollision, useSettingsStore.getState().nodeSpacing);
+          const collisionFreePosition = findCollisionFreePosition(desiredPosition, allNodesForCollision, usePhysicsStore.getState().nodeSpacing);
           if (Math.random() < 0.1) { // Only log 10% of final positions
             logger.log(`✅ Final position for ${sourceNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
           }
@@ -390,7 +390,7 @@ export const usePacketProcessor = () => {
           logger.log(`🎯 Desired position for ${targetNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
           logger.log(`🔍 Checking collision against ${updatedNodesForCollision.length} nodes:`, updatedNodesForCollision.map(n => `${n.id}:(${n.x},${n.y})`));
           
-          const collisionFreePosition = findCollisionFreePosition(desiredPosition, updatedNodesForCollision, useSettingsStore.getState().nodeSpacing);
+          const collisionFreePosition = findCollisionFreePosition(desiredPosition, updatedNodesForCollision, usePhysicsStore.getState().nodeSpacing);
           logger.log(`✅ Final position for ${targetNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
           
           const newNode: Node = {

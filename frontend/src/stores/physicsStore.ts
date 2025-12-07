@@ -18,13 +18,16 @@ export interface PhysicsSettings {
 }
 
 const defaultPhysics = {
-    connectionPullStrength: 1.30,
+    connectionPullStrength: 6.60,
     collisionRepulsion: 1.25,
-    damping: 0.06,
-    connectionLifetime: 1200,
-    nodeSpacing: 150,
-    driftAwayStrength: 3.0,
+    damping: 0.060,  // Low damping = nodes slow down quickly (this is friction, not retention)
+    connectionLifetime: 7500,  // 7.5 seconds - connections stay visible and active
+    nodeSpacing: 41,
+    driftAwayStrength: 0.22,
 }
+
+// Version number for physics settings - increment to force reset when defaults change
+const PHYSICS_SETTINGS_VERSION = 3;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
@@ -40,7 +43,17 @@ export const usePhysicsStore = create<PhysicsSettings>()(
     }),
     {
       name: 'physics-settings-storage',
+      version: PHYSICS_SETTINGS_VERSION,
       storage: createJSONStorage(() => localStorage),
+      // Migrate old settings to new defaults when version changes
+      migrate: (persistedState: any, version: number) => {
+        if (version < PHYSICS_SETTINGS_VERSION) {
+          // Reset to new defaults when version changes
+          console.log(`Physics settings migrated from v${version} to v${PHYSICS_SETTINGS_VERSION} - applying new defaults`);
+          return { ...defaultPhysics };
+        }
+        return persistedState;
+      },
     }
   )
 ) 

@@ -94,11 +94,11 @@ export const PhysicsPanel: React.FC = () => {
           onChange={(v: number) => setCollisionRepulsion(v / 100)}
           displayValue={collisionRepulsion.toFixed(2)}
         />
-        <RangeSlider 
+        <RangeSlider
           label="Damping"
           value={damping * 1000}
           min="0"
-          max="100"
+          max="200"
           onChange={(v: number) => setDamping(v / 1000)}
           displayValue={damping.toFixed(3)}
         />

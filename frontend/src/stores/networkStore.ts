@@ -38,7 +38,7 @@ export interface Connection {
 interface NetworkState {
   nodes: Node[];
   connections: Connection[];
-  updateNodeActivity: (nodeId: string) => void;
+  updateNodeActivity: (nodeId: string, port?: number) => void;
   addOrUpdateNode: (node: Node) => void;
   addOrUpdateConnection: (connection: Connection) => void;
   // Legacy/compatibility API methods
