@@ -313,20 +313,30 @@ export const usePacketProcessor = () => {
       const nodesAddedThisBatch: Node[] = [];
       
       // Process all new packets immediately
+      let validPackets = 0;
+      let invalidPackets = 0;
+
       unprocessedPackets.forEach(packet => {
         const sourceNode = packet.src;
         const targetNode = packet.dst;
-        const srcPort = packet.src_port;
-        const dstPort = packet.dst_port;
-        
+        const srcPort = (packet as any).src_port;
+        const dstPort = (packet as any).dst_port;
+
         // Track the latest timestamp we've processed
         const packetTime = packet.timestamp || 0;
         if (packetTime > latestTimestamp) {
           latestTimestamp = packetTime;
         }
-        
+
         // Skip invalid packets
-        if (!sourceNode || !targetNode) return;
+        if (!sourceNode || !targetNode) {
+          invalidPackets++;
+          if (invalidPackets <= 3) {
+            console.log(`⚠️ Invalid packet (no src/dst):`, packet);
+          }
+          return;
+        }
+        validPackets++;
         
         // Combined list of existing nodes + nodes added in this batch
         const allNodesForCollision = [...currentNodes, ...nodesAddedThisBatch];
@@ -436,7 +446,7 @@ export const usePacketProcessor = () => {
 
       // Get current node count for debug
       const currentNodeCount = useNetworkStore.getState().nodes.length;
-      console.log(`✅ Processing complete: processed ${unprocessedPackets.length} packets, nodes in store: ${currentNodeCount}`);
+      console.log(`✅ Processing complete: valid=${validPackets}, invalid=${invalidPackets}, nodes in store: ${currentNodeCount}, nodesAddedThisBatch: ${nodesAddedThisBatch.length}`);
       
       // Periodically clean up old network elements
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
