@@ -19,6 +19,7 @@ import (
 	"github.com/c-robinson/iplib"
 	"github.com/gorilla/websocket"
 	"vibes-network-visualizer/internal/capture"
+	"vibes-network-visualizer/internal/storage"
 )
 
 const (
@@ -38,7 +39,17 @@ var (
 	useDumpcap    = flag.Bool("dumpcap", false, "use external dumpcap for high-performance capture (requires dumpcap to be running)")
 	dumpcapDir    = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
 	launchDumpcap = flag.Bool("launch-dumpcap", false, "automatically launch dumpcap process if not running")
-	upgrader      = websocket.Upgrader{
+
+	// Storage management flags
+	maxStorageGB     = flag.Int64("max-storage-gb", 600, "maximum storage size in GB for PCAP files")
+	fileRotationMB   = flag.Int64("file-rotation-mb", 1000, "rotate PCAP files after this many MB")
+	fileRotationMins = flag.Int("file-rotation-mins", 60, "rotate PCAP files after this many minutes")
+	ringBufferFiles  = flag.Int("ring-buffer-files", 0, "safety net: max files to keep (0 = auto-calculate from max-storage-gb)")
+
+	// Global storage manager instance
+	storageManager *storage.Manager
+
+	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins
 		},
@@ -274,13 +285,14 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		if err := handleDumpcapSetup(selectedInterface, *dumpcapDir); err != nil {
 			log.Printf("❌ Dumpcap setup failed: %v", err)
 			if selectedInterface != "" {
-				log.Printf("⚠️ Falling back to real capture mode")
+				log.Printf("⚠️ Falling back to real capture mode (interface %s specified)", selectedInterface)
 				captureSystem = capture.NewRealCapture(selectedInterface)
 				captureMode = "real"
 			} else {
-				log.Printf("⚠️ Falling back to simulation mode")
-				captureSystem = capture.NewSimulatedCapture()
-				captureMode = "simulated"
+				// No interface specified - this is a configuration error, fail hard
+				log.Printf("❌ Dumpcap mode requires -iface flag or interface query param")
+				http.Error(w, "Dumpcap mode requires an interface to be specified (-iface flag)", http.StatusBadRequest)
+				return
 			}
 		} else {
 			captureSystem = capture.NewDumpcapCapture(*dumpcapDir, selectedInterface)
@@ -302,6 +314,15 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		log.Printf("Failed to start %s capture: %v", captureMode, err)
 		captureFailed = true
 		captureErrorMsg = err.Error()
+
+		// Only fall back to simulation if we weren't explicitly configured for a specific mode
+		// When dumpcap or real capture is explicitly requested, don't silently fall back to simulation
+		if *useDumpcap || *iface != "" || *pcapFile != "" {
+			log.Printf("❌ %s mode was explicitly requested but failed to start", originalMode)
+			log.Printf("❌ NOT falling back to simulation - check your configuration")
+			http.Error(w, fmt.Sprintf("Failed to start %s capture: %s", originalMode, err.Error()), http.StatusInternalServerError)
+			return
+		}
 
 		log.Printf("Falling back to simulated capture")
 		captureSystem = capture.NewSimulatedCapture()
@@ -676,14 +697,27 @@ func launchDumpcapProcess(iface string, outputDir string) error {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	outputFile := filepath.Join(outputDir, fmt.Sprintf("dumpcap_%s_%s.pcap", iface, timestamp))
 
+	// Calculate ring buffer file count if not specified
+	ringFiles := *ringBufferFiles
+	if ringFiles == 0 {
+		// Auto-calculate: maxStorageGB / fileRotationMB (with some buffer)
+		ringFiles = int((*maxStorageGB * 1024) / *fileRotationMB)
+		if ringFiles < 10 {
+			ringFiles = 10 // Minimum 10 files
+		}
+	}
+
 	args := []string{
 		"-i", iface,
 		"-w", outputFile,
-		"-b", "duration:3600",
-		"-b", "filesize:1000000",
+		"-b", fmt.Sprintf("duration:%d", *fileRotationMins*60),    // Convert minutes to seconds
+		"-b", fmt.Sprintf("filesize:%d", *fileRotationMB*1024),    // Convert MB to KB (dumpcap uses KB)
+		"-b", fmt.Sprintf("files:%d", ringFiles),                   // Ring buffer safety net
 	}
 
 	log.Printf("🚀 Launching dumpcap: dumpcap %s", strings.Join(args, " "))
+	log.Printf("📊 Storage config: max %dGB, rotation %dMB/%dmins, ring buffer %d files",
+		*maxStorageGB, *fileRotationMB, *fileRotationMins, ringFiles)
 
 	cmd := exec.Command("dumpcap", args...)
 
@@ -764,16 +798,26 @@ func main() {
 		fmt.Println("Usage examples:")
 		fmt.Println("  Simulated mode:     go run main.go")
 		fmt.Println("  Real capture:       sudo go run main.go -iface eth0")
-		fmt.Println("  Dumpcap mode:       go run main.go -dumpcap -dumpcap-dir /data/pcaps -iface en1")
-		fmt.Println("  Auto-launch:        go run main.go -dumpcap -launch-dumpcap -iface en1")
+		fmt.Println("  Dumpcap mode:       go run main.go -dumpcap -dumpcap-dir /data/pcaps -iface eth0")
+		fmt.Println("  Auto-launch:        go run main.go -dumpcap -launch-dumpcap -iface eth0")
 		fmt.Println("  PCAP replay:        go run main.go -pcap /path/to/file.pcap")
 		fmt.Println("  PCAP replay 2x:     go run main.go -pcap /path/to/file.pcap -speed 2.0")
 		fmt.Println("  Custom port:        go run main.go -addr :9090")
 		fmt.Println("  Time windows:       go run main.go -storage /data/pcaps")
 		fmt.Println()
+		fmt.Println("Storage Management (dumpcap mode):")
+		fmt.Println("  Default (600GB):    go run main.go -dumpcap -launch-dumpcap -iface eth0")
+		fmt.Println("  Custom limit:       go run main.go -dumpcap -launch-dumpcap -iface eth0 -max-storage-gb 100")
+		fmt.Println("  Small files:        go run main.go -dumpcap -launch-dumpcap -iface eth0 -file-rotation-mb 500")
+		fmt.Println("  Quick rotation:     go run main.go -dumpcap -launch-dumpcap -iface eth0 -file-rotation-mins 30")
+		fmt.Println()
 		fmt.Println("URL Parameters (override command line):")
 		fmt.Println("  ws://localhost:8080/ws?pcap=/path/file.pcap&speed=2.0")
 		fmt.Println("  ws://localhost:8080/ws?interface=eth0")
+		fmt.Println()
+		fmt.Println("REST API Endpoints:")
+		fmt.Println("  GET /api/interfaces  - List available network interfaces")
+		fmt.Println("  GET /api/storage     - Get storage manager statistics")
 		fmt.Println()
 		fmt.Println("WebSocket Commands:")
 		fmt.Println("  Time Window: {\"type\":\"select_time_window\",\"start_time\":\"2023-01-01T10:00:00Z\",\"end_time\":\"2023-01-01T11:00:00Z\",\"speed\":2.0}")
@@ -791,6 +835,27 @@ func main() {
 		log.Printf("📼 PCAP Replay Mode: %s (speed: %.2fx)", *pcapFile, *replaySpeed)
 	} else if *useDumpcap {
 		log.Printf("🚀 Dumpcap Monitor Mode: %s (interface: %s)", *dumpcapDir, *iface)
+
+		// Warn if storage and dumpcap directories overlap (could affect historical playback)
+		if *storageDir == *dumpcapDir {
+			log.Printf("⚠️ WARNING: -storage and -dumpcap-dir point to same directory (%s)", *dumpcapDir)
+			log.Printf("⚠️ Historical playback files may be deleted by storage manager!")
+			log.Printf("⚠️ Consider using separate directories for live capture and archive")
+		}
+
+		// Start storage manager for dumpcap mode
+		storageConfig := storage.Config{
+			Directory:     *dumpcapDir,
+			MaxSizeBytes:  *maxStorageGB * 1024 * 1024 * 1024, // Convert GB to bytes
+			LowWaterMark:  0.90,                                // Cleanup to 90% of max
+			CheckInterval: 30 * time.Second,
+			MinRetention:  5 * time.Minute, // Keep files at least 5 minutes
+			FilePattern:   "*.pcap",
+		}
+		storageManager = storage.NewManager(storageConfig)
+		if err := storageManager.Start(); err != nil {
+			log.Printf("⚠️ Failed to start storage manager: %v", err)
+		}
 	} else if *iface != "" {
 		log.Printf("📡 Real Capture Mode: interface %s", *iface)
 	} else {
@@ -809,6 +874,35 @@ func main() {
 			return
 		}
 		json.NewEncoder(w).Encode(interfaces)
+	})
+
+	http.HandleFunc("/api/storage", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		if storageManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"enabled": false,
+				"message": "Storage manager not active (only available in dumpcap mode)",
+			})
+			return
+		}
+
+		stats := storageManager.GetStats()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled":        true,
+			"totalFiles":     stats.TotalFiles,
+			"totalSizeBytes": stats.TotalSizeBytes,
+			"totalSizeGB":    float64(stats.TotalSizeBytes) / (1024 * 1024 * 1024),
+			"maxSizeGB":      *maxStorageGB,
+			"usagePercent":   storageManager.GetUsagePercent(),
+			"oldestFile":     stats.OldestFile,
+			"newestFile":     stats.NewestFile,
+			"lastCleanup":    stats.LastCleanup,
+			"filesDeleted":   stats.FilesDeleted,
+			"bytesFreed":     stats.BytesFreed,
+			"bytesFreedGB":   float64(stats.BytesFreed) / (1024 * 1024 * 1024),
+		})
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

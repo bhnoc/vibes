@@ -2,9 +2,10 @@
 
 # VIBES Network Visualizer Prerequisites Installer
 # ====================================
-# This script installs all required dependencies for the VIBES project in WSL
-# - Go 1.21+
-# - Node.js 16+
+# This script installs all required dependencies for the VIBES project
+# Supports Ubuntu and Debian (all versions)
+# - Go (version specified in requirements.conf)
+# - Node.js (version specified in requirements.conf)
 # - libpcap development libraries
 # - And more...
 
@@ -42,22 +43,14 @@ print_error() {
   echo -e "  \e[1;31mX\e[0m \e[1;37m$1\e[0m"
 }
 
-# Check if we're running in WSL
-if [[ "$(uname -r)" != *WSL* ]] && [[ "$(uname -r)" != *Microsoft* ]]; then
-  print_warning "This doesn't appear to be WSL. The script might not work correctly."
-  read -p "Continue anyway? (y/n) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
-  fi
-fi
-
-# Detect Ubuntu version
-UBUNTU_VERSION=""
+# Detect distro and version
+DISTRO_ID=""
+DISTRO_VERSION=""
 if [ -f /etc/os-release ]; then
   . /etc/os-release
-  UBUNTU_VERSION="$VERSION_ID"
-  print_step "Detected Ubuntu version: $UBUNTU_VERSION"
+  DISTRO_ID="$ID"
+  DISTRO_VERSION="${VERSION_ID:-}"
+  print_step "Detected distro: $DISTRO_ID ${DISTRO_VERSION:-unknown version}"
 fi
 
 # Check if script is run as root
@@ -67,42 +60,33 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 # Basic system setup
-print_header "Updating system package information"
+print_header "Updating and upgrading system packages"
 sudo apt-get update
+sudo apt-get upgrade -y
+sudo apt-get dist-upgrade -y
+sudo apt-get autoremove -y
 
 print_header "Installing basic build tools"
-sudo apt-get install -y build-essential curl wget git unzip
+sudo apt-get install -y build-essential curl wget git unzip bc
 
-# Install Go
-print_header "Installing Go $GO_VER"
-if command -v go &> /dev/null; then
-  GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-  print_step "Go $GO_VERSION is already installed"
+# Detect system architecture
+ARCH=$(uname -m)
+case $ARCH in
+  x86_64) GO_ARCH="amd64" ;;
+  aarch64) GO_ARCH="arm64" ;;
+  armv7l) GO_ARCH="armv6l" ;;
+  *) print_error "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+print_step "Detected architecture: $ARCH (Go: $GO_ARCH)"
 
-  # Compare versions (basic check)
-  if [[ "$(echo -e "$GO_VERSION\n$GO_VER" | sort -V | head -n 1)" != "$GO_VER" ]]; then
-    print_warning "Your Go version is older than $GO_VER. Attempting upgrade..."
-    print_step "Downloading Go $GO_VER..."
-    wget -O /tmp/go${GO_VER}.linux-amd64.tar.gz https://golang.org/dl/go${GO_VER}.linux-amd64.tar.gz
-    print_step "Removing old Go installation..."
-    sudo rm -rf /usr/local/go
-    print_step "Installing Go $GO_VER..."
-    sudo tar -C /usr/local -xzf /tmp/go${GO_VER}.linux-amd64.tar.gz
-
-    # Add Go to PATH if not already there
-    if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
-      echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
-    fi
-
-    # Also add to current session
-    export PATH=$PATH:/usr/local/go/bin
-    print_step "Go upgrade complete"
-  fi
-else
+install_go() {
   print_step "Downloading Go $GO_VER..."
-  wget -O /tmp/go${GO_VER}.linux-amd64.tar.gz https://golang.org/dl/go${GO_VER}.linux-amd64.tar.gz
-  print_step "Installing Go..."
-  sudo tar -C /usr/local -xzf /tmp/go${GO_VER}.linux-amd64.tar.gz
+  wget -O /tmp/go${GO_VER}.linux-${GO_ARCH}.tar.gz https://golang.org/dl/go${GO_VER}.linux-${GO_ARCH}.tar.gz
+  print_step "Removing old Go installation (if any)..."
+  sudo rm -rf /usr/local/go
+  print_step "Installing Go $GO_VER..."
+  sudo tar -C /usr/local -xzf /tmp/go${GO_VER}.linux-${GO_ARCH}.tar.gz
+  rm /tmp/go${GO_VER}.linux-${GO_ARCH}.tar.gz
 
   # Add Go to PATH if not already there
   if ! grep -q "export PATH=\$PATH:/usr/local/go/bin" ~/.profile; then
@@ -111,16 +95,54 @@ else
 
   # Also add to current session
   export PATH=$PATH:/usr/local/go/bin
+}
+
+# Install Go
+print_header "Installing Go $GO_VER"
+if command -v go &> /dev/null; then
+  GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+  print_step "Go $GO_VERSION is already installed"
+
+  # Compare versions - upgrade if current version is older than target
+  if [[ "$(echo -e "$GO_VERSION\n$GO_VER" | sort -V | head -n 1)" != "$GO_VER" ]]; then
+    print_warning "Your Go version ($GO_VERSION) is older than target $GO_VER. Upgrading..."
+    install_go
+    print_step "Go upgrade complete"
+  elif [[ "$GO_VERSION" == "$GO_VER" ]]; then
+    print_step "Go is already at target version $GO_VER"
+  else
+    print_step "Go $GO_VERSION is newer than target $GO_VER - keeping current version"
+  fi
+else
+  print_step "Go not found, installing version $GO_VER..."
+  install_go
   print_step "Go installation complete"
 fi
 
 # Install Node.js and npm
 print_header "Installing Node.js and npm"
 
+# Check if we need the modern apt keyring method (Ubuntu 22.04+, Debian 12+)
+needs_modern_apt_keyring() {
+  case "$DISTRO_ID" in
+    ubuntu)
+      if [[ -n "$DISTRO_VERSION" ]] && [[ "${DISTRO_VERSION%%.*}" -ge 22 ]]; then
+        return 0
+      fi
+      ;;
+    debian)
+      if [[ -n "$DISTRO_VERSION" ]] && [[ "${DISTRO_VERSION%%.*}" -ge 12 ]]; then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
 install_nodejs() {
-  # For Ubuntu 24.04+, use the new nodesource approach with signed-by
-  if [[ -n "$UBUNTU_VERSION" ]] && [[ "$(echo "$UBUNTU_VERSION >= 24.04" | bc -l 2>/dev/null || echo 0)" == "1" ]]; then
-    print_step "Using updated Node.js installation method for Ubuntu 24.04+"
+  # For modern Ubuntu/Debian, use the new nodesource approach with signed-by
+  if needs_modern_apt_keyring; then
+    print_step "Using modern Node.js installation method (signed-by keyring)"
     sudo apt-get install -y ca-certificates curl gnupg
     sudo mkdir -p /etc/apt/keyrings
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
@@ -137,18 +159,35 @@ install_nodejs() {
 
 if command -v node &> /dev/null; then
   NODE_VERSION=$(node -v)
+  NODE_MAJOR=$(echo $NODE_VERSION | cut -d. -f1 | tr -d 'v')
   print_step "Node.js $NODE_VERSION is already installed"
 
-  # Check if Node.js version is at least $NODE_VER
-  NODE_MAJOR=$(echo $NODE_VERSION | cut -d. -f1 | tr -d 'v')
+  # Check if Node.js version matches target version
   if [[ $NODE_MAJOR -lt $NODE_VER ]]; then
-    print_warning "Your Node.js version is too old. Version $NODE_VER+ is required."
-    print_step "Upgrading Node.js..."
+    print_warning "Your Node.js version ($NODE_VERSION) is older than target version $NODE_VER."
+    print_step "Upgrading Node.js to version $NODE_VER..."
     install_nodejs
+  elif [[ $NODE_MAJOR -gt $NODE_VER ]]; then
+    print_step "Node.js $NODE_VERSION is newer than target $NODE_VER - keeping current version"
+  else
+    print_step "Node.js is already at target version $NODE_VER"
   fi
 else
+  print_step "Node.js not found, installing version $NODE_VER..."
   install_nodejs
   print_step "Node.js installation complete"
+fi
+
+# Update npm to latest compatible version
+print_step "Updating npm to latest compatible version..."
+NODE_MAJOR_VER=$(node -v | cut -d. -f1 | tr -d 'v')
+if [[ $NODE_MAJOR_VER -ge 20 ]]; then
+  sudo npm install -g npm@latest
+elif [[ $NODE_MAJOR_VER -ge 18 ]]; then
+  sudo npm install -g npm@10
+else
+  # For Node 16 and older, npm 9 is the latest compatible
+  sudo npm install -g npm@9
 fi
 
 # Install libpcap for packet capture, addressing dependencies to use latest
