@@ -718,7 +718,9 @@ func (manager *ClientManager) handleSeekToTime(msg map[string]interface{}, clien
 }
 
 func checkDumpcapRunning() bool {
-	cmd := exec.Command("pgrep", "-f", "dumpcap")
+	// Use pgrep -x for exact match on process name, not command line
+	// This avoids matching our own process which has "-dumpcap" as a flag
+	cmd := exec.Command("pgrep", "-x", "dumpcap")
 	err := cmd.Run()
 	return err == nil
 }
