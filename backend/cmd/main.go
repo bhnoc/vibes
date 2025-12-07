@@ -914,6 +914,20 @@ func main() {
 	} else if *useDumpcap {
 		log.Printf("🚀 Dumpcap Monitor Mode: %s (interface: %s)", *dumpcapDir, *iface)
 
+		// Validate interface is specified
+		if *iface == "" {
+			log.Fatalf("❌ Dumpcap mode requires -iface flag to specify network interface")
+		}
+
+		// Launch dumpcap at startup if -launch-dumpcap is set
+		if *launchDumpcap {
+			log.Printf("🔍 Checking dumpcap status at startup...")
+			if err := handleDumpcapSetup(*iface, *dumpcapDir); err != nil {
+				log.Fatalf("❌ Failed to setup dumpcap: %v", err)
+			}
+			log.Printf("✅ Dumpcap is running and capturing to %s", *dumpcapDir)
+		}
+
 		// Warn if storage and dumpcap directories overlap (could affect historical playback)
 		if *storageDir == *dumpcapDir {
 			log.Printf("⚠️ WARNING: -storage and -dumpcap-dir point to same directory (%s)", *dumpcapDir)
