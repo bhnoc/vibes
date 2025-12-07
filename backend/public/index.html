@@ -98,7 +98,7 @@
 <body>
   <div class="scanline"></div>
   <h1 class="glow">VIBES Network Visualizer</h1>
-  <p>Backend server is running. Connect to the WebSocket at <code>ws://localhost:8080/ws</code> to receive real-time network packet data.</p>
+  <p>Backend server is running. Connect to the WebSocket at <code id="ws-url">ws://localhost:8080/ws</code> to receive real-time network packet data.</p>
   
   <div class="status">
     <h2>Server Status</h2>
@@ -119,31 +119,42 @@
     // Simple WebSocket test
     const statusLight = document.getElementById('status-light');
     const connectionText = document.getElementById('connection-text');
-    
+    const wsUrlDisplay = document.getElementById('ws-url');
+
+    // Build WebSocket URL dynamically based on current page location
+    function getWebSocketUrl() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      return `${protocol}//${host}/ws`;
+    }
+
+    const wsUrl = getWebSocketUrl();
+    wsUrlDisplay.textContent = wsUrl;
+
     function connectWebSocket() {
-      const ws = new WebSocket('ws://localhost:8080/ws');
-      
+      const ws = new WebSocket(wsUrl);
+
       ws.onopen = function() {
         statusLight.classList.add('connected');
         connectionText.textContent = 'Connected to WebSocket';
-        console.log('Connected to WebSocket');
+        console.log('Connected to WebSocket at', wsUrl);
       };
-      
+
       ws.onclose = function() {
         statusLight.classList.remove('connected');
         connectionText.textContent = 'Disconnected from WebSocket';
         console.log('Disconnected from WebSocket');
-        
+
         // Try to reconnect after a delay
         setTimeout(connectWebSocket, 3000);
       };
-      
+
       ws.onerror = function(error) {
         statusLight.classList.remove('connected');
         connectionText.textContent = 'WebSocket connection error';
         console.error('WebSocket error:', error);
       };
-      
+
       ws.onmessage = function(event) {
         console.log('Received packet:', event.data);
         // Flash the status light to show activity
@@ -153,7 +164,7 @@
         }, 100);
       };
     }
-    
+
     // Initialize the WebSocket connection
     connectWebSocket();
   </script>

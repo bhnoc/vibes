@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/c-robinson/iplib"
@@ -765,51 +766,66 @@ func launchDumpcapProcess(iface string, outputDir string) error {
 	log.Printf("📊 Storage config: max %dGB, rotation %dMB/%dmins, ring buffer %d files",
 		*maxStorageGB, *fileRotationMB, *fileRotationMins, ringFiles)
 
-	cmd := exec.Command("dumpcap", args...)
+	// Find full path to dumpcap
+	dumpcapPath, err := exec.LookPath("dumpcap")
+	if err != nil {
+		return fmt.Errorf("dumpcap not found in PATH: %v", err)
+	}
+	log.Printf("📍 Using dumpcap at: %s", dumpcapPath)
 
-	// Capture stderr to see any error messages
-	var stderr strings.Builder
+	cmd := exec.Command(dumpcapPath, args...)
+
+	// Capture both stdout and stderr
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// Set process group so it doesn't die with parent
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	log.Printf("🔄 Starting dumpcap process...")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start dumpcap: %v", err)
 	}
 
-	log.Printf("✅ Dumpcap process started with PID %d", cmd.Process.Pid)
+	pid := cmd.Process.Pid
+	log.Printf("✅ Dumpcap process started with PID %d", pid)
 	log.Printf("📁 Writing to: %s", outputFile)
 
-	// Wait a moment and check if process is still running
-	time.Sleep(2 * time.Second)
+	// Wait a moment for dumpcap to initialize
+	time.Sleep(1 * time.Second)
 
 	// Check if process exited early (which would indicate an error)
-	var waitStatus error
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
 
 	select {
-	case waitStatus = <-done:
+	case waitErr := <-done:
 		// Process exited - this is bad, it should still be running
 		stderrOutput := stderr.String()
-		if stderrOutput != "" {
-			return fmt.Errorf("dumpcap exited immediately: %v\nOutput: %s", waitStatus, stderrOutput)
-		}
-		return fmt.Errorf("dumpcap exited immediately: %v", waitStatus)
-	case <-time.After(500 * time.Millisecond):
-		// Process still running after 500ms - good!
-		log.Printf("✅ Dumpcap is running (PID %d)", cmd.Process.Pid)
+		stdoutOutput := stdout.String()
+		return fmt.Errorf("dumpcap exited immediately with: %v\nStderr: %s\nStdout: %s", waitErr, stderrOutput, stdoutOutput)
+	case <-time.After(2 * time.Second):
+		// Process still running after 2s - good!
+		log.Printf("✅ Dumpcap still running after 2s (PID %d)", pid)
 	}
+
+	// Double-check with ps
+	checkCmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "pid,comm")
+	checkOutput, checkErr := checkCmd.CombinedOutput()
+	log.Printf("🔍 Process check: %s (err: %v)", string(checkOutput), checkErr)
 
 	// Verify process is in process list
 	if !checkDumpcapRunning() {
 		stderrOutput := stderr.String()
-		if stderrOutput != "" {
-			return fmt.Errorf("dumpcap process not found after launch. Stderr: %s", stderrOutput)
-		}
-		return fmt.Errorf("dumpcap process not found after launch - it may have crashed")
+		return fmt.Errorf("dumpcap process (PID %d) not found after launch. Stderr: %s", pid, stderrOutput)
 	}
 
+	log.Printf("✅ Dumpcap verified running (PID %d)", pid)
 	return nil
 }
 
@@ -826,25 +842,26 @@ func handleDumpcapSetup(iface string, outputDir string) error {
 
 		if hasRecentPcapFiles(outputDir) {
 			log.Printf("✅ Found recent PCAP files in %s", outputDir)
-			return nil
 		} else {
-			log.Printf("⚠️ Dumpcap is running but no recent PCAP files found")
-			log.Printf("💡 Check that dumpcap is writing to: %s", outputDir)
+			log.Printf("⚠️ Dumpcap is running but no recent PCAP files found yet")
+			log.Printf("💡 Files will appear in: %s", outputDir)
 		}
-	} else {
-		log.Printf("❌ Dumpcap is not running")
-
-		if *launchDumpcap {
-			log.Printf("🚀 Auto-launching dumpcap...")
-			if err := launchDumpcapProcess(iface, outputDir); err != nil {
-				return fmt.Errorf("failed to auto-launch dumpcap: %v", err)
-			}
-		} else {
-			return fmt.Errorf("dumpcap is not running. Options:\n  1. Start dumpcap manually: dumpcap -i %s -w %s/capture.pcap\n  2. Use auto-launch: add -launch-dumpcap flag", iface, outputDir)
-		}
+		// Dumpcap is running - that's all we need
+		return nil
 	}
 
-	return nil
+	// Dumpcap not running - try to launch it
+	log.Printf("❌ Dumpcap is not running")
+
+	if *launchDumpcap {
+		log.Printf("🚀 Auto-launching dumpcap...")
+		if err := launchDumpcapProcess(iface, outputDir); err != nil {
+			return fmt.Errorf("failed to auto-launch dumpcap: %v", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("dumpcap is not running. Options:\n  1. Start dumpcap manually: dumpcap -i %s -w %s/capture.pcap\n  2. Use auto-launch: add -launch-dumpcap flag", iface, outputDir)
 }
 
 func hasRecentPcapFiles(dir string) bool {
