@@ -1,12 +1,10 @@
 import React, { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
-import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
 import { usePinStore } from '../stores/pinStore'
 import { logger } from '../utils/logger'
-import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -213,9 +211,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     height: 0
   })
 
-  // Store hooks
-  const { nodes, connections } = useNetworkStore()
-  const { packets } = usePacketStore()
+  // Store hooks - DON'T subscribe to nodes/connections here to avoid re-render loops
+  // We'll read them fresh inside updateRenderObjects
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
   const { isPined } = usePinStore()
@@ -228,8 +225,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     driftAwayStrength,
   } = usePhysicsStore()
 
-  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
-  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
+  // Debug re-renders (disabled to reduce noise)
+  // console.log('--- CanvasNetworkRenderer RE-RENDER ---');
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
@@ -363,9 +360,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   }, [])
 
   // Update rendered objects from store data
+  // Gets fresh data from store each call - NOT dependent on React state
   const updateRenderObjects = useCallback(() => {
     const now = Date.now()
     const activeAge = 30000 // 30 seconds for "active" state
+
+    // Get fresh data from store - avoids re-render loops
+    const { nodes, connections } = useNetworkStore.getState();
 
     const storeNodesById = new Map(nodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
@@ -500,7 +501,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
-  }, [nodes, connections, generatePosition, nodePool, connectionPool, connectionLifetime])
+  }, [generatePosition, nodePool, connectionPool, connectionLifetime])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
