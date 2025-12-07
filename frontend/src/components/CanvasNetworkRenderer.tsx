@@ -849,7 +849,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           
           // --- Draw Port and Protocol Text ---
           const protocolText = (conn.protocol?.toUpperCase() || '???');
-          const portText = conn.dstPort > 0 ? `:${conn.dstPort}` : '';
+          const portText = (conn.dstPort && conn.dstPort > 0) ? `:${conn.dstPort}` : '';
           const fullText = `${protocolText}${portText}`;
           
           ctx.font = `${Math.max(9, 11 * vp.zoom)}px monospace`;
