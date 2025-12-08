@@ -21,9 +21,9 @@ export interface PacketState {
   setConnectionStatus: (status: 'connected' | 'disconnected') => void;
 }
 
-// Constants - REDUCED for minimal mode performance
-const MAX_PACKET_HISTORY = 1000; // REDUCED: Maximum number of packets to keep in history
-const PACKET_TRIM_THRESHOLD = 1500; // REDUCED: When to aggressively trim the packet history
+// Constants - increased for better visualization
+const MAX_PACKET_HISTORY = 10000; // Maximum number of packets to keep in history
+const PACKET_TRIM_THRESHOLD = 15000; // When to aggressively trim the packet history
 
 // Batching system to prevent infinite updates
 const packetBatchBuffer: any[] = [];

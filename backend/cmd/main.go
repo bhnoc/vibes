@@ -216,13 +216,10 @@ func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
 		} else {
 			flow.lastSeen = time.Now()
 			flow.packetCount++
+			flow.sampleCount++
 
-			// Simple dynamic sampling: send 1 in every N packets for a given flow
-			// Reduced sampling to send more packets for better visualization
-			if flow.packetCount%2 == 0 {
-				flow.sampleCount++
-				shouldSend = true
-			}
+			// Send all packets for maximum visualization
+			shouldSend = true
 		}
 		manager.flowTracker.mutex.Unlock()
 	}

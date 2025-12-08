@@ -58,13 +58,13 @@ interface NetworkState {
   limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
 }
 
-// Constants for node expiration - balanced for visualization
-const NODE_EXPIRATION_TIME = 15000; // 15 seconds of inactivity before node expires
-const CONNECTION_EXPIRATION_TIME = 10000; // 10 seconds of inactivity before connection removal
+// Constants for node expiration - increased for better visualization
+const NODE_EXPIRATION_TIME = 60000; // 60 seconds of inactivity before node expires
+const CONNECTION_EXPIRATION_TIME = 45000; // 45 seconds of inactivity before connection removal
 
 // Constants to limit memory usage - hard limits that prevent display issues
-const HARD_LIMIT_NODES = 5000; // Absolute maximum before emergency trimming
-const HARD_LIMIT_CONNECTIONS = 4500; // Absolute maximum before emergency trimming
+const HARD_LIMIT_NODES = 50000; // Absolute maximum before emergency trimming
+const HARD_LIMIT_CONNECTIONS = 100000; // Absolute maximum before emergency trimming
 
 // Target for keeping newest nodes/connections when pruning
 const KEEP_NEWEST_NODES = 1500;      // When pruning, keep this many newest nodes
