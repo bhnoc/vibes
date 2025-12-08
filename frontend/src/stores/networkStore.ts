@@ -58,9 +58,9 @@ interface NetworkState {
   limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
 }
 
-// Constants for node expiration - per user requirement: 30 seconds of no packets
-const NODE_EXPIRATION_TIME = 30000; // 30 seconds of inactivity before node expires
-const CONNECTION_EXPIRATION_TIME = 20000; // 20 seconds of inactivity before connection removal
+// Constants for node expiration - balanced for visualization
+const NODE_EXPIRATION_TIME = 15000; // 15 seconds of inactivity before node expires
+const CONNECTION_EXPIRATION_TIME = 10000; // 10 seconds of inactivity before connection removal
 
 // Constants to limit memory usage - hard limits that prevent display issues
 const HARD_LIMIT_NODES = 5000; // Absolute maximum before emergency trimming
@@ -418,8 +418,8 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       
       // Always keep most recent connections and nodes regardless of activity
       // This ensures recent activity is always visible
-      // Scale preservation count with maxNodes setting
-      const PRESERVE_NEWEST_COUNT = Math.min(maxNodes, Math.floor(maxNodes * 0.5)); // Preserve up to 50% of max nodes
+      // Scale preservation count with maxNodes setting - but use a minimum
+      const PRESERVE_NEWEST_COUNT = Math.max(100, Math.floor(maxNodes * 0.3)); // Preserve at least 100 or 30% of max nodes
       
       // Sort nodes by activity time (most recent first)
       const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
