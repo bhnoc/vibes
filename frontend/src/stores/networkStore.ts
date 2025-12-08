@@ -59,8 +59,8 @@ interface NetworkState {
 }
 
 // Constants for node expiration - per user requirement: 30 seconds of no packets
-const NODE_EXPIRATION_TIME = 6000; // 6 seconds of inactivity before node starts fading
-const CONNECTION_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before connection removal as requested
+const NODE_EXPIRATION_TIME = 30000; // 30 seconds of inactivity before node expires
+const CONNECTION_EXPIRATION_TIME = 20000; // 20 seconds of inactivity before connection removal
 
 // Constants to limit memory usage - hard limits that prevent display issues
 const HARD_LIMIT_NODES = 5000; // Absolute maximum before emergency trimming
@@ -418,7 +418,8 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       
       // Always keep most recent connections and nodes regardless of activity
       // This ensures recent activity is always visible
-      const PRESERVE_NEWEST_COUNT = 1500; // INCREASED: Always preserve 1500 newest nodes regardless of total count
+      // Scale preservation count with maxNodes setting
+      const PRESERVE_NEWEST_COUNT = Math.min(maxNodes, Math.floor(maxNodes * 0.5)); // Preserve up to 50% of max nodes
       
       // Sort nodes by activity time (most recent first)
       const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
@@ -428,9 +429,10 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       const olderNodes = sortedNodes.slice(PRESERVE_NEWEST_COUNT);
       
       // Filter older nodes by activity (but only if we have way too many)
-      const activeOlderNodes = state.nodes.length > 2000 ? olderNodes.filter(
+      // Use maxNodes as the threshold for when to start filtering
+      const activeOlderNodes = state.nodes.length > maxNodes ? olderNodes.filter(
         (node) => now - node.lastActive < nodeExpirationTime || isPined(node.id)
-      ) : olderNodes; // Keep all older nodes if we're under 2000 total
+      ) : olderNodes; // Keep all older nodes if we're under max
       
       // Final node list is preserved + active older nodes
       const activeNodes = [...preservedNodes, ...activeOlderNodes];
@@ -443,9 +445,10 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       const olderConnections = sortedConnections.slice(PRESERVE_NEWEST_COUNT * 2);
       
       // Filter older connections by activity (but only if we have way too many)
-      const activeOlderConnections = state.connections.length > 3000 ? olderConnections.filter(
+      // Allow 3x more connections than max nodes
+      const activeOlderConnections = state.connections.length > (maxNodes * 3) ? olderConnections.filter(
         (connection) => now - connection.lastActive < connectionExpirationTime
-      ) : olderConnections; // Keep all older connections if we're under 3000 total
+      ) : olderConnections; // Keep all older connections if we're under limit
       
       // Final connection list is preserved + active older connections
       const activeConnections = [...preservedConnections, ...activeOlderConnections];
