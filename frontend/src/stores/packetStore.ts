@@ -21,8 +21,9 @@ export interface PacketState {
   setConnectionStatus: (status: 'connected' | 'disconnected') => void;
 }
 
-// Packet history limit - keep it simple and consistent
-const MAX_PACKET_HISTORY = 500; // Keep last 500 packets only
+// Constants - REDUCED for minimal mode performance
+const MAX_PACKET_HISTORY = 1000; // REDUCED: Maximum number of packets to keep in history
+const PACKET_TRIM_THRESHOLD = 1500; // REDUCED: When to aggressively trim the packet history
 
 // Batching system to prevent infinite updates
 const packetBatchBuffer: any[] = [];
@@ -73,12 +74,18 @@ export const usePacketStore = create<PacketState>((set, get) => ({
       newPackets.push(packet);
     });
     
-    // Add new packets and trim to max - simple and consistent
+    // Add all packets at once
     let updatedPackets = [...state.packets, ...newPackets];
-    if (updatedPackets.length > MAX_PACKET_HISTORY) {
+    
+    // Check if we're approaching memory limits
+    if (updatedPackets.length > PACKET_TRIM_THRESHOLD) {
+      // Aggressive trim - keep only recent packets
+      console.warn(`Packet count (${updatedPackets.length}) exceeding threshold, aggressively pruning`);
+      updatedPackets = updatedPackets.slice(-Math.floor(MAX_PACKET_HISTORY/2));
+    } else if (updatedPackets.length > MAX_PACKET_HISTORY) {
       updatedPackets = updatedPackets.slice(-MAX_PACKET_HISTORY);
     }
-
+    
     return { packets: updatedPackets };
   }),
   

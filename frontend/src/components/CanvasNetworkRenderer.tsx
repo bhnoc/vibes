@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
+import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
 import { usePinStore } from '../stores/pinStore'
 import { logger } from '../utils/logger'
+import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -211,8 +213,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     height: 0
   })
 
-  // Store hooks - DON'T subscribe to nodes/connections here to avoid re-render loops
-  // We'll read them fresh inside updateRenderObjects
+  // Store hooks
+  const { nodes, connections } = useNetworkStore()
+  const { packets } = usePacketStore()
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
   const { isPined } = usePinStore()
@@ -225,8 +228,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     driftAwayStrength,
   } = usePhysicsStore()
 
-  // Debug re-renders (disabled to reduce noise)
-  // console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
+  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
@@ -360,13 +363,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   }, [])
 
   // Update rendered objects from store data
-  // Gets fresh data from store each call - NOT dependent on React state
   const updateRenderObjects = useCallback(() => {
     const now = Date.now()
     const activeAge = 30000 // 30 seconds for "active" state
-
-    // Get fresh data from store - avoids re-render loops
-    const { nodes, connections } = useNetworkStore.getState();
 
     const storeNodesById = new Map(nodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
@@ -392,28 +391,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         existingNode.radius = isActive ? 10 : 6;
 
       } else {
-        // Add new node - use position from store if available, otherwise generate random
+        // Add new node - place it randomly around the center up to 500px away
         const centerX = viewportRef.current.width / 2;
         const centerY = viewportRef.current.height / 2;
-
-        let position: {x: number, y: number};
-        if (node.x !== undefined && node.y !== undefined) {
-          // Use the position calculated by usePacketProcessor
-          // Offset from center since packet processor uses center-relative coords
-          position = {
-            x: centerX + node.x,
-            y: centerY + node.y
-          };
-        } else {
-          // Fallback: place randomly around center
-          const angle = Math.random() * 2 * Math.PI;
-          const radius = 200 + Math.random() * 200; // Spawn between 200 and 400px radius
-          position = {
-            x: centerX + Math.cos(angle) * radius,
-            y: centerY + Math.sin(angle) * radius,
-          };
-        }
-
+        const angle = Math.random() * 2 * Math.PI;
+        const radius = 500 + Math.random() * 300; // Spawn between 500 and 800px radius
+        
+        const position = {
+          x: centerX + Math.cos(angle) * radius,
+          y: centerY + Math.sin(angle) * radius,
+        };
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
         renderedNode.x = position.x;
@@ -475,33 +462,23 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     recentConnections.forEach(conn => {
       const sourceNode = activeNodes.current.get(conn.source)
       const targetNode = activeNodes.current.get(conn.target)
-
+      
       if (sourceNode && targetNode) {
+        const renderedConn = connectionPool.acquire()
+        renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
+        renderedConn.protocol = conn.protocol
+        renderedConn.dstPort = conn.dstPort;
         const connectionAge = now - conn.lastActive;
-        // Only add connections that are still within lifetime
-        if (connectionAge <= connectionLifetime) {
-          const renderedConn = connectionPool.acquire()
-          renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
-          renderedConn.protocol = conn.protocol
-          renderedConn.dstPort = conn.dstPort;
-          // Fade connection over last 30% of its lifetime
-          const fadeStart = connectionLifetime * 0.7;
-          if (connectionAge < fadeStart) {
-            renderedConn.alpha = 1;
-          } else {
-            const fadeProgress = (connectionAge - fadeStart) / (connectionLifetime - fadeStart);
-            renderedConn.alpha = Math.max(0.1, 1 - fadeProgress); // Keep minimum alpha of 0.1
-          }
-          renderedConn.lastActive = conn.lastActive
-          renderedConn.sourceId = conn.source
-          renderedConn.targetId = conn.target
-
-          activeConnections.current.push(renderedConn)
-        }
+        renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
+        renderedConn.lastActive = conn.lastActive
+        renderedConn.sourceId = conn.source
+        renderedConn.targetId = conn.target
+        
+        activeConnections.current.push(renderedConn)
       }
     })
 
-  }, [generatePosition, nodePool, connectionPool, connectionLifetime])
+  }, [nodes, connections, generatePosition, nodePool, connectionPool])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
@@ -509,9 +486,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // --- Physics Constants ---
     const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03;
-    // Node removal timing based on connectionLifetime - nodes stay a bit longer than connections
-    const NODE_INACTIVITY_REMOVAL_MS = connectionLifetime + 2000; // Remove 2s after connection expires
-    const NODE_INACTIVITY_FADE_START_MS = connectionLifetime * 0.7; // Start fading when connection starts fading
+    const NODE_INACTIVITY_REMOVAL_MS = 6000; // Remove after 6s of inactivity
+    const NODE_INACTIVITY_FADE_START_MS = 3000; // Start fading after 3s
     const CENTER_PULL_STRENGTH = 0.0000002;
 
     const now = Date.now();
@@ -605,39 +581,26 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     });
 
     // 2. Collision detection and resolution
-    const MAX_REPULSION_FORCE = 0.5; // Cap repulsion force to prevent explosive behavior
-    const nodesArray = Array.from(activeNodes.current.values());
-    for (let i = 0; i < nodesArray.length; i++) {
-      for (let j = i + 1; j < nodesArray.length; j++) {
-        const nodeA = nodesArray[i];
-        const nodeB = nodesArray[j];
+    const nodes = Array.from(activeNodes.current.values());
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nodeA = nodes[i];
+        const nodeB = nodes[j];
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
-        const distSq = dx * dx + dy * dy;
-        const distance = Math.sqrt(distSq);
+        const distance = Math.sqrt(dx * dx + dy * dy);
         const minDistance = nodeA.radius + nodeB.radius + nodeSpacing;
 
-        if (distance < minDistance && distance > 0.1) { // Avoid division by near-zero
+        if (distance < minDistance) {
           const overlap = minDistance - distance;
           const ax = dx / distance;
           const ay = dy / distance;
 
-          // Calculate repulsion but cap it to prevent explosion
-          const rawForce = overlap * collisionRepulsion * REPULSION_SCALING;
-          const repulsionForce = Math.min(rawForce, MAX_REPULSION_FORCE);
-
-          nodeA.vx -= ax * repulsionForce;
-          nodeA.vy -= ay * repulsionForce;
-          nodeB.vx += ax * repulsionForce;
-          nodeB.vy += ay * repulsionForce;
-        } else if (distance <= 0.1) {
-          // Nodes are exactly on top of each other - nudge them apart randomly
-          const randomAngle = Math.random() * Math.PI * 2;
-          const nudge = 0.1;
-          nodeA.vx -= Math.cos(randomAngle) * nudge;
-          nodeA.vy -= Math.sin(randomAngle) * nudge;
-          nodeB.vx += Math.cos(randomAngle) * nudge;
-          nodeB.vy += Math.sin(randomAngle) * nudge;
+          const repulsionForce = collisionRepulsion * REPULSION_SCALING;
+          nodeA.vx -= ax * overlap * repulsionForce;
+          nodeA.vy -= ay * overlap * repulsionForce;
+          nodeB.vx += ax * overlap * repulsionForce;
+          nodeB.vy += ay * overlap * repulsionForce;
         }
       }
     }
@@ -700,36 +663,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // 4. Handle removal and update positions
     if (nodesToRemove.length > 0) {
       const removeFunc = useNetworkStore.getState().removeNode;
-      nodesToRemove.forEach(id => {
-        // Remove from store
-        removeFunc(id);
-        // Also remove from local render cache immediately
-        activeNodes.current.delete(id);
-      });
-
-      // Also clean up any connections that reference removed nodes
-      activeConnections.current = activeConnections.current.filter(conn =>
-        activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId)
-      );
+      nodesToRemove.forEach(id => removeFunc(id));
     }
 
-    // Max velocity to prevent nodes from shooting across screen
-    const MAX_VELOCITY = 5;
-
     activeNodes.current.forEach(node => {
-      // Apply damping
       node.vx *= damping;
       node.vy *= damping;
 
-      // Clamp velocity to prevent explosive behavior
-      const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-      if (speed > MAX_VELOCITY) {
-        const scale = MAX_VELOCITY / speed;
-        node.vx *= scale;
-        node.vy *= scale;
-      }
-
-      // Update position
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
     });
@@ -738,10 +678,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {
-    // Clamp deltaTime to prevent physics explosion when tab is inactive
-    // Min 16ms (60fps), Max 50ms (20fps) - prevents huge jumps when returning from alt+tab
-    const rawDelta = currentTime - lastFrameTime.current;
-    const deltaTime = Math.min(50, Math.max(16, rawDelta));
+    const deltaTime = Math.max(16, currentTime - lastFrameTime.current); // Clamp to avoid huge jumps
     lastFrameTime.current = currentTime;
 
     // Update physics simulation
