@@ -218,8 +218,8 @@ func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
 			flow.packetCount++
 
 			// Simple dynamic sampling: send 1 in every N packets for a given flow
-			// This can be made more sophisticated (e.g., based on flow byte size)
-			if flow.packetCount%10 == 0 {
+			// Reduced sampling to send more packets for better visualization
+			if flow.packetCount%2 == 0 {
 				flow.sampleCount++
 				shouldSend = true
 			}
