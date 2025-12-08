@@ -62,11 +62,6 @@ interface NetworkState {
 const NODE_EXPIRATION_TIME = 6000; // 6 seconds of inactivity before node starts fading
 const CONNECTION_EXPIRATION_TIME = 5000; // 5 seconds of inactivity before connection removal as requested
 
-// OPTIMIZED LIMITS: Set to 500 nodes as requested for performance
-const MAX_NODES = 1000; // REDUCED: Hard cap on node count to prevent slowdown (was 1000)
-const PRUNE_TO_COUNT = 400; // REDUCED: When pruning, reduce to this number of nodes (was 750) 
-const CRITICAL_NODE_COUNT = 800; // REDUCED: Critical threshold (was 800)
-
 // Constants to limit memory usage - hard limits that prevent display issues
 const HARD_LIMIT_NODES = 5000; // Absolute maximum before emergency trimming
 const HARD_LIMIT_CONNECTIONS = 4500; // Absolute maximum before emergency trimming
@@ -177,49 +172,52 @@ const checkMemoryUsage = (): boolean => {
 };
 
 // Helper function to prune oldest nodes when approaching limits
-const pruneOldestNodes = (nodes: Node[]): Node[] => {
-  if (nodes.length <= PRUNE_TO_COUNT) return nodes;
-  
-  logger.log(`Pruning nodes from ${nodes.length} to ${PRUNE_TO_COUNT}`);
-  
+const pruneOldestNodes = (nodes: Node[], maxNodes: number): Node[] => {
+  const pruneToCount = Math.floor(maxNodes * 0.8); // Prune to 80% of max
+  if (nodes.length <= pruneToCount) return nodes;
+
+  logger.log(`Pruning nodes from ${nodes.length} to ${pruneToCount}`);
+
   // Sort nodes by last active time (oldest first)
   const sortedNodes = [...nodes].sort((a, b) => a.lastActive - b.lastActive);
-  
+
   // Keep only the most recently active nodes
-  return sortedNodes.slice(nodes.length - PRUNE_TO_COUNT);
+  return sortedNodes.slice(nodes.length - pruneToCount);
 };
 
 // Helper function for aggressive pruning during critical node counts
-const forcePruneNodes = (nodes: Node[]): Node[] => {
+const forcePruneNodes = (nodes: Node[], maxNodes: number): Node[] => {
   // Even more aggressive pruning
-  const targetCount = Math.min(PRUNE_TO_COUNT, Math.floor(CRITICAL_NODE_COUNT * 0.75));
-  
+  const criticalCount = Math.floor(maxNodes * 0.8); // 80% of max
+  const targetCount = Math.floor(criticalCount * 0.75); // 75% of critical = 60% of max
+
   // Keep only the most important nodes - prioritize:
   // 1. IP address nodes (containing dots)
   // 2. Most recently active nodes
-  
+
   // First identify IP nodes
   const ipNodes = nodes.filter(node => node.label?.includes('.') || node.id.includes('.'));
   const otherNodes = nodes.filter(node => !(node.label?.includes('.') || node.id.includes('.')));
-  
+
   // Sort both arrays by activity time
   const sortedIpNodes = [...ipNodes].sort((a, b) => b.lastActive - a.lastActive);
   const sortedOtherNodes = [...otherNodes].sort((a, b) => b.lastActive - a.lastActive);
-  
+
   // Take most recent IP nodes, then fill remaining slots with other nodes
   const keptIpNodes = sortedIpNodes.slice(0, Math.min(sortedIpNodes.length, targetCount * 0.6));
   const remainingSlots = targetCount - keptIpNodes.length;
   const keptOtherNodes = sortedOtherNodes.slice(0, Math.min(sortedOtherNodes.length, remainingSlots));
-  
+
   return [...keptIpNodes, ...keptOtherNodes];
 };
 
 // Helper function to prune oldest connections
-const pruneOldestConnections = (connections: Connection[]): Connection[] => {
-  const targetCount = PRUNE_TO_COUNT * 3; // INCREASED: Allow 3x more connections than nodes
-  
+const pruneOldestConnections = (connections: Connection[], maxNodes: number): Connection[] => {
+  const pruneToCount = Math.floor(maxNodes * 0.8); // 80% of max nodes
+  const targetCount = pruneToCount * 3; // INCREASED: Allow 3x more connections than nodes
+
   if (connections.length <= targetCount) return connections;
-  
+
   // Sort by last active time (oldest first)
   const sortedConnections = [...connections].sort((a, b) => a.lastActive - b.lastActive);
   
@@ -284,12 +282,13 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         const newNode = { ...node, ports: new Set(node.ports || []) };
 
         // Check if we're approaching the max node count
-        if (state.nodes.length >= MAX_NODES) {
+        const maxNodes = useSettingsStore.getState().maxNodes;
+        if (state.nodes.length >= maxNodes) {
           // Perform pruning to make room for new node
-          const prunedNodes = pruneOldestNodes(state.nodes);
+          const prunedNodes = pruneOldestNodes(state.nodes, maxNodes);
           return { ...state, nodes: [...prunedNodes, newNode] };
         }
-        
+
         // Otherwise just add the new node
         return { ...state, nodes: [...state.nodes, newNode] };
       }
@@ -333,9 +332,10 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         return { ...state, connections: updatedConnections };
       } else {
         // Add new connection (with pruning if needed)
-        if (state.connections.length > MAX_NODES * 3) {
+        const maxNodes = useSettingsStore.getState().maxNodes;
+        if (state.connections.length > maxNodes * 3) {
           // Keep connection count in check relative to node count (increased ratio)
-          const prunedConnections = pruneOldestConnections(state.connections);
+          const prunedConnections = pruneOldestConnections(state.connections, maxNodes);
           return { ...state, connections: [...prunedConnections, connection] };
         }
         return { ...state, connections: [...state.connections, connection] };
@@ -401,10 +401,11 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   removeInactiveElements: () => {
     const now = Date.now();
     const { isPined } = usePinStore.getState();
-    
+    const maxNodes = useSettingsStore.getState().maxNodes;
+
     set((state) => {
       // Check if we're approaching critical node count
-      const isNearCritical = state.nodes.length >= MAX_NODES;
+      const isNearCritical = state.nodes.length >= maxNodes;
       
       // Use shorter expiration times when we have many nodes
       const nodeExpirationTime = isNearCritical 
