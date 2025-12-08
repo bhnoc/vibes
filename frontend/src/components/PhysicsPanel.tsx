@@ -48,6 +48,8 @@ export const PhysicsPanel: React.FC = () => {
     resetPhysicsDefaults,
   } = usePhysicsStore();
 
+  const { maxNodes, setMaxNodes } = useSettingsStore();
+
   return (
     <div style={{ marginTop: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -111,14 +113,14 @@ export const PhysicsPanel: React.FC = () => {
           onChange={setConnectionLifetime}
           displayValue={`${connectionLifetime} ms`}
         />
-        <RangeSlider 
+        <RangeSlider
           label="Max Nodes"
-          value={useSettingsStore.getState().maxNodes}
+          value={maxNodes}
           min="500"
           max="50000"
           step="500"
-          onChange={useSettingsStore.getState().setMaxNodes}
-          displayValue={`${useSettingsStore.getState().maxNodes}`}
+          onChange={setMaxNodes}
+          displayValue={`${maxNodes}`}
         />
       </div>
     </div>
