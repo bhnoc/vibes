@@ -560,17 +560,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const dy = node.y - centerY;
         node.vx += dx * driftForce * deltaTime;
         node.vy += dy * driftForce * deltaTime;
-      } else {
-        // Pull connected nodes toward center for visual focus
-        const centerPullForce = 0.0001; // Gentle pull toward center
-        const dx = centerX - node.x;
-        const dy = centerY - node.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance > 100) { // Only pull if node is far from center
-          node.vx += (dx / distance) * centerPullForce * deltaTime;
-          node.vy += (dy / distance) * centerPullForce * deltaTime;
-        }
       }
 
       // Handle fading for inactive (and unconnected) nodes
@@ -664,46 +653,45 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // 4. Handle removal and update positions
-    if (nodesToRemove.length > 0) {
-      const removeFunc = useNetworkStore.getState().removeNode;
-      nodesToRemove.forEach(id => removeFunc(id));
-    }
-
+    // 4. Apply damping and update positions
     activeNodes.current.forEach(node => {
       node.vx *= damping;
       node.vy *= damping;
 
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
+    });
 
-      // Reset nodes that drift off-screen to prevent massive connection lines
-      const margin = 200; // Extra margin for viewport
+    // Check for off-screen nodes and add to removal list
+    activeNodes.current.forEach(node => {
+      if (isPined(node.id)) return; // Skip pinned nodes
+
       const isOffScreen =
-        node.x < -margin ||
-        node.x > width + margin ||
-        node.y < -margin ||
-        node.y > height + margin;
+        node.x < -offscreenMargin ||
+        node.x > viewportRef.current.width + offscreenMargin ||
+        node.y < -offscreenMargin ||
+        node.y > viewportRef.current.height + offscreenMargin;
 
       if (isOffScreen) {
-        // Reset to cached position or generate new one
-        const cachedPos = nodePositions.current.get(node.id);
-        if (cachedPos) {
-          node.x = cachedPos.x;
-          node.y = cachedPos.y;
-        } else {
-          // Generate new position near center if no cache
-          node.x = centerX + (Math.random() - 0.5) * 200;
-          node.y = centerY + (Math.random() - 0.5) * 200;
-          nodePositions.current.set(node.id, { x: node.x, y: node.y });
-        }
-        // Reset velocity to prevent immediate drift
-        node.vx = 0;
-        node.vy = 0;
+        nodesToRemove.push(node.id);
       }
     });
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime]);
+    // Remove all nodes that need to be removed (inactive + off-screen)
+    if (nodesToRemove.length > 0) {
+      nodesToRemove.forEach(id => {
+        const node = activeNodes.current.get(id);
+        if (node) {
+          nodePool.release(node);
+          activeNodes.current.delete(id);
+        }
+      });
+      // Also remove from store
+      const removeFunc = useNetworkStore.getState().removeNode;
+      nodesToRemove.forEach(id => removeFunc(id));
+    }
+
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {
