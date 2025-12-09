@@ -489,11 +489,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const nodesToRemove: string[] = [];
     const offscreenMargin = 200;
 
+    // Build connected nodes from STORE connections, not cached activeConnections
+    // This ensures nodes that just got connections are immediately recognized
     const connectedNodeIds = new Set<string>();
-    activeConnections.current.forEach(conn => {
+    connections.forEach(conn => {
       if (now - conn.lastActive < connectionLifetime) {
-        connectedNodeIds.add(conn.sourceId);
-        connectedNodeIds.add(conn.targetId);
+        connectedNodeIds.add(conn.source);
+        connectedNodeIds.add(conn.target);
       }
     });
 
@@ -691,7 +693,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       nodesToRemove.forEach(id => removeFunc(id));
     }
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool]);
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool, connections]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {
