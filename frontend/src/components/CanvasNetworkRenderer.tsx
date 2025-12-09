@@ -481,7 +481,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const REPULSION_SCALING = 0.03;
     const NODE_INACTIVITY_REMOVAL_MS = 6000; // Remove after 6s of inactivity
     const NODE_INACTIVITY_FADE_START_MS = 3000; // Start fading after 3s
-    const CENTER_PULL_STRENGTH = 0.0000002;
+    const CENTER_PULL_STRENGTH = 0.0001; // Increased 500x to actually pull nodes toward center!
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;
