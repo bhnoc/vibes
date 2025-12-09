@@ -391,16 +391,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         existingNode.radius = isActive ? 10 : 6;
 
       } else {
-        // Add new node - place it randomly around the center up to 500px away
-        const centerX = viewportRef.current.width / 2;
-        const centerY = viewportRef.current.height / 2;
-        const angle = Math.random() * 2 * Math.PI;
-        const radius = 500 + Math.random() * 300; // Spawn between 500 and 800px radius
-        
-        const position = {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
-        };
+        // Add new node - use cached/generated position for consistency
+        const position = generatePosition(node.id);
+
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
         renderedNode.x = position.x;
