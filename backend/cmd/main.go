@@ -195,53 +195,11 @@ var (
 	packetStatMutex      sync.Mutex
 )
 
-// shouldSendPacket implements intelligent flow-based sampling
+// shouldSendPacket - simplified to send all packets without mutex contention
 func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
-	shouldSend := false
-
-	if manager.isIPPinned(packet.Src) || manager.isIPPinned(packet.Dst) {
-		shouldSend = true
-	} else {
-		flowKey := fmt.Sprintf("%s:%d-%s:%d", packet.Src, packet.SrcPort, packet.Dst, packet.DstPort)
-		manager.flowTracker.mutex.Lock()
-
-		flow, exists := manager.flowTracker.flows[flowKey]
-		if !exists {
-			manager.flowTracker.flows[flowKey] = &Flow{
-				lastSeen:    time.Now(),
-				packetCount: 1,
-				sampleCount: 1,
-			}
-			shouldSend = true
-		} else {
-			flow.lastSeen = time.Now()
-			flow.packetCount++
-			flow.sampleCount++
-
-			// Send all packets for maximum visualization
-			shouldSend = true
-		}
-		manager.flowTracker.mutex.Unlock()
-	}
-
-	// Update stats
-	packetStatMutex.Lock()
-	if shouldSend {
-		packetsSentTotal++
-	} else {
-		packetsDroppedTotal++
-	}
-
-	// Log every 5 seconds
-	if time.Since(lastPacketStatLog) > 5*time.Second {
-		log.Printf("📤 Packet stats: sent=%d, dropped=%d (sampling ratio: %.1f%%)",
-			packetsSentTotal, packetsDroppedTotal,
-			float64(packetsSentTotal)/float64(packetsSentTotal+packetsDroppedTotal)*100)
-		lastPacketStatLog = time.Now()
-	}
-	packetStatMutex.Unlock()
-
-	return shouldSend
+	// Send all packets - no sampling, no locks in hot path
+	// Stats tracking removed to eliminate mutex contention
+	return true
 }
 
 // Start begins the client manager's event loop

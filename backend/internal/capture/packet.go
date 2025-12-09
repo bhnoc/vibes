@@ -120,7 +120,7 @@ type SimulatedCapture struct {
 // NewSimulatedCapture creates a new simulated capture
 func NewSimulatedCapture() *SimulatedCapture {
 	return &SimulatedCapture{
-		packetChan: make(chan *Packet, 1000), // Increased buffer for busy network simulation
+		packetChan: make(chan *Packet, 100000), // Large buffer to handle high packet rates without drops
 		stopChan:   make(chan bool),
 		running:    false,
 	}
@@ -540,8 +540,7 @@ func (s *SimulatedCapture) sendPacket(src, dst string, size int, protocol string
 	case s.packetChan <- packet:
 		// Successfully sent packet
 	default:
-		// Channel full, discard packet
-		log.Println("Packet channel full, discarding packet")
+		// Channel full, discard packet silently (logging would cause more blocking)
 	}
 }
 
