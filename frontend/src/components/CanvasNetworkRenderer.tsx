@@ -753,8 +753,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       if (!source || !target) return;
 
+      // Recalculate alpha in real-time based on current time for smooth fading
+      const connectionAge = currentTime - conn.lastActive;
+      const alpha = Math.max(0, Math.min(1, 1 - (connectionAge / connectionLifetime)));
+
       // Protocol-based colors and styles using stored protocol
-      let strokeColor = `rgba(0, 255, 255, ${conn.alpha})` // Default cyan
+      let strokeColor = `rgba(0, 255, 255, ${alpha})` // Default cyan
       let lineWidth = 1
       
       if (conn.protocol) {
@@ -766,24 +770,24 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         
         switch (protocol) {
           case 'tcp':
-            strokeColor = `rgba(0, 255, 0, ${conn.alpha})`; // Bright green for TCP
+            strokeColor = `rgba(0, 255, 0, ${alpha})`; // Bright green for TCP
             lineWidth = 3; // Thicker line
             break;
           case 'udp':
-            strokeColor = `rgba(255, 0, 255, ${conn.alpha})`; // Bright magenta for UDP
+            strokeColor = `rgba(255, 0, 255, ${alpha})`; // Bright magenta for UDP
             lineWidth = 2; // Medium line
             break;
           case 'icmp':
-            strokeColor = `rgba(255, 255, 0, ${conn.alpha})`; // Bright yellow for ICMP
+            strokeColor = `rgba(255, 255, 0, ${alpha})`; // Bright yellow for ICMP
             lineWidth = 2; // Medium line
             break;
           case 'http':
           case 'https':
-            strokeColor = `rgba(255, 165, 0, ${conn.alpha})`; // Orange for HTTP/HTTPS
+            strokeColor = `rgba(255, 165, 0, ${alpha})`; // Orange for HTTP/HTTPS
             lineWidth = 2;
             break;
           default:
-            strokeColor = `rgba(0, 255, 255, ${conn.alpha})`; // Cyan for others
+            strokeColor = `rgba(0, 255, 255, ${alpha})`; // Cyan for others
             lineWidth = 1;
             // Log unknown protocols
             if (verboseLogging && Math.random() < 0.05) {
@@ -798,7 +802,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
       
       // Make very active connections more prominent regardless of protocol
-      if (conn.alpha > 0.8) {
+      if (alpha > 0.8) {
         lineWidth += 1;
       }
       
@@ -838,7 +842,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           ctx.fillRect(-textWidth / 2 - 2, -6, textWidth + 4, 12);
 
           // Draw the text
-          ctx.fillStyle = `rgba(0, 255, 255, ${conn.alpha})`; // Bright blue for port number
+          ctx.fillStyle = `rgba(0, 255, 255, ${alpha})`; // Bright blue for port number
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(fullText, 0, 0);
