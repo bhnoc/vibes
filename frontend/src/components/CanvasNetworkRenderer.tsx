@@ -265,9 +265,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
-      // Update viewport dimensions - 2x screen size for buffer space when zooming out
-      viewportRef.current.width = width * 2;
-      viewportRef.current.height = height * 2;
+      // Update viewport dimensions - 4x screen size for massive buffer space when zooming out
+      viewportRef.current.width = width * 4;
+      viewportRef.current.height = height * 4;
 
       // Center the viewport only on the initial load, accounting for zoom
       if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
@@ -318,27 +318,27 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         let regionY = 0
         
         if (firstOctet === 192) {
-          regionX = 400 + secondOctet * 8 // 192.168.x -> spread horizontally (2x)
-          regionY = 300
-        } else if (firstOctet === 10) {
-          regionX = 1000 + secondOctet * 6 // 10.x.x -> different region (2x)
+          regionX = 800 + secondOctet * 16 // 192.168.x -> spread horizontally (4x)
           regionY = 600
+        } else if (firstOctet === 10) {
+          regionX = 2000 + secondOctet * 12 // 10.x.x -> different region (4x)
+          regionY = 1200
         } else if (firstOctet === 172) {
-          regionX = 1600 + (secondOctet - 16) * 10 // 172.16-31.x -> another region (2x)
-          regionY = 400
+          regionX = 3200 + (secondOctet - 16) * 20 // 172.16-31.x -> another region (4x)
+          regionY = 800
         } else {
-          // Other ranges spread out more (2x)
-          regionX = 200 + (firstOctet % 20) * 100
-          regionY = 800 + (firstOctet % 10) * 80
+          // Other ranges spread out more (4x)
+          regionX = 400 + (firstOctet % 20) * 200
+          regionY = 1600 + (firstOctet % 10) * 160
         }
-        
-        // Add variation based on 3rd and 4th octets (2x spread)
-        const spreadX = (thirdOctet * 4) + (fourthOctet % 100) - 50
-        const spreadY = (fourthOctet * 3) + (thirdOctet % 80) - 40
-        
-        // Final position with bounds checking - 2x larger viewport
-        const x = Math.max(100, Math.min(2800, regionX + spreadX))
-        const y = Math.max(100, Math.min(1600, regionY + spreadY))
+
+        // Add variation based on 3rd and 4th octets (4x spread)
+        const spreadX = (thirdOctet * 8) + (fourthOctet % 200) - 100
+        const spreadY = (fourthOctet * 6) + (thirdOctet % 160) - 80
+
+        // Final position with bounds checking - 4x larger viewport
+        const x = Math.max(200, Math.min(5600, regionX + spreadX))
+        const y = Math.max(200, Math.min(3200, regionY + spreadY))
 
         const position = { x, y }
         nodePositions.current.set(nodeId, position)
@@ -346,7 +346,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     }
 
-    // Fallback to hash-based positioning for non-IP nodes - 2x larger space
+    // Fallback to hash-based positioning for non-IP nodes - 4x larger space
     let hash = 0
     for (let i = 0; i < nodeId.length; i++) {
       const char = nodeId.charCodeAt(i)
@@ -354,8 +354,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       hash = hash & hash
     }
 
-    const x = 400 + (Math.abs(hash) % 1600)
-    const y = 300 + (Math.abs(hash >> 8) % 1000)
+    const x = 800 + (Math.abs(hash) % 3200)
+    const y = 600 + (Math.abs(hash >> 8) % 2000)
     
     const position = { x, y }
     nodePositions.current.set(nodeId, position)
@@ -487,7 +487,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const centerX = viewportRef.current.width / 2;
     const centerY = viewportRef.current.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 400; // 2x for larger viewport
+    const offscreenMargin = 800; // 4x for larger viewport
 
     // Build connected nodes from STORE connections, not cached activeConnections
     // This ensures nodes that just got connections are immediately recognized
@@ -1011,7 +1011,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
-      const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
+      const newZoom = Math.max(0.05, Math.min(5, viewportRef.current.zoom * zoomFactor))
       
       // Zoom towards mouse position
       const rect = canvas.getBoundingClientRect()
@@ -1033,16 +1033,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
 
       if (e.key === 'r' || e.key === 'R') {
-        // Reset view to show full network (centered on 2x viewport)
-        viewportRef.current.x = -800
-        viewportRef.current.y = -400
-        viewportRef.current.zoom = 0.3
+        // Reset view to show full network (centered on 4x viewport)
+        viewportRef.current.x = -1600
+        viewportRef.current.y = -800
+        viewportRef.current.zoom = 0.2
         logger.log('🔄 View reset to show full network')
       } else if (e.key === '+' || e.key === '=' || (e.shiftKey && e.code === 'Equal')) {
         // Zoom in - handle both + and = keys, and Shift+= combo
         e.preventDefault()
         const zoomFactor = 1.1
-        const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
+        const newZoom = Math.max(0.05, Math.min(5, viewportRef.current.zoom * zoomFactor))
 
         // Zoom towards center of viewport
         const rect = canvas.getBoundingClientRect()
@@ -1057,7 +1057,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         // Zoom out - handle both - and _ keys
         e.preventDefault()
         const zoomFactor = 0.9
-        const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
+        const newZoom = Math.max(0.05, Math.min(5, viewportRef.current.zoom * zoomFactor))
 
         // Zoom towards center of viewport
         const rect = canvas.getBoundingClientRect()
