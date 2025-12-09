@@ -432,6 +432,8 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
+				case <-time.After(100 * time.Microsecond):
+					// Short timeout to keep loop responsive
 				}
 			} else {
 				select {
@@ -439,6 +441,8 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
+				case <-time.After(100 * time.Microsecond):
+					// Short timeout to keep loop responsive at high packet rates
 				}
 			}
 
