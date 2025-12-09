@@ -560,6 +560,17 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const dy = node.y - centerY;
         node.vx += dx * driftForce * deltaTime;
         node.vy += dy * driftForce * deltaTime;
+      } else {
+        // Pull connected nodes toward center for visual focus
+        const centerPullForce = 0.0001; // Gentle pull toward center
+        const dx = centerX - node.x;
+        const dy = centerY - node.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 100) { // Only pull if node is far from center
+          node.vx += (dx / distance) * centerPullForce * deltaTime;
+          node.vy += (dy / distance) * centerPullForce * deltaTime;
+        }
       }
 
       // Handle fading for inactive (and unconnected) nodes
