@@ -265,14 +265,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
-      // Update viewport dimensions
-      viewportRef.current.width = width;
-      viewportRef.current.height = height;
+      // Update viewport dimensions - 2x screen size for buffer space when zooming out
+      viewportRef.current.width = width * 2;
+      viewportRef.current.height = height * 2;
 
       // Center the viewport only on the initial load, accounting for zoom
       if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
-        viewportRef.current.x = (width - width / viewportRef.current.zoom) / 2;
-        viewportRef.current.y = (height - height / viewportRef.current.zoom) / 2;
+        viewportRef.current.x = (viewportRef.current.width - width / viewportRef.current.zoom) / 2;
+        viewportRef.current.y = (viewportRef.current.height - height / viewportRef.current.zoom) / 2;
       }
       
       // Scale context for high DPI
@@ -318,35 +318,35 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         let regionY = 0
         
         if (firstOctet === 192) {
-          regionX = 200 + secondOctet * 4 // 192.168.x -> spread horizontally
-          regionY = 150
-        } else if (firstOctet === 10) {
-          regionX = 500 + secondOctet * 3 // 10.x.x -> different region
+          regionX = 400 + secondOctet * 8 // 192.168.x -> spread horizontally (2x)
           regionY = 300
+        } else if (firstOctet === 10) {
+          regionX = 1000 + secondOctet * 6 // 10.x.x -> different region (2x)
+          regionY = 600
         } else if (firstOctet === 172) {
-          regionX = 800 + (secondOctet - 16) * 5 // 172.16-31.x -> another region
-          regionY = 200
+          regionX = 1600 + (secondOctet - 16) * 10 // 172.16-31.x -> another region (2x)
+          regionY = 400
         } else {
-          // Other ranges spread out more
-          regionX = 100 + (firstOctet % 20) * 50
-          regionY = 400 + (firstOctet % 10) * 40
+          // Other ranges spread out more (2x)
+          regionX = 200 + (firstOctet % 20) * 100
+          regionY = 800 + (firstOctet % 10) * 80
         }
         
-        // Add variation based on 3rd and 4th octets
-        const spreadX = (thirdOctet * 2) + (fourthOctet % 50) - 25 // More spread
-        const spreadY = (fourthOctet * 1.5) + (thirdOctet % 40) - 20
+        // Add variation based on 3rd and 4th octets (2x spread)
+        const spreadX = (thirdOctet * 4) + (fourthOctet % 100) - 50
+        const spreadY = (fourthOctet * 3) + (thirdOctet % 80) - 40
         
-        // Final position with bounds checking
-        const x = Math.max(50, Math.min(1400, regionX + spreadX))
-        const y = Math.max(50, Math.min(800, regionY + spreadY))
-        
+        // Final position with bounds checking - 2x larger viewport
+        const x = Math.max(100, Math.min(2800, regionX + spreadX))
+        const y = Math.max(100, Math.min(1600, regionY + spreadY))
+
         const position = { x, y }
         nodePositions.current.set(nodeId, position)
         return position
       }
     }
 
-    // Fallback to hash-based positioning for non-IP nodes
+    // Fallback to hash-based positioning for non-IP nodes - 2x larger space
     let hash = 0
     for (let i = 0; i < nodeId.length; i++) {
       const char = nodeId.charCodeAt(i)
@@ -354,8 +354,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       hash = hash & hash
     }
 
-    const x = 200 + (Math.abs(hash) % 800)
-    const y = 150 + (Math.abs(hash >> 8) % 500)
+    const x = 400 + (Math.abs(hash) % 1600)
+    const y = 300 + (Math.abs(hash >> 8) % 1000)
     
     const position = { x, y }
     nodePositions.current.set(nodeId, position)
@@ -487,7 +487,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const centerX = viewportRef.current.width / 2;
     const centerY = viewportRef.current.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 200;
+    const offscreenMargin = 400; // 2x for larger viewport
 
     // Build connected nodes from STORE connections, not cached activeConnections
     // This ensures nodes that just got connections are immediately recognized
@@ -741,11 +741,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     ctx.scale(vp.zoom, vp.zoom)
 
     // Render connections first (behind nodes) with protocol-based styling
+    // Filter out connections where either node no longer exists
+    activeConnections.current = activeConnections.current.filter(conn => {
+      return activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId);
+    });
+
     activeConnections.current.forEach(conn => {
       const source = activeNodes.current.get(conn.sourceId);
       const target = activeNodes.current.get(conn.targetId);
 
-      if (!source || !target) return;
+      if (!source || !target) return; // Extra safety check
 
       // Recalculate alpha in real-time based on current time for smooth fading
       const connectionAge = currentTime - conn.lastActive;
@@ -1023,11 +1028,39 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
-        // Reset view to show full network
-        viewportRef.current.x = -400
-        viewportRef.current.y = -200
+        // Reset view to show full network (centered on 2x viewport)
+        viewportRef.current.x = -800
+        viewportRef.current.y = -400
         viewportRef.current.zoom = 0.3
         logger.log('🔄 View reset to show full network')
+      } else if (e.key === '+' || e.key === '=') {
+        // Zoom in (+ or = key, since + requires shift)
+        e.preventDefault()
+        const zoomFactor = 1.1
+        const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
+
+        // Zoom towards center of viewport
+        const centerX = (canvas.width / 2) / viewportRef.current.zoom + viewportRef.current.x
+        const centerY = (canvas.height / 2) / viewportRef.current.zoom + viewportRef.current.y
+
+        viewportRef.current.zoom = newZoom
+        viewportRef.current.x = centerX - (canvas.width / 2) / newZoom
+        viewportRef.current.y = centerY - (canvas.height / 2) / newZoom
+        logger.log(`🔍 Zoom in: ${newZoom.toFixed(2)}x`)
+      } else if (e.key === '-' || e.key === '_') {
+        // Zoom out
+        e.preventDefault()
+        const zoomFactor = 0.9
+        const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
+
+        // Zoom towards center of viewport
+        const centerX = (canvas.width / 2) / viewportRef.current.zoom + viewportRef.current.x
+        const centerY = (canvas.height / 2) / viewportRef.current.zoom + viewportRef.current.y
+
+        viewportRef.current.zoom = newZoom
+        viewportRef.current.x = centerX - (canvas.width / 2) / newZoom
+        viewportRef.current.y = centerY - (canvas.height / 2) / newZoom
+        logger.log(`🔍 Zoom out: ${newZoom.toFixed(2)}x`)
       }
     }
 
