@@ -1027,39 +1027,46 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Debug: Always log zoom keys to troubleshoot
+      if (['+', '=', '-', '_'].includes(e.key) || e.code === 'Equal' || e.code === 'Minus') {
+        console.log(`🎹 Zoom key pressed: ${e.key}, code: ${e.code}, shift: ${e.shiftKey}`)
+      }
+
       if (e.key === 'r' || e.key === 'R') {
         // Reset view to show full network (centered on 2x viewport)
         viewportRef.current.x = -800
         viewportRef.current.y = -400
         viewportRef.current.zoom = 0.3
         logger.log('🔄 View reset to show full network')
-      } else if (e.key === '+' || e.key === '=') {
-        // Zoom in (+ or = key, since + requires shift)
+      } else if (e.key === '+' || e.key === '=' || (e.shiftKey && e.code === 'Equal')) {
+        // Zoom in - handle both + and = keys, and Shift+= combo
         e.preventDefault()
         const zoomFactor = 1.1
         const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
 
         // Zoom towards center of viewport
-        const centerX = (canvas.width / 2) / viewportRef.current.zoom + viewportRef.current.x
-        const centerY = (canvas.height / 2) / viewportRef.current.zoom + viewportRef.current.y
+        const rect = canvas.getBoundingClientRect()
+        const centerX = (rect.width / 2) / viewportRef.current.zoom + viewportRef.current.x
+        const centerY = (rect.height / 2) / viewportRef.current.zoom + viewportRef.current.y
 
         viewportRef.current.zoom = newZoom
-        viewportRef.current.x = centerX - (canvas.width / 2) / newZoom
-        viewportRef.current.y = centerY - (canvas.height / 2) / newZoom
+        viewportRef.current.x = centerX - (rect.width / 2) / newZoom
+        viewportRef.current.y = centerY - (rect.height / 2) / newZoom
         logger.log(`🔍 Zoom in: ${newZoom.toFixed(2)}x`)
-      } else if (e.key === '-' || e.key === '_') {
-        // Zoom out
+      } else if (e.key === '-' || e.key === '_' || e.code === 'Minus') {
+        // Zoom out - handle both - and _ keys
         e.preventDefault()
         const zoomFactor = 0.9
         const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * zoomFactor))
 
         // Zoom towards center of viewport
-        const centerX = (canvas.width / 2) / viewportRef.current.zoom + viewportRef.current.x
-        const centerY = (canvas.height / 2) / viewportRef.current.zoom + viewportRef.current.y
+        const rect = canvas.getBoundingClientRect()
+        const centerX = (rect.width / 2) / viewportRef.current.zoom + viewportRef.current.x
+        const centerY = (rect.height / 2) / viewportRef.current.zoom + viewportRef.current.y
 
         viewportRef.current.zoom = newZoom
-        viewportRef.current.x = centerX - (canvas.width / 2) / newZoom
-        viewportRef.current.y = centerY - (canvas.height / 2) / newZoom
+        viewportRef.current.x = centerX - (rect.width / 2) / newZoom
+        viewportRef.current.y = centerY - (rect.height / 2) / newZoom
         logger.log(`🔍 Zoom out: ${newZoom.toFixed(2)}x`)
       }
     }
