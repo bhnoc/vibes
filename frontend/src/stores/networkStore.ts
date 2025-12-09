@@ -285,6 +285,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         const maxNodes = useSettingsStore.getState().maxNodes;
         if (state.nodes.length >= maxNodes) {
           // Perform pruning to make room for new node
+          logger.log(`⚠️ Pruning triggered! Current nodes: ${state.nodes.length}, maxNodes setting: ${maxNodes}`);
           const prunedNodes = pruneOldestNodes(state.nodes, maxNodes);
           return { ...state, nodes: [...prunedNodes, newNode] };
         }
@@ -293,7 +294,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         return { ...state, nodes: [...state.nodes, newNode] };
       }
     });
-  }, 10), // Throttle to 10ms to prevent too many updates
+  }, 0), // No throttle - process immediately like a game engine
   
   // COMPATIBILITY FUNCTION: Add node with separate id and data params (old API)
   addNode: (id: string, data: Partial<Node> = {}) => {
@@ -341,7 +342,7 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         return { ...state, connections: [...state.connections, connection] };
       }
     });
-  }, 10), // Throttle to 10ms
+  }, 0), // No throttle - process immediately
   
   // COMPATIBILITY FUNCTION: Add connection (old API wrapper for addOrUpdateConnection)
   addConnection: (connection: Partial<Connection>) => {

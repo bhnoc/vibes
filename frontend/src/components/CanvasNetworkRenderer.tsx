@@ -1030,12 +1030,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     }
   }, [])
 
-  // Update render objects periodically - less aggressive updates
+  // Update render objects periodically - game loop style
   useEffect(() => {
     updateRenderObjects()
-    
-    // Only update every 2 seconds instead of 1 second for better performance
-    const interval = setInterval(updateRenderObjects, 2000)
+
+    // Update frequently like a game engine (every 100ms = 10 updates/sec)
+    const interval = setInterval(updateRenderObjects, 100)
     return () => clearInterval(interval)
   }, [updateRenderObjects])
 

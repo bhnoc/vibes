@@ -49,7 +49,7 @@ export const usePacketStore = create<PacketState>((set, get) => ({
     
     // Set up flush timeout if not already set
     if (!batchTimeout) {
-      batchTimeout = setTimeout(flushPacketBatch, 50); // Batch every 50ms
+      batchTimeout = setTimeout(flushPacketBatch, 16); // Batch every 16ms (~60fps)
     }
   },
   
@@ -77,12 +77,9 @@ export const usePacketStore = create<PacketState>((set, get) => ({
     // Add all packets at once
     let updatedPackets = [...state.packets, ...newPackets];
     
-    // Check if we're approaching memory limits
-    if (updatedPackets.length > PACKET_TRIM_THRESHOLD) {
-      // Aggressive trim - keep only recent packets
-      console.warn(`Packet count (${updatedPackets.length}) exceeding threshold, aggressively pruning`);
-      updatedPackets = updatedPackets.slice(-Math.floor(MAX_PACKET_HISTORY/2));
-    } else if (updatedPackets.length > MAX_PACKET_HISTORY) {
+    // Trim packets gradually to avoid sudden drops
+    if (updatedPackets.length > MAX_PACKET_HISTORY) {
+      // Keep only the most recent packets, no aggressive trimming
       updatedPackets = updatedPackets.slice(-MAX_PACKET_HISTORY);
     }
     
