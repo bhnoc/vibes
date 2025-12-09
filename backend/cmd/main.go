@@ -132,7 +132,7 @@ func NewClientManager() *ClientManager {
 func NewClient(conn *websocket.Conn) *Client {
 	return &Client{
 		conn:          conn,
-		send:          make(chan []byte, 256),
+		send:          make(chan []byte, 100000), // Large buffer for high-throughput network taps (4 seconds at 25K pps)
 		disconnected:  make(chan struct{}),
 		stopForwarder: make(chan struct{}),
 	}
@@ -432,7 +432,6 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				case <-time.After(1 * time.Millisecond):
 				}
 			} else {
 				select {
@@ -440,7 +439,6 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					packetReceived = true
 				case <-client.stopForwarder:
 					return
-				case <-time.After(1 * time.Millisecond):
 				}
 			}
 
@@ -449,8 +447,11 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 					if packetJSON, err := packet.ToJSON(); err == nil {
 						select {
 						case client.send <- packetJSON:
+							// Successfully sent
 						case <-client.stopForwarder:
 							return
+						default:
+							// Send channel full, drop packet (should never happen with 100K buffer)
 						}
 					}
 				}
