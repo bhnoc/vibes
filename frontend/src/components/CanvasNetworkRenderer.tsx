@@ -672,6 +672,31 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
+
+      // Reset nodes that drift off-screen to prevent massive connection lines
+      const margin = 200; // Extra margin for viewport
+      const isOffScreen =
+        node.x < -margin ||
+        node.x > width + margin ||
+        node.y < -margin ||
+        node.y > height + margin;
+
+      if (isOffScreen) {
+        // Reset to cached position or generate new one
+        const cachedPos = nodePositions.current.get(node.id);
+        if (cachedPos) {
+          node.x = cachedPos.x;
+          node.y = cachedPos.y;
+        } else {
+          // Generate new position near center if no cache
+          node.x = centerX + (Math.random() - 0.5) * 200;
+          node.y = centerY + (Math.random() - 0.5) * 200;
+          nodePositions.current.set(node.id, { x: node.x, y: node.y });
+        }
+        // Reset velocity to prevent immediate drift
+        node.vx = 0;
+        node.vy = 0;
+      }
     });
 
   }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime]);
