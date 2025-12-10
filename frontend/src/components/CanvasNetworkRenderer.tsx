@@ -511,9 +511,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // --- Physics Constants ---
     const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03;
-    const NODE_INACTIVITY_REMOVAL_MS = 6000; // Remove after 6s of inactivity
-    const NODE_INACTIVITY_FADE_START_MS = 3000; // Start fading after 3s
     const CENTER_PULL_STRENGTH = 0.0001; // Increased 500x to actually pull nodes toward center!
+
+    // Node lifetime should match connection lifetime from physics slider
+    // A node should remain visible as long as its connections are active
+    const NODE_INACTIVITY_REMOVAL_MS = connectionLifetime; // Use same as connection lifetime
+    const NODE_INACTIVITY_FADE_START_MS = connectionLifetime * 0.5; // Start fading halfway through
+
+    // Debug log to verify connection lifetime is being used (log every 5 seconds)
+    if (Date.now() - lastLogTime.current > 5000) {
+      logger.log(`🕐 Node/Connection lifetime set to ${connectionLifetime}ms from physics slider`)
+      lastLogTime.current = Date.now()
+    }
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;

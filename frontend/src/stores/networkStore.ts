@@ -58,9 +58,11 @@ interface NetworkState {
   limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
 }
 
-// Constants for node expiration - increased for better visualization
-const NODE_EXPIRATION_TIME = 60000; // 60 seconds of inactivity before node expires
-const CONNECTION_EXPIRATION_TIME = 45000; // 45 seconds of inactivity before connection removal
+// Note: Node and connection expiration times are now dynamic based on physics settings
+// The connectionLifetime from usePhysicsStore is the source of truth
+// These are fallback values only used if physics store is not available
+const DEFAULT_NODE_EXPIRATION_TIME = 60000; // 60 seconds fallback
+const DEFAULT_CONNECTION_EXPIRATION_TIME = 45000; // 45 seconds fallback
 
 // Constants to limit memory usage - hard limits that prevent display issues
 const HARD_LIMIT_NODES = 50000; // Absolute maximum before emergency trimming
@@ -403,19 +405,22 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     const now = Date.now();
     const { isPined } = usePinStore.getState();
     const maxNodes = useSettingsStore.getState().maxNodes;
+    // Get connection lifetime from physics store (source of truth)
+    const { connectionLifetime } = usePhysicsStore.getState();
 
     set((state) => {
       // Check if we're approaching critical node count
       const isNearCritical = state.nodes.length >= maxNodes;
-      
-      // Use shorter expiration times when we have many nodes
-      const nodeExpirationTime = isNearCritical 
-        ? NODE_EXPIRATION_TIME * 0.6 // More aggressive cleanup when we have many nodes
-        : NODE_EXPIRATION_TIME;
-        
+
+      // Use connection lifetime from physics slider
+      // Node lifetime should match connection lifetime so nodes don't disappear while their connections are active
+      const nodeExpirationTime = isNearCritical
+        ? connectionLifetime * 0.6 // More aggressive cleanup when we have many nodes
+        : connectionLifetime;
+
       const connectionExpirationTime = isNearCritical
-        ? CONNECTION_EXPIRATION_TIME * 0.6
-        : CONNECTION_EXPIRATION_TIME;
+        ? connectionLifetime * 0.6
+        : connectionLifetime;
       
       // Always keep most recent connections and nodes regardless of activity
       // This ensures recent activity is always visible
