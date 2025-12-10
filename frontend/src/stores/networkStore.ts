@@ -207,44 +207,34 @@ const pruneOldestNodes = (nodes: Node[], maxNodes: number, connections: Connecti
   return [...nodesWithConnections, ...keptDisconnected];
 };
 
-// Helper function for aggressive pruning during critical node counts
-const forcePruneNodes = (nodes: Node[], maxNodes: number): Node[] => {
-  // Even more aggressive pruning
-  const criticalCount = Math.floor(maxNodes * 0.8); // 80% of max
-  const targetCount = Math.floor(criticalCount * 0.75); // 75% of critical = 60% of max
-
-  // Keep only the most important nodes - prioritize:
-  // 1. IP address nodes (containing dots)
-  // 2. Most recently active nodes
-
-  // First identify IP nodes
-  const ipNodes = nodes.filter(node => node.label?.includes('.') || node.id.includes('.'));
-  const otherNodes = nodes.filter(node => !(node.label?.includes('.') || node.id.includes('.')));
-
-  // Sort both arrays by activity time
-  const sortedIpNodes = [...ipNodes].sort((a, b) => b.lastActive - a.lastActive);
-  const sortedOtherNodes = [...otherNodes].sort((a, b) => b.lastActive - a.lastActive);
-
-  // Take most recent IP nodes, then fill remaining slots with other nodes
-  const keptIpNodes = sortedIpNodes.slice(0, Math.min(sortedIpNodes.length, targetCount * 0.6));
-  const remainingSlots = targetCount - keptIpNodes.length;
-  const keptOtherNodes = sortedOtherNodes.slice(0, Math.min(sortedOtherNodes.length, remainingSlots));
-
-  return [...keptIpNodes, ...keptOtherNodes];
-};
-
 // Helper function to prune oldest connections
+// IMPORTANT: First removes expired connections (beyond connectionLifetime), then prunes by age
 const pruneOldestConnections = (connections: Connection[], maxNodes: number): Connection[] => {
   const pruneToCount = Math.floor(maxNodes * 0.8); // 80% of max nodes
   const targetCount = pruneToCount * 3; // INCREASED: Allow 3x more connections than nodes
 
-  if (connections.length <= targetCount) return connections;
+  // Get connection lifetime from physics store
+  const { connectionLifetime } = usePhysicsStore.getState();
+  const now = Date.now();
 
-  // Sort by last active time (oldest first)
-  const sortedConnections = [...connections].sort((a, b) => a.lastActive - b.lastActive);
-  
-  // Keep only the most recently active connections
-  return sortedConnections.slice(connections.length - targetCount);
+  // Step 1: Remove expired connections (beyond connectionLifetime)
+  const activeConnections = connections.filter(conn => now - conn.lastActive < connectionLifetime);
+
+  // If we're under target after removing expired, we're done
+  if (activeConnections.length <= targetCount) {
+    if (activeConnections.length < connections.length) {
+      logger.log(`Pruned ${connections.length - activeConnections.length} expired connections`);
+    }
+    return activeConnections;
+  }
+
+  // Step 2: Still over target, prune by age (keep most recent)
+  const sortedConnections = [...activeConnections].sort((a, b) => b.lastActive - a.lastActive);
+  const prunedConnections = sortedConnections.slice(0, targetCount);
+
+  logger.log(`Pruned ${connections.length - prunedConnections.length} connections: ${connections.length - activeConnections.length} expired + ${activeConnections.length - prunedConnections.length} oldest`);
+
+  return prunedConnections;
 };
 
 // Check for collisions between two nodes

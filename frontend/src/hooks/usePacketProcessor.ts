@@ -496,10 +496,15 @@ export const usePacketProcessor = () => {
       
       logger.log(`✅ TIMESTAMP-BASED Processing complete: processed ${unprocessedPackets.length} packets, latest timestamp: ${latestTimestamp}`);
       
-      // Periodically clean up old network elements
+      // Periodically enforce hard caps on network size (every 15 seconds)
+      // This is a safety mechanism - normal cleanup happens via removeInactiveElements() every 1s
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
-        limitNetworkSize(3000, 5000);
-        
+        const { maxNodes } = useSettingsStore.getState();
+        const maxConnections = maxNodes * 3; // Allow 3x more connections than nodes
+
+        logger.log(`🛡️ Safety cap check: maxNodes=${maxNodes}, maxConnections=${maxConnections}`);
+        limitNetworkSize(maxNodes, maxConnections);
+
         // Periodically reposition overlapping nodes to maintain spacing
         const { repositionOverlappingNodes } = useNetworkStore.getState();
         repositionOverlappingNodes();

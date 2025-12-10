@@ -1,6 +1,7 @@
 import { useEffect, useState, memo, Suspense, lazy, useMemo, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { usePacketProcessor } from './hooks/usePacketProcessor'
+import { useNetworkCleanup } from './hooks/useNetworkCleanup'
 import { usePacketStore } from './stores/packetStore'
 import { useNetworkStore } from './stores/networkStore'
 import { useSizeStore } from './stores/sizeStore'
@@ -157,7 +158,10 @@ export const App = memo(() => {
   
   // Process packets into nodes and connections
   usePacketProcessor()
-  
+
+  // Periodic cleanup of expired nodes/connections
+  useNetworkCleanup()
+
   // Check URL on initial load to see if real capture was requested
   useEffect(() => {
     if (initialLoad) {
