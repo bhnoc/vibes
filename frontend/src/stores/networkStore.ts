@@ -294,8 +294,9 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         const newNode = { ...node, ports: new Set(node.ports || []) };
 
         // Check if we're approaching the max node count
+        // DISABLED FOR TESTING - Suspected to be causing issues
         const maxNodes = useSettingsStore.getState().maxNodes;
-        if (state.nodes.length >= maxNodes) {
+        if (false && state.nodes.length >= maxNodes) {
           // Perform pruning to make room for new node
           // Only prune nodes WITHOUT active connections
           logger.log(`⚠️ Pruning triggered! Current nodes: ${state.nodes.length}, maxNodes setting: ${maxNodes}`);
@@ -356,8 +357,9 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         return { ...state, connections: updatedConnections };
       } else {
         // Add new connection (with pruning if needed)
+        // DISABLED FOR TESTING - Suspected to be causing issues
         const maxNodes = useSettingsStore.getState().maxNodes;
-        if (state.connections.length > maxNodes * 3) {
+        if (false && state.connections.length > maxNodes * 3) {
           // Keep connection count in check relative to node count (increased ratio)
           const prunedConnections = pruneOldestConnections(state.connections, maxNodes);
           return { ...state, connections: [...prunedConnections, connection] };
