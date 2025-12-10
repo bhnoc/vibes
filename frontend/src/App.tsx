@@ -109,21 +109,36 @@ export const App = memo(() => {
       logger.log('In waiting mode, not connecting to any WebSocket');
       return null;
     }
-    
-    // Get host from environment variables or fall back to localhost
-    const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
-    const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
-    
+
+    // Determine WebSocket URL based on environment
+    const isDevelopment = window.location.port === '5173' || window.location.port === '3000';
+
+    let baseUrl: string;
+    if (isDevelopment) {
+      // In development, use same host as page (Vite will proxy /ws to backend:8080)
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const host = window.location.hostname;
+      const port = window.location.port;
+      baseUrl = `${protocol}://${host}:${port}/ws`;
+      logger.log(`🔌 Development mode: connecting to ${baseUrl} (Vite proxy → backend:8080)`);
+    } else {
+      // In production, use environment variables or current host
+      const wsHost = import.meta.env.VITE_BACKEND_HOST || window.location.hostname;
+      const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
+      baseUrl = `ws://${wsHost}:${wsPort}/ws`;
+      logger.log(`🔌 Production mode: connecting to ${baseUrl}`);
+    }
+
     if (captureMode === 'real') {
       // Real mode - include interface parameter only if one is explicitly selected
       if (selectedInterface) {
-        return `ws://${wsHost}:${wsPort}/ws?interface=${selectedInterface}`;
+        return `${baseUrl}?interface=${selectedInterface}`;
       } else {
-        return `ws://${wsHost}:${wsPort}/ws`; // Let backend use command line interface
+        return baseUrl; // Let backend use command line interface
       }
     } else if (captureMode === 'simulated') {
       // Only connect to simulation if explicitly in simulation mode
-      return `ws://${wsHost}:${wsPort}/ws`;
+      return baseUrl;
     } else {
       // Return null to prevent any connection when not ready
       return null;
