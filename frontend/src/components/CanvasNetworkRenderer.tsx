@@ -329,36 +329,45 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const fourthOctet = parts[3]
 
         // Create major regions based on first octet (10.x, 172.x, 192.x, etc.)
-        // All positions relative to viewport center and dimensions
-        let regionX = 0
-        let regionY = 0
+        // Position as percentage of viewport dimensions (0.0 = left/top edge, 1.0 = right/bottom edge)
+        let baseX = 0.5  // Start at center
+        let baseY = 0.5  // Start at center
 
         if (firstOctet === 192) {
-          // 192.168.x -> close to center, spread in both dimensions
-          regionX = centerX * 0.3 + secondOctet * (vpWidth * 0.012)
-          regionY = centerY * 0.5 + (secondOctet % 32) * (vpHeight * 0.015)
+          // 192.168.x -> center-left quadrant
+          baseX = 0.35 + (secondOctet / 256) * 0.2  // 35-55% horizontally
+          baseY = 0.40 + (secondOctet % 32) / 32 * 0.3  // 40-70% vertically
         } else if (firstOctet === 10) {
-          // 10.x.x -> right side region with vertical spread
-          regionX = centerX * 1.2 + (secondOctet % 128) * (vpWidth * 0.005)
-          regionY = centerY * 0.8 + secondOctet * (vpHeight * 0.008)
+          // 10.x.x -> center-right quadrant
+          baseX = 0.60 + (secondOctet % 128) / 128 * 0.25  // 60-85% horizontally
+          baseY = 0.45 + (secondOctet / 256) * 0.3  // 45-75% vertically
         } else if (firstOctet === 172) {
-          // 172.16-31.x -> upper right region with spread
-          regionX = centerX * 1.5 + (secondOctet - 16) * (vpWidth * 0.015)
-          regionY = centerY * 0.6 + ((secondOctet - 16) % 16) * (vpHeight * 0.012)
+          // 172.16-31.x -> upper-right area
+          baseX = 0.65 + ((secondOctet - 16) / 16) * 0.2  // 65-85% horizontally
+          baseY = 0.25 + ((secondOctet - 16) % 16) / 16 * 0.25  // 25-50% vertically
         } else {
-          // Other ranges spread out across full viewport
-          regionX = centerX * 0.4 + (firstOctet % 20) * (vpWidth * 0.08)
-          regionY = centerY * 0.8 + (firstOctet % 16) * (vpHeight * 0.1)
+          // Other ranges spread across different areas
+          baseX = 0.20 + (firstOctet % 20) / 20 * 0.6  // 20-80% horizontally
+          baseY = 0.20 + (firstOctet % 16) / 16 * 0.6  // 20-80% vertically
         }
 
-        // Add significant variation based on 3rd and 4th octets
-        const spreadX = (thirdOctet * (vpWidth * 0.008)) + ((fourthOctet % 128) * (vpWidth * 0.002)) - (vpWidth * 0.1)
-        const spreadY = (fourthOctet * (vpHeight * 0.006)) + ((thirdOctet % 128) * (vpHeight * 0.002)) - (vpHeight * 0.08)
+        // Convert percentage to actual coordinates
+        let regionX = vpWidth * baseX
+        let regionY = vpHeight * baseY
+
+        // Add variation based on 3rd and 4th octets (smaller jitter)
+        const spreadX = ((thirdOctet - 128) * (vpWidth * 0.001)) + ((fourthOctet - 128) * (vpWidth * 0.0005))
+        const spreadY = ((fourthOctet - 128) * (vpHeight * 0.001)) + ((thirdOctet - 128) * (vpHeight * 0.0005))
 
         // Final position with bounds checking - keep within 90% of viewport
         const margin = vpWidth * 0.05
         const x = Math.max(margin, Math.min(vpWidth - margin, regionX + spreadX))
         const y = Math.max(margin, Math.min(vpHeight - margin, regionY + spreadY))
+
+        // Debug: Log positioning details for first few nodes
+        if (Math.random() < 0.05) {  // 5% sampling
+          logger.log(`📍 IP ${nodeId}: base=(${(baseX*100).toFixed(1)}%, ${(baseY*100).toFixed(1)}%), final=(${x.toFixed(0)}, ${y.toFixed(0)}) in viewport ${vpWidth.toFixed(0)}x${vpHeight.toFixed(0)}`)
+        }
 
         const position = { x, y }
         nodePositions.current.set(nodeId, position)
@@ -366,7 +375,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     }
 
-    // Fallback to hash-based positioning for non-IP nodes - centered with spread
+    // Fallback to hash-based positioning for non-IP nodes
     let hash = 0
     for (let i = 0; i < nodeId.length; i++) {
       const char = nodeId.charCodeAt(i)
@@ -374,9 +383,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       hash = hash & hash
     }
 
-    // Position around center with hash-based spread
-    const x = centerX * 0.4 + (Math.abs(hash) % (vpWidth * 0.8))
-    const y = centerY * 0.6 + (Math.abs(hash >> 8) % (vpHeight * 0.5))
+    // Position using hash, spread across viewport (10-90% range for both X and Y)
+    const baseX = 0.1 + (Math.abs(hash) % 1000) / 1000 * 0.8  // 10-90% horizontally
+    const baseY = 0.1 + (Math.abs(hash >> 10) % 1000) / 1000 * 0.8  // 10-90% vertically
+    const x = vpWidth * baseX
+    const y = vpHeight * baseY
 
     const position = { x, y }
     nodePositions.current.set(nodeId, position)

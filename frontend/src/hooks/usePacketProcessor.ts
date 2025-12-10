@@ -77,9 +77,18 @@ interface PacketWithSource extends Record<string, any> {
 }
 
 // Dynamic radial positioning that expands as more nodes are added
+// Note: These positions are relative to viewport center which is determined by CanvasNetworkRenderer
 const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, y: number } => {
+  // Get viewport dimensions from window size (renderer uses 4x screen size)
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  const viewportWidth = screenWidth * 4;
+  const viewportHeight = screenHeight * 4;
+  const centerX = viewportWidth / 2;
+  const centerY = viewportHeight / 2;
+
   const parts = ip.split('.');
-  
+
   if (parts.length !== 4) {
     // Fallback for non-IP addresses - use hash for spiral positioning
     let hash = 0;
@@ -87,18 +96,19 @@ const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, 
       hash = ((hash << 5) - hash) + ip.charCodeAt(i);
       hash = hash & hash;
     }
-    
+
     // Count non-IP nodes to expand their radius
     const nonIpNodes = existingNodes.filter(n => !n.id.includes('.')).length;
     const expansionFactor = Math.floor(nonIpNodes / 10); // Expand every 10 nodes
-    
+
     const angle = (Math.abs(hash) % 360) * (Math.PI / 180);
     const baseRadius = 50 + expansionFactor * 20;
     const radius = baseRadius + (Math.abs(hash >> 8) % 100); // Tighter range
-    
+
+    // Position relative to viewport center
     return {
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius
     };
   }
   
@@ -162,27 +172,28 @@ const generatePosition = (ip: string, existingNodes: Node[] = []): { x: number, 
   const radiusVariation = (b % 10) * 2; // Reduced variation
   const finalRadius = baseRadius + radiusVariation;
   
-  // Calculate final position
-  const x = Math.cos(finalAngle) * finalRadius;
-  const y = Math.sin(finalAngle) * finalRadius;
-  
+  // Calculate final position relative to viewport center
+  const relativeX = Math.cos(finalAngle) * finalRadius;
+  const relativeY = Math.sin(finalAngle) * finalRadius;
+
   // Create a unique hash from all IP components for consistent jitter
   const ipHash = a * 1000000 + b * 10000 + c * 100 + d;
-  
+
   // Add small random offset to prevent exact overlaps (reduced since we have expansion)
   const jitterX = ((ipHash % 10) - 5); // -5 to +5px jitter
   const jitterY = (((ipHash >> 8) % 10) - 5);
-  
-  const finalPosition = { 
-    x: x + jitterX, 
-    y: y + jitterY 
+
+  // Position relative to viewport center
+  const finalPosition = {
+    x: centerX + relativeX + jitterX,
+    y: centerY + relativeY + jitterY
   };
-  
+
   // Debug log position generation occasionally
   if (Math.random() < 0.05) { // Log 5% of position generations
-    logger.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}`);
+    logger.log(`📍 Dynamic position for ${ip}: (${Math.round(finalPosition.x)}, ${Math.round(finalPosition.y)}) - radius: ${Math.round(finalRadius)} (base: ${baseRadius}, expansion: ${baseExpansion + categoryExpansion}), nodes: ${existingNodes.length}, center: (${Math.round(centerX)}, ${Math.round(centerY)})`);
   }
-  
+
   return finalPosition;
 };
 
