@@ -793,11 +793,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Render connections first (behind nodes) with protocol-based styling
     // Filter out connections where either node no longer exists
-    activeConnections.current = activeConnections.current.filter(conn => {
+    // IMPORTANT: Don't mutate activeConnections.current - physics needs the full list!
+    const connectionsToRender = activeConnections.current.filter(conn => {
       return activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId);
     });
 
-    activeConnections.current.forEach(conn => {
+    connectionsToRender.forEach(conn => {
       const source = activeNodes.current.get(conn.sourceId);
       const target = activeNodes.current.get(conn.targetId);
 
@@ -905,7 +906,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Determine which nodes have active connections to render them on top
     const now = currentTime
     const nodesWithActiveConnections = new Set<string>()
-    activeConnections.current.forEach(conn => {
+    connectionsToRender.forEach(conn => {
       // An active connection is one that is still visible
       if (now - conn.lastActive < connectionLifetime) {
         nodesWithActiveConnections.add(conn.sourceId)
