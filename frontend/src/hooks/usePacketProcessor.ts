@@ -335,13 +335,39 @@ export const usePacketProcessor = () => {
           updateNodeActivity(sourceNode, srcPort);
         } else {
           logger.log(`➕ CREATING new source node: ${sourceNode}`);
-          const desiredPosition = generatePosition(sourceNode, currentNodes);
+
+          // Check if target node exists and has multiple connections
+          const existingTarget = allNodesForCollision.find(n => n.id === targetNode);
+          const { connections: allConnections } = useNetworkStore.getState();
+          let desiredPosition;
+
+          if (existingTarget) {
+            const targetConnectionCount = allConnections.filter(
+              c => c.source === targetNode || c.target === targetNode
+            ).length;
+
+            if (targetConnectionCount > 2) {
+              // Position new source node near highly-connected target
+              const angle = Math.random() * 2 * Math.PI;
+              const distance = 100 + Math.random() * 100; // 100-200px away
+              desiredPosition = {
+                x: existingTarget.x + Math.cos(angle) * distance,
+                y: existingTarget.y + Math.sin(angle) * distance
+              };
+              logger.log(`🎯 Positioning ${sourceNode} near highly-connected ${targetNode} (${targetConnectionCount} connections)`);
+            } else {
+              desiredPosition = generatePosition(sourceNode, currentNodes);
+            }
+          } else {
+            desiredPosition = generatePosition(sourceNode, currentNodes);
+          }
+
           // Reduced debug logging for better performance
           if (Math.random() < 0.1) { // Only log 10% of creations
             logger.log(`🎯 Desired position for ${sourceNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
             logger.log(`🔍 Checking collision against ${allNodesForCollision.length} nodes`);
           }
-          
+
           const collisionFreePosition = findCollisionFreePosition(desiredPosition, allNodesForCollision, usePhysicsStore.getState().nodeSpacing);
           if (Math.random() < 0.1) { // Only log 10% of final positions
             logger.log(`✅ Final position for ${sourceNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
@@ -366,17 +392,43 @@ export const usePacketProcessor = () => {
         // Update the collision list again for target node processing
         const updatedNodesForCollision = [...currentNodes, ...nodesAddedThisBatch];
         
-        // For target node: check if exists, update activity or create  
+        // For target node: check if exists, update activity or create
         const existingTargetNode = updatedNodesForCollision.find(n => n.id === targetNode);
         if (existingTargetNode) {
           logger.log(`⚡ UPDATING activity for existing target: ${targetNode} at (${existingTargetNode.x}, ${existingTargetNode.y})`);
           updateNodeActivity(targetNode, dstPort);
         } else {
           logger.log(`➕ CREATING new target node: ${targetNode}`);
-          const desiredPosition = generatePosition(targetNode, currentNodes);
+
+          // Check if source node exists and has multiple connections
+          const existingSource = updatedNodesForCollision.find(n => n.id === sourceNode);
+          const { connections: allConnections } = useNetworkStore.getState();
+          let desiredPosition;
+
+          if (existingSource) {
+            const sourceConnectionCount = allConnections.filter(
+              c => c.source === sourceNode || c.target === sourceNode
+            ).length;
+
+            if (sourceConnectionCount > 2) {
+              // Position new target node near highly-connected source
+              const angle = Math.random() * 2 * Math.PI;
+              const distance = 100 + Math.random() * 100; // 100-200px away
+              desiredPosition = {
+                x: existingSource.x + Math.cos(angle) * distance,
+                y: existingSource.y + Math.sin(angle) * distance
+              };
+              logger.log(`🎯 Positioning ${targetNode} near highly-connected ${sourceNode} (${sourceConnectionCount} connections)`);
+            } else {
+              desiredPosition = generatePosition(targetNode, currentNodes);
+            }
+          } else {
+            desiredPosition = generatePosition(targetNode, currentNodes);
+          }
+
           logger.log(`🎯 Desired position for ${targetNode}: (${desiredPosition.x}, ${desiredPosition.y})`);
           logger.log(`🔍 Checking collision against ${updatedNodesForCollision.length} nodes:`, updatedNodesForCollision.map(n => `${n.id}:(${n.x},${n.y})`));
-          
+
           const collisionFreePosition = findCollisionFreePosition(desiredPosition, updatedNodesForCollision, usePhysicsStore.getState().nodeSpacing);
           logger.log(`✅ Final position for ${targetNode}: (${collisionFreePosition.x}, ${collisionFreePosition.y})`);
           

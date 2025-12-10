@@ -40,6 +40,7 @@ var (
 	useDumpcap    = flag.Bool("dumpcap", false, "use external dumpcap for high-performance capture (requires dumpcap to be running)")
 	dumpcapDir    = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
 	launchDumpcap = flag.Bool("launch-dumpcap", false, "automatically launch dumpcap process if not running")
+	samplingRate  = flag.Int("sample", 5, "packet sampling rate: send 1 in N packets (1 = all packets, 5 = every 5th packet)")
 
 	// Storage management flags
 	maxStorageGB     = flag.Int64("max-storage-gb", 600, "maximum storage size in GB for PCAP files")
@@ -100,6 +101,7 @@ type Client struct {
 	send          chan []byte
 	disconnected  chan struct{}
 	stopForwarder chan struct{}
+	packetCounter int64 // Counter for sampling packets
 }
 
 // ClientManager manages all connected clients
@@ -195,11 +197,16 @@ var (
 	packetStatMutex      sync.Mutex
 )
 
-// shouldSendPacket - simplified to send all packets without mutex contention
-func (manager *ClientManager) shouldSendPacket(packet *capture.Packet) bool {
-	// Send all packets - no sampling, no locks in hot path
-	// Stats tracking removed to eliminate mutex contention
-	return true
+// shouldSendPacket - simple sampling without mutex contention in hot path
+func (client *Client) shouldSendPacket(packet *capture.Packet) bool {
+	// If sampling rate is 1, send all packets
+	if *samplingRate <= 1 {
+		return true
+	}
+
+	// Increment counter and check if this packet should be sent
+	client.packetCounter++
+	return client.packetCounter % int64(*samplingRate) == 0
 }
 
 // Start begins the client manager's event loop
@@ -447,7 +454,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			}
 
 			if packetReceived && packet != nil {
-				if manager.shouldSendPacket(packet) {
+				if client.shouldSendPacket(packet) {
 					if packetJSON, err := packet.ToJSON(); err == nil {
 						select {
 						case client.send <- packetJSON:
@@ -892,6 +899,8 @@ func main() {
 		fmt.Println("Usage examples:")
 		fmt.Println("  Simulated mode:     go run main.go")
 		fmt.Println("  Real capture:       sudo go run main.go -iface eth0")
+		fmt.Println("  With sampling:      sudo go run main.go -iface eth0 -sample 5")
+		fmt.Println("  All packets:        sudo go run main.go -iface eth0 -sample 1")
 		fmt.Println("  Dumpcap mode:       go run main.go -dumpcap -dumpcap-dir /data/pcaps -iface eth0")
 		fmt.Println("  Auto-launch:        go run main.go -dumpcap -launch-dumpcap -iface eth0")
 		fmt.Println("  PCAP replay:        go run main.go -pcap /path/to/file.pcap")
@@ -924,6 +933,13 @@ func main() {
 	}
 
 	log.Printf("🔥 Starting VIBES Backend Server")
+
+	// Log sampling configuration
+	if *samplingRate <= 1 {
+		log.Printf("📊 Packet Sampling: DISABLED (sending all packets)")
+	} else {
+		log.Printf("📊 Packet Sampling: 1 in %d packets (%.1f%% throughput)", *samplingRate, 100.0/float64(*samplingRate))
+	}
 
 	if *pcapFile != "" {
 		log.Printf("📼 PCAP Replay Mode: %s (speed: %.2fx)", *pcapFile, *replaySpeed)
