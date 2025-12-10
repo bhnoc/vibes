@@ -266,13 +266,22 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       canvas.style.height = `${height}px`;
 
       // Update viewport dimensions - 4x screen size for massive buffer space when zooming out
+      const oldWidth = viewportRef.current.width;
+      const oldHeight = viewportRef.current.height;
       viewportRef.current.width = width * 4;
       viewportRef.current.height = height * 4;
 
-      // Center the viewport only on the initial load, accounting for zoom
+      // Clear position cache if viewport dimensions changed (forces regeneration with new dimensions)
+      if (oldWidth !== viewportRef.current.width || oldHeight !== viewportRef.current.height) {
+        nodePositions.current.clear();
+        logger.log(`🔄 Cleared position cache due to viewport resize: ${oldWidth}x${oldHeight} -> ${viewportRef.current.width}x${viewportRef.current.height}`);
+      }
+
+      // Center the viewport only on the initial load
+      // Position viewport so visible screen shows the center of the viewport
       if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
-        viewportRef.current.x = (viewportRef.current.width - width / viewportRef.current.zoom) / 2;
-        viewportRef.current.y = (viewportRef.current.height - height / viewportRef.current.zoom) / 2;
+        viewportRef.current.x = (viewportRef.current.width - width) / 2;
+        viewportRef.current.y = (viewportRef.current.height - height) / 2;
       }
       
       // Scale context for high DPI
@@ -302,6 +311,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       return nodePositions.current.get(nodeId)!
     }
 
+    // Get viewport dimensions for dynamic positioning
+    const vpWidth = viewportRef.current.width
+    const vpHeight = viewportRef.current.height
+    const centerX = vpWidth / 2
+    const centerY = vpHeight / 2
+
     // IP-based positioning for network topology visualization
     if (nodeId.includes('.')) {
       // Parse IP address for intelligent positioning
@@ -309,36 +324,41 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
         // Much more spread out positioning based on IP structure
         const firstOctet = parts[0]
-        const secondOctet = parts[1] 
+        const secondOctet = parts[1]
         const thirdOctet = parts[2]
         const fourthOctet = parts[3]
-        
+
         // Create major regions based on first octet (10.x, 172.x, 192.x, etc.)
+        // All positions relative to viewport center and dimensions
         let regionX = 0
         let regionY = 0
-        
+
         if (firstOctet === 192) {
-          regionX = 800 + secondOctet * 16 // 192.168.x -> spread horizontally (4x)
-          regionY = 600
+          // 192.168.x -> close to center, spread in both dimensions
+          regionX = centerX * 0.3 + secondOctet * (vpWidth * 0.012)
+          regionY = centerY * 0.5 + (secondOctet % 32) * (vpHeight * 0.015)
         } else if (firstOctet === 10) {
-          regionX = 2000 + secondOctet * 12 // 10.x.x -> different region (4x)
-          regionY = 1200
+          // 10.x.x -> right side region with vertical spread
+          regionX = centerX * 1.2 + (secondOctet % 128) * (vpWidth * 0.005)
+          regionY = centerY * 0.8 + secondOctet * (vpHeight * 0.008)
         } else if (firstOctet === 172) {
-          regionX = 3200 + (secondOctet - 16) * 20 // 172.16-31.x -> another region (4x)
-          regionY = 800
+          // 172.16-31.x -> upper right region with spread
+          regionX = centerX * 1.5 + (secondOctet - 16) * (vpWidth * 0.015)
+          regionY = centerY * 0.6 + ((secondOctet - 16) % 16) * (vpHeight * 0.012)
         } else {
-          // Other ranges spread out more (4x)
-          regionX = 400 + (firstOctet % 20) * 200
-          regionY = 1600 + (firstOctet % 10) * 160
+          // Other ranges spread out across full viewport
+          regionX = centerX * 0.4 + (firstOctet % 20) * (vpWidth * 0.08)
+          regionY = centerY * 0.8 + (firstOctet % 16) * (vpHeight * 0.1)
         }
 
-        // Add variation based on 3rd and 4th octets (4x spread)
-        const spreadX = (thirdOctet * 8) + (fourthOctet % 200) - 100
-        const spreadY = (fourthOctet * 6) + (thirdOctet % 160) - 80
+        // Add significant variation based on 3rd and 4th octets
+        const spreadX = (thirdOctet * (vpWidth * 0.008)) + ((fourthOctet % 128) * (vpWidth * 0.002)) - (vpWidth * 0.1)
+        const spreadY = (fourthOctet * (vpHeight * 0.006)) + ((thirdOctet % 128) * (vpHeight * 0.002)) - (vpHeight * 0.08)
 
-        // Final position with bounds checking - 4x larger viewport
-        const x = Math.max(200, Math.min(5600, regionX + spreadX))
-        const y = Math.max(200, Math.min(3200, regionY + spreadY))
+        // Final position with bounds checking - keep within 90% of viewport
+        const margin = vpWidth * 0.05
+        const x = Math.max(margin, Math.min(vpWidth - margin, regionX + spreadX))
+        const y = Math.max(margin, Math.min(vpHeight - margin, regionY + spreadY))
 
         const position = { x, y }
         nodePositions.current.set(nodeId, position)
@@ -346,7 +366,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     }
 
-    // Fallback to hash-based positioning for non-IP nodes - 4x larger space
+    // Fallback to hash-based positioning for non-IP nodes - centered with spread
     let hash = 0
     for (let i = 0; i < nodeId.length; i++) {
       const char = nodeId.charCodeAt(i)
@@ -354,9 +374,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       hash = hash & hash
     }
 
-    const x = 800 + (Math.abs(hash) % 3200)
-    const y = 600 + (Math.abs(hash >> 8) % 2000)
-    
+    // Position around center with hash-based spread
+    const x = centerX * 0.4 + (Math.abs(hash) % (vpWidth * 0.8))
+    const y = centerY * 0.6 + (Math.abs(hash >> 8) % (vpHeight * 0.5))
+
     const position = { x, y }
     nodePositions.current.set(nodeId, position)
     return position
@@ -487,7 +508,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const centerX = viewportRef.current.width / 2;
     const centerY = viewportRef.current.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 800; // 4x for larger viewport
+    // Dynamic margin based on viewport size (10% buffer)
+    const offscreenMargin = Math.max(viewportRef.current.width, viewportRef.current.height) * 0.1;
 
     // Build connected nodes from STORE connections, not cached activeConnections
     // This ensures nodes that just got connections are immediately recognized
@@ -948,15 +970,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     ctx.restore()
 
-    // No data message
+    // No data message - position at screen center, not viewport center
     if (activeNodes.current.size === 0) {
       ctx.fillStyle = '#888'
       ctx.font = '16px monospace'
       ctx.textAlign = 'center'
+      // Convert screen center to viewport coordinates
+      const screenCenterX = vp.x + (width / 2) / vp.zoom
+      const screenCenterY = vp.y + (height / 2) / vp.zoom
       ctx.fillText(
-        'Waiting for network activity...', 
-        vp.width / 2, 
-        vp.height / 2
+        'Waiting for network activity...',
+        screenCenterX,
+        screenCenterY
       )
       ctx.textAlign = 'left'
     }
@@ -1033,11 +1058,23 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
 
       if (e.key === 'r' || e.key === 'R') {
-        // Reset view to show full network (centered on 4x viewport)
-        viewportRef.current.x = -1600
-        viewportRef.current.y = -800
-        viewportRef.current.zoom = 0.2
+        // Reset view to show full network - center on viewport center with wide zoom
+        viewportRef.current.x = (viewportRef.current.width - width) / 2
+        viewportRef.current.y = (viewportRef.current.height - height) / 2
+        viewportRef.current.zoom = 0.25
         logger.log('🔄 View reset to show full network')
+      } else if (e.key === 'p' || e.key === 'P') {
+        // Clear position cache to regenerate all node positions
+        nodePositions.current.clear()
+        // Force all RenderedNodes to regenerate positions
+        activeNodes.current.forEach(node => {
+          const newPos = generatePosition(node.id)
+          node.x = newPos.x
+          node.y = newPos.y
+          node.vx = 0
+          node.vy = 0
+        })
+        logger.log('🔄 Regenerated all node positions')
       } else if (e.key === '+' || e.key === '=' || (e.shiftKey && e.code === 'Equal')) {
         // Zoom in - handle both + and = keys, and Shift+= combo
         e.preventDefault()
