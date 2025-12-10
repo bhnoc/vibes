@@ -58,19 +58,10 @@ interface NetworkState {
   limitNetworkSize: (maxNodes: number, maxConnections: number) => void;
 }
 
-// Note: Node and connection expiration times are now dynamic based on physics settings
-// The connectionLifetime from usePhysicsStore is the source of truth
-// These are fallback values only used if physics store is not available
-const DEFAULT_NODE_EXPIRATION_TIME = 60000; // 60 seconds fallback
-const DEFAULT_CONNECTION_EXPIRATION_TIME = 45000; // 45 seconds fallback
-
-// Constants to limit memory usage - hard limits that prevent display issues
-const HARD_LIMIT_NODES = 50000; // Absolute maximum before emergency trimming
-const HARD_LIMIT_CONNECTIONS = 100000; // Absolute maximum before emergency trimming
-
-// Target for keeping newest nodes/connections when pruning
-const KEEP_NEWEST_NODES = 1500;      // When pruning, keep this many newest nodes
-const KEEP_NEWEST_CONNECTIONS = 2000; // When pruning, keep this many newest connections
+// Note: All expiration times and limits are now dynamic based on slider settings
+// - connectionLifetime from usePhysicsStore (Connection Lifetime slider)
+// - maxNodes from useSettingsStore (Max Nodes slider)
+// No hardcoded timeouts or limits - everything respects user settings
 
 // Reuse positions for nodes with same IDs to prevent constant repositioning
 const nodePositionCache = new Map<string, {x: number, y: number}>();
@@ -174,17 +165,46 @@ const checkMemoryUsage = (): boolean => {
 };
 
 // Helper function to prune oldest nodes when approaching limits
-const pruneOldestNodes = (nodes: Node[], maxNodes: number): Node[] => {
+// CRITICAL: Never prune nodes that have active connections
+const pruneOldestNodes = (nodes: Node[], maxNodes: number, connections: Connection[]): Node[] => {
   const pruneToCount = Math.floor(maxNodes * 0.8); // Prune to 80% of max
   if (nodes.length <= pruneToCount) return nodes;
 
   logger.log(`Pruning nodes from ${nodes.length} to ${pruneToCount}`);
 
-  // Sort nodes by last active time (oldest first)
-  const sortedNodes = [...nodes].sort((a, b) => a.lastActive - b.lastActive);
+  // Get connection lifetime from physics store
+  const { connectionLifetime } = usePhysicsStore.getState();
+  const now = Date.now();
 
-  // Keep only the most recently active nodes
-  return sortedNodes.slice(nodes.length - pruneToCount);
+  // Build set of node IDs that have active connections
+  const nodesWithActiveConnections = new Set<string>();
+  connections.forEach(conn => {
+    if (now - conn.lastActive < connectionLifetime) {
+      nodesWithActiveConnections.add(conn.source);
+      nodesWithActiveConnections.add(conn.target);
+    }
+  });
+
+  // Separate nodes into two groups: with active connections and without
+  const nodesWithConnections = nodes.filter(n => nodesWithActiveConnections.has(n.id));
+  const nodesWithoutConnections = nodes.filter(n => !nodesWithActiveConnections.has(n.id));
+
+  // If nodes with connections exceed our target, keep all of them (they're protected)
+  if (nodesWithConnections.length >= pruneToCount) {
+    logger.log(`⚠️ Cannot prune: ${nodesWithConnections.length} nodes have active connections (target: ${pruneToCount})`);
+    return nodes; // Don't prune if all active nodes are connected
+  }
+
+  // Sort disconnected nodes by activity (oldest first)
+  const sortedDisconnected = nodesWithoutConnections.sort((a, b) => a.lastActive - b.lastActive);
+
+  // Calculate how many disconnected nodes we can keep
+  const remainingSlots = pruneToCount - nodesWithConnections.length;
+  const keptDisconnected = sortedDisconnected.slice(-remainingSlots); // Keep most recent
+
+  logger.log(`Keeping ${nodesWithConnections.length} connected + ${keptDisconnected.length} disconnected = ${nodesWithConnections.length + keptDisconnected.length} nodes`);
+
+  return [...nodesWithConnections, ...keptDisconnected];
 };
 
 // Helper function for aggressive pruning during critical node counts
@@ -287,9 +307,20 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         const maxNodes = useSettingsStore.getState().maxNodes;
         if (state.nodes.length >= maxNodes) {
           // Perform pruning to make room for new node
+          // Only prune nodes WITHOUT active connections
           logger.log(`⚠️ Pruning triggered! Current nodes: ${state.nodes.length}, maxNodes setting: ${maxNodes}`);
-          const prunedNodes = pruneOldestNodes(state.nodes, maxNodes);
-          return { ...state, nodes: [...prunedNodes, newNode] };
+          const prunedNodes = pruneOldestNodes(state.nodes, maxNodes, state.connections);
+
+          // Check if pruning actually freed up space
+          if (prunedNodes.length < state.nodes.length) {
+            // Space was freed, add the new node
+            logger.log(`✅ Pruned ${state.nodes.length - prunedNodes.length} disconnected nodes, adding new node`);
+            return { ...state, nodes: [...prunedNodes, newNode] };
+          } else {
+            // All nodes have active connections, cannot add new node
+            logger.log(`⚠️ Cannot add new node: all ${state.nodes.length} nodes have active connections`);
+            return state; // Don't add the node
+          }
         }
 
         // Otherwise just add the new node
@@ -412,36 +443,47 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       // Check if we're approaching critical node count
       const isNearCritical = state.nodes.length >= maxNodes;
 
-      // Use connection lifetime from physics slider
+      // Use connection lifetime from physics slider - ALWAYS respect the slider value
       // Node lifetime should match connection lifetime so nodes don't disappear while their connections are active
-      const nodeExpirationTime = isNearCritical
-        ? connectionLifetime * 0.6 // More aggressive cleanup when we have many nodes
-        : connectionLifetime;
+      // NOTE: We used to reduce this by 0.6 when near capacity, but that violates user expectations
+      // The user's slider setting is the source of truth
+      const nodeExpirationTime = connectionLifetime;
+      const connectionExpirationTime = connectionLifetime;
+      
+      // Build set of nodes with active connections - these MUST be kept
+      const nodesWithActiveConnections = new Set<string>();
+      state.connections.forEach(conn => {
+        if (now - conn.lastActive < connectionExpirationTime) {
+          nodesWithActiveConnections.add(conn.source);
+          nodesWithActiveConnections.add(conn.target);
+        }
+      });
 
-      const connectionExpirationTime = isNearCritical
-        ? connectionLifetime * 0.6
-        : connectionLifetime;
-      
-      // Always keep most recent connections and nodes regardless of activity
-      // This ensures recent activity is always visible
-      // Scale preservation count with maxNodes setting - but use a minimum
-      const PRESERVE_NEWEST_COUNT = Math.max(100, Math.floor(maxNodes * 0.3)); // Preserve at least 100 or 30% of max nodes
-      
-      // Sort nodes by activity time (most recent first)
-      const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
-      
-      // Keep newest nodes regardless of activity, then filter older ones
-      const preservedNodes = sortedNodes.slice(0, PRESERVE_NEWEST_COUNT);
-      const olderNodes = sortedNodes.slice(PRESERVE_NEWEST_COUNT);
-      
+      // Separate nodes into categories
+      const connectedNodes = state.nodes.filter(n => nodesWithActiveConnections.has(n.id));
+      const pinnedNodes = state.nodes.filter(n => !nodesWithActiveConnections.has(n.id) && isPined(n.id));
+      const otherNodes = state.nodes.filter(n => !nodesWithActiveConnections.has(n.id) && !isPined(n.id));
+
+      // Sort other nodes by activity (most recent first)
+      const sortedOtherNodes = otherNodes.sort((a, b) => b.lastActive - a.lastActive);
+
+      // Always keep most recent other nodes regardless of activity
+      // Scale with maxNodes: preserve 30% of maxNodes, minimum 10% or 50 nodes (whichever is larger)
+      const minPreserve = Math.max(50, Math.floor(maxNodes * 0.1)); // At least 10% or 50 nodes
+      const PRESERVE_NEWEST_COUNT = Math.max(minPreserve, Math.floor(maxNodes * 0.3)); // Prefer 30% if larger
+      const preservedOtherNodes = sortedOtherNodes.slice(0, PRESERVE_NEWEST_COUNT);
+      const olderOtherNodes = sortedOtherNodes.slice(PRESERVE_NEWEST_COUNT);
+
       // Filter older nodes by activity (but only if we have way too many)
       // Use maxNodes as the threshold for when to start filtering
-      const activeOlderNodes = state.nodes.length > maxNodes ? olderNodes.filter(
-        (node) => now - node.lastActive < nodeExpirationTime || isPined(node.id)
-      ) : olderNodes; // Keep all older nodes if we're under max
-      
-      // Final node list is preserved + active older nodes
-      const activeNodes = [...preservedNodes, ...activeOlderNodes];
+      const activeOlderNodes = state.nodes.length > maxNodes ? olderOtherNodes.filter(
+        (node) => now - node.lastActive < nodeExpirationTime
+      ) : olderOtherNodes; // Keep all older nodes if we're under max
+
+      // Final node list: connected + pinned + preserved + active older nodes
+      const activeNodes = [...connectedNodes, ...pinnedNodes, ...preservedOtherNodes, ...activeOlderNodes];
+
+      logger.log(`Node cleanup: ${connectedNodes.length} connected, ${pinnedNodes.length} pinned, ${preservedOtherNodes.length} preserved (${PRESERVE_NEWEST_COUNT} target), ${activeOlderNodes.length} older = ${activeNodes.length} total`);
       
       // Sort connections by activity time (most recent first)
       const sortedConnections = [...state.connections].sort((a, b) => b.lastActive - a.lastActive);
@@ -481,13 +523,12 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   
   // Limit network size to stay under memory constraints
   limitNetworkSize: (maxNodes: number, maxConnections: number) => {
-    // Apply memory-based adjustments
-    const highMemory = checkMemoryUsage();
     const { isPined } = usePinStore.getState();
-    
-    // Use more aggressive limits when memory is high
-    const effectiveMaxNodes = highMemory ? Math.floor(maxNodes * 0.5) : maxNodes;
-    const effectiveMaxConnections = highMemory ? Math.floor(maxConnections * 0.5) : maxConnections;
+
+    // Use the maxNodes value directly from slider - don't override based on memory
+    // Users should manage their own max nodes slider if experiencing memory issues
+    const effectiveMaxNodes = maxNodes;
+    const effectiveMaxConnections = maxConnections;
     
     set((state) => {
       // Check if we need to update anything
@@ -503,16 +544,38 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
       
       // Trim nodes if needed
       if (needsNodeTrim) {
-        // Sort by activity (most recent first)
-        const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);
-        
-        // Keep only most recent, plus any pinned nodes
-        const pinnedNodes = sortedNodes.filter(node => isPined(node.id));
-        const unpinnedNodes = sortedNodes.filter(node => !isPined(node.id));
-        updatedNodes = [...pinnedNodes, ...unpinnedNodes.slice(0, effectiveMaxNodes - pinnedNodes.length)];
+        // Get connection lifetime to check for active connections
+        const { connectionLifetime } = usePhysicsStore.getState();
+        const now = Date.now();
+
+        // Build set of nodes with active connections
+        const nodesWithActiveConnections = new Set<string>();
+        state.connections.forEach(conn => {
+          if (now - conn.lastActive < connectionLifetime) {
+            nodesWithActiveConnections.add(conn.source);
+            nodesWithActiveConnections.add(conn.target);
+          }
+        });
+
+        // Separate nodes: connected, pinned, and other
+        const connectedNodes = state.nodes.filter(n => nodesWithActiveConnections.has(n.id));
+        const pinnedNodes = state.nodes.filter(n => !nodesWithActiveConnections.has(n.id) && isPined(n.id));
+        const otherNodes = state.nodes.filter(n => !nodesWithActiveConnections.has(n.id) && !isPined(n.id));
+
+        // Sort other nodes by activity (most recent first)
+        const sortedOtherNodes = otherNodes.sort((a, b) => b.lastActive - a.lastActive);
+
+        // Calculate how many other nodes we can keep
+        const protectedCount = connectedNodes.length + pinnedNodes.length;
+        const remainingSlots = Math.max(0, effectiveMaxNodes - protectedCount);
+
+        // Keep only most recent other nodes within remaining slots
+        const keptOtherNodes = sortedOtherNodes.slice(0, remainingSlots);
+
+        updatedNodes = [...connectedNodes, ...pinnedNodes, ...keptOtherNodes];
         totalNodesRemoved += (state.nodes.length - updatedNodes.length);
-        
-        logger.log(`Network size limited: reduced from ${state.nodes.length} to ${updatedNodes.length} nodes`);
+
+        logger.log(`Network size limited: ${connectedNodes.length} connected + ${pinnedNodes.length} pinned + ${keptOtherNodes.length} other = ${updatedNodes.length} nodes (from ${state.nodes.length})`);
       }
       
       // Trim connections if needed

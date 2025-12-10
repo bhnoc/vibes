@@ -280,8 +280,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       // Center the viewport only on the initial load
       // Position viewport so visible screen shows the center of the viewport
       if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
-        viewportRef.current.x = (viewportRef.current.width - width) / 2;
-        viewportRef.current.y = (viewportRef.current.height - height) / 2;
+        const vpCenterX = viewportRef.current.width / 2;
+        const vpCenterY = viewportRef.current.height / 2;
+        // Account for zoom when centering (viewport.x defines world coords at screen's top-left)
+        viewportRef.current.x = vpCenterX - (width / 2) / viewportRef.current.zoom;
+        viewportRef.current.y = vpCenterY - (height / 2) / viewportRef.current.zoom;
+        logger.log(`🎯 Initial viewport centered at (${Math.round(vpCenterX)}, ${Math.round(vpCenterY)})`);
       }
       
       // Scale context for high DPI
@@ -1079,10 +1083,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       if (e.key === 'r' || e.key === 'R') {
         // Reset view to show full network - center on viewport center with wide zoom
-        viewportRef.current.x = (viewportRef.current.width - width) / 2
-        viewportRef.current.y = (viewportRef.current.height - height) / 2
-        viewportRef.current.zoom = 0.25
-        logger.log('🔄 View reset to show full network')
+        const resetZoom = 0.25
+        const vpCenterX = viewportRef.current.width / 2
+        const vpCenterY = viewportRef.current.height / 2
+
+        // Position viewport so the center of the viewport appears at the center of the screen
+        viewportRef.current.x = vpCenterX - (width / 2) / resetZoom
+        viewportRef.current.y = vpCenterY - (height / 2) / resetZoom
+        viewportRef.current.zoom = resetZoom
+        logger.log(`🔄 View reset: centered on (${Math.round(vpCenterX)}, ${Math.round(vpCenterY)}) with zoom ${resetZoom}x`)
       } else if (e.key === 'p' || e.key === 'P') {
         // Clear position cache to regenerate all node positions
         nodePositions.current.clear()
