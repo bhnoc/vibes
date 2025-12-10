@@ -41,6 +41,7 @@ var (
 	dumpcapDir    = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
 	launchDumpcap = flag.Bool("launch-dumpcap", false, "automatically launch dumpcap process if not running")
 	samplingRate  = flag.Int("sample", 5, "packet sampling rate: send 1 in N packets (1 = all packets, 5 = every 5th packet)")
+	maxPPS        = flag.Int("max-pps", 5000, "maximum packets per second to send (adaptive rate limiting, 0 = use -sample instead)")
 
 	// Storage management flags
 	maxStorageGB     = flag.Int64("max-storage-gb", 600, "maximum storage size in GB for PCAP files")
@@ -101,7 +102,14 @@ type Client struct {
 	send          chan []byte
 	disconnected  chan struct{}
 	stopForwarder chan struct{}
-	packetCounter int64 // Counter for sampling packets
+
+	// Sampling fields
+	packetCounter int64 // Counter for fixed-rate sampling
+
+	// Rate limiting fields (for adaptive PPS limiting)
+	sentThisSecond int64     // Packets sent in current second
+	lastResetTime  time.Time // Last time the counter was reset
+	resetMutex     sync.Mutex // Protect rate limit state
 }
 
 // ClientManager manages all connected clients
@@ -137,6 +145,9 @@ func NewClient(conn *websocket.Conn) *Client {
 		send:          make(chan []byte, 100000), // Large buffer for high-throughput network taps (4 seconds at 25K pps)
 		disconnected:  make(chan struct{}),
 		stopForwarder: make(chan struct{}),
+		packetCounter: 0,
+		sentThisSecond: 0,
+		lastResetTime:  time.Now(),
 	}
 }
 
@@ -197,8 +208,33 @@ var (
 	packetStatMutex      sync.Mutex
 )
 
-// shouldSendPacket - simple sampling without mutex contention in hot path
+// shouldSendPacket - adaptive rate limiting or fixed sampling
 func (client *Client) shouldSendPacket(packet *capture.Packet) bool {
+	// OPTION 1: Adaptive PPS rate limiting (preferred)
+	if *maxPPS > 0 {
+		client.resetMutex.Lock()
+		defer client.resetMutex.Unlock()
+
+		now := time.Now()
+
+		// Reset counter every second
+		if now.Sub(client.lastResetTime) >= time.Second {
+			client.sentThisSecond = 0
+			client.lastResetTime = now
+		}
+
+		// Check if we're at the rate limit
+		if client.sentThisSecond >= int64(*maxPPS) {
+			// Hit rate limit, drop packet
+			return false
+		}
+
+		// Under limit, send packet
+		client.sentThisSecond++
+		return true
+	}
+
+	// OPTION 2: Fixed sampling (fallback when max-pps = 0)
 	// If sampling rate is 1, send all packets
 	if *samplingRate <= 1 {
 		return true
@@ -206,7 +242,7 @@ func (client *Client) shouldSendPacket(packet *capture.Packet) bool {
 
 	// Increment counter and check if this packet should be sent
 	client.packetCounter++
-	return client.packetCounter % int64(*samplingRate) == 0
+	return client.packetCounter%int64(*samplingRate) == 0
 }
 
 // Start begins the client manager's event loop
@@ -899,8 +935,16 @@ func main() {
 		fmt.Println("Usage examples:")
 		fmt.Println("  Simulated mode:     go run main.go")
 		fmt.Println("  Real capture:       sudo go run main.go -iface eth0")
-		fmt.Println("  With sampling:      sudo go run main.go -iface eth0 -sample 5")
-		fmt.Println("  All packets:        sudo go run main.go -iface eth0 -sample 1")
+		fmt.Println()
+		fmt.Println("Packet Rate Control:")
+		fmt.Println("  Adaptive (recommended): sudo go run main.go -iface eth0 -max-pps 5000")
+		fmt.Println("                          → Sends all packets when traffic < 5000 pps")
+		fmt.Println("                          → Throttles to 5000 pps when traffic is high")
+		fmt.Println("  Fixed sampling:         sudo go run main.go -iface eth0 -sample 5 -max-pps 0")
+		fmt.Println("                          → Always sends 1 in 5 packets (20%)")
+		fmt.Println("  Unlimited:              sudo go run main.go -iface eth0 -max-pps 0 -sample 1")
+		fmt.Println()
+		fmt.Println("Other Modes:")
 		fmt.Println("  Dumpcap mode:       go run main.go -dumpcap -dumpcap-dir /data/pcaps -iface eth0")
 		fmt.Println("  Auto-launch:        go run main.go -dumpcap -launch-dumpcap -iface eth0")
 		fmt.Println("  PCAP replay:        go run main.go -pcap /path/to/file.pcap")
@@ -934,11 +978,15 @@ func main() {
 
 	log.Printf("🔥 Starting VIBES Backend Server")
 
-	// Log sampling configuration
-	if *samplingRate <= 1 {
+	// Log sampling/rate limiting configuration
+	if *maxPPS > 0 {
+		log.Printf("📊 Adaptive Rate Limiting: max %d packets/sec", *maxPPS)
+		log.Printf("   → Low traffic: sends all packets (100%%)")
+		log.Printf("   → High traffic: throttles to %d pps", *maxPPS)
+	} else if *samplingRate <= 1 {
 		log.Printf("📊 Packet Sampling: DISABLED (sending all packets)")
 	} else {
-		log.Printf("📊 Packet Sampling: 1 in %d packets (%.1f%% throughput)", *samplingRate, 100.0/float64(*samplingRate))
+		log.Printf("📊 Fixed Sampling: 1 in %d packets (%.1f%% throughput)", *samplingRate, 100.0/float64(*samplingRate))
 	}
 
 	if *pcapFile != "" {
