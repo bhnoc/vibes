@@ -478,10 +478,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     });
 
 
-    // Process connections
+    // Process connections - only include active connections (within connectionLifetime)
     const nodeIds = new Set(Array.from(activeNodes.current.keys()))
     const recentConnections = connections
-      .filter(conn => nodeIds.has(conn.source) && nodeIds.has(conn.target))
+      .filter(conn => {
+        const isActive = now - conn.lastActive < connectionLifetime;
+        const bothNodesExist = nodeIds.has(conn.source) && nodeIds.has(conn.target);
+        return isActive && bothNodesExist;
+      })
       .slice(0, 5000)
 
     // Release all old connections
@@ -538,12 +542,22 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Build connected nodes from STORE connections, not cached activeConnections
     // This ensures nodes that just got connections are immediately recognized
     const connectedNodeIds = new Set<string>();
+    let activeConns = 0;
+    let expiredConns = 0;
     connections.forEach(conn => {
       if (now - conn.lastActive < connectionLifetime) {
         connectedNodeIds.add(conn.source);
         connectedNodeIds.add(conn.target);
+        activeConns++;
+      } else {
+        expiredConns++;
       }
     });
+
+    // Debug logging every 2 seconds
+    if (now - lastLogTime.current > 2000) {
+      logger.log(`🔗 Connections: ${connections.length} total, ${activeConns} active (<${connectionLifetime}ms), ${expiredConns} expired, ${connectedNodeIds.size} connected nodes`);
+    }
 
     // --- Pinned Node Positioning (Bottom of Screen) ---
     const renderedNodes = Array.from(activeNodes.current.values());
