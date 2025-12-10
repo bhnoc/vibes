@@ -582,16 +582,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const timeSinceActive = now - node.lastActive;
 
       // 1. Handle inactive nodes (fading, drifting, removal)
-      if (timeSinceActive > NODE_INACTIVITY_REMOVAL_MS) {
+      // DISABLED FOR TESTING - Suspected to be causing issues
+      if (false && timeSinceActive > NODE_INACTIVITY_REMOVAL_MS) {
         nodesToRemove.push(node.id);
         return;
       }
 
-      const isOffscreen =
+      // DISABLED FOR TESTING - Suspected to be causing issues
+      const isOffscreen = false && (
         node.x < -offscreenMargin ||
         node.x > viewportRef.current.width + offscreenMargin ||
         node.y < -offscreenMargin ||
-        node.y > viewportRef.current.height + offscreenMargin;
+        node.y > viewportRef.current.height + offscreenMargin);
 
       if (isOffscreen) {
         nodesToRemove.push(node.id);
@@ -711,19 +713,22 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     });
 
     // Check for off-screen nodes and add to removal list
-    activeNodes.current.forEach(node => {
-      if (isPined(node.id)) return; // Skip pinned nodes
+    // DISABLED FOR TESTING - Suspected to be causing issues
+    if (false) {
+      activeNodes.current.forEach(node => {
+        if (isPined(node.id)) return; // Skip pinned nodes
 
-      const isOffScreen =
-        node.x < -offscreenMargin ||
-        node.x > viewportRef.current.width + offscreenMargin ||
-        node.y < -offscreenMargin ||
-        node.y > viewportRef.current.height + offscreenMargin;
+        const isOffScreen =
+          node.x < -offscreenMargin ||
+          node.x > viewportRef.current.width + offscreenMargin ||
+          node.y < -offscreenMargin ||
+          node.y > viewportRef.current.height + offscreenMargin;
 
-      if (isOffScreen) {
-        nodesToRemove.push(node.id);
-      }
-    });
+        if (isOffScreen) {
+          nodesToRemove.push(node.id);
+        }
+      });
+    }
 
     // Remove all nodes that need to be removed (inactive + off-screen)
     if (nodesToRemove.length > 0) {
