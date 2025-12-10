@@ -603,8 +603,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const isConnected = connectedNodeIds.has(node.id);
       const isInactive = timeSinceActive > NODE_INACTIVITY_FADE_START_MS;
 
-      // Apply drift to any node that is NOT connected
-      if (!isConnected) {
+      // Apply forces based on connection status
+      if (isConnected) {
+        // Connected nodes: pull toward center to keep them grouped
+        const dx_center = centerX - node.x;
+        const dy_center = centerY - node.y;
+        node.vx += dx_center * CENTER_PULL_STRENGTH * deltaTime;
+        node.vy += dy_center * CENTER_PULL_STRENGTH * deltaTime;
+      } else {
+        // Unconnected nodes: drift away from center
         const driftForce = driftAwayStrength * 0.00008; // Increased force
         const dx = node.x - centerX;
         const dy = node.y - centerY;
@@ -691,15 +698,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           target.vy -= fy * deltaTime;
         }
 
-        const source_dx_center = centerX - source.x;
-        const source_dy_center = centerY - source.y;
-        source.vx += source_dx_center * CENTER_PULL_STRENGTH * deltaTime;
-        source.vy += source_dy_center * CENTER_PULL_STRENGTH * deltaTime;
-
-        const target_dx_center = centerX - target.x;
-        const target_dy_center = centerY - target.y;
-        target.vx += target_dx_center * CENTER_PULL_STRENGTH * deltaTime;
-        target.vy += target_dy_center * CENTER_PULL_STRENGTH * deltaTime;
+        // Note: Center pull is now applied in the main node loop (line ~603)
+        // to ensure ALL connected nodes get it, not just those in this frame's connection list
       }
     });
 
