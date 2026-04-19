@@ -301,11 +301,19 @@ export const usePacketProcessor = () => {
       const packetTime = packet.timestamp || 0;
       return packetTime > lastProcessedTimestampRef.current;
     });
-    
+
     if (unprocessedPackets.length === 0) {
       logger.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
       return;
     }
+
+    // Track unique IPs in this batch
+    const uniqueIPs = new Set<string>();
+    unprocessedPackets.forEach(p => {
+      if (p.src) uniqueIPs.add(p.src);
+      if (p.dst) uniqueIPs.add(p.dst);
+    });
+    logger.log(`📦 Processing ${unprocessedPackets.length} packets with ${uniqueIPs.size} unique IPs`);
     
     processingRef.current = true;
     logger.log(`🔄 TIMESTAMP-BASED Processing: ${unprocessedPackets.length} new packets (total: ${packets.length})`);
@@ -494,8 +502,13 @@ export const usePacketProcessor = () => {
       lastProcessedCountRef.current = packets.length; // Keep for debugging
       processingRef.current = false;
       
+      const currentNodeCount = useNetworkStore.getState().nodes.length;
+      const currentConnectionCount = useNetworkStore.getState().connections.length;
+      const { maxNodes } = useSettingsStore.getState();
+
       logger.log(`✅ TIMESTAMP-BASED Processing complete: processed ${unprocessedPackets.length} packets, latest timestamp: ${latestTimestamp}`);
-      
+      logger.log(`📊 Network state: ${currentNodeCount}/${maxNodes} nodes (${Math.round(currentNodeCount/maxNodes*100)}%), ${currentConnectionCount} connections`);
+
       // Periodically enforce hard caps on network size (every 15 seconds)
       // This is a safety mechanism - normal cleanup happens via removeInactiveElements() every 1s
       // DISABLED FOR TESTING - Suspected to be causing issues
