@@ -80,7 +80,8 @@ const LoadingFallback = () => (
 
 export const App = memo(() => {
   // --- State Declarations ---
-  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'waiting'>('simulated');
+  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'zeek' | 'waiting'>('simulated');
+  const [zeekTcpAddr, setZeekTcpAddr] = useState<string>(':4777');
   const [interfaces, setInterfaces] = useState<{ name: string; description: string }[]>([]);
   const [selectedInterface, setSelectedInterface] = useState<string>('');
   const [currentRenderer, setCurrentRenderer] = useState('canvas');
@@ -88,12 +89,6 @@ export const App = memo(() => {
   const [initialLoad, setInitialLoad] = useState(true);
   const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
   const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
-
-  useEffect(() => {
-    if (captureMode !== 'waiting') {
-      setShowSettings(false);
-    }
-  }, [captureMode]);
 
   // --- Store Hooks ---
   const { packets, clearPackets } = usePacketStore()
@@ -108,29 +103,35 @@ export const App = memo(() => {
       logger.log('In waiting mode, not connecting to any WebSocket');
       return null;
     }
-    
-    // Get host from environment variables or fall back to localhost
+
     const wsHost = import.meta.env.VITE_BACKEND_HOST || 'localhost';
     const wsPort = import.meta.env.VITE_BACKEND_PORT || '8080';
-    
+    const devPorts = ['5173', '3000'];
+    const useViteProxy =
+      import.meta.env.DEV &&
+      !import.meta.env.VITE_BACKEND_HOST &&
+      !import.meta.env.VITE_BACKEND_PORT &&
+      devPorts.includes(window.location.port);
+    const wsBase = useViteProxy
+      ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${wsHost}:${wsPort}`;
+
     if (captureMode === 'real') {
-      // Real mode - include interface parameter only if one is explicitly selected
       if (selectedInterface) {
-        return `ws://${wsHost}:${wsPort}/ws?interface=${selectedInterface}`;
-      } else {
-        return `ws://${wsHost}:${wsPort}/ws`; // Let backend use command line interface
+        return `${wsBase}/ws?interface=${selectedInterface}`;
       }
-    } else if (captureMode === 'simulated') {
-      // Only connect to simulation if explicitly in simulation mode
-      return `ws://${wsHost}:${wsPort}/ws`;
-    } else {
-      // Return null to prevent any connection when not ready
-      return null;
+      return `${wsBase}/ws`;
     }
-  }, [captureMode, selectedInterface]);
-  
-  useWebSocketPinning(wsUrl);
-  
+    if (captureMode === 'zeek') {
+      const addr = zeekTcpAddr.trim() || ':4777';
+      return `${wsBase}/ws?zeek_tcp=${encodeURIComponent(addr)}`;
+    }
+    if (captureMode === 'simulated') {
+      return `${wsBase}/ws`;
+    }
+    return null;
+  }, [captureMode, selectedInterface, zeekTcpAddr]);
+
   // Handle hash-based routing
   useEffect(() => {
     const handleHashChange = () => {
@@ -308,21 +309,33 @@ export const App = memo(() => {
   }, [captureMode]);
   
   logger.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
-  
-  // Always call useWebSocket, but it won't connect if url is null
-  const { status, error, captureMode: actualCaptureMode } = useWebSocket(wsUrl);
+
+  const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl);
+  useWebSocketPinning(sendMessage);
   
   // Update local state if the server reports a different mode
   // Add a ref to track user-initiated changes to prevent conflicts
   const userInitiatedChangeRef = useRef(false);
   
   useEffect(() => {
+    const serverUiMode =
+      actualCaptureMode === 'zeek_conn'
+        ? 'zeek'
+        : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
+          ? null
+          : (actualCaptureMode as 'simulated' | 'real');
     // Only update if this is not a user-initiated change and there's a meaningful difference
-    if (actualCaptureMode !== 'unknown' && 
-        actualCaptureMode !== captureMode && 
-        !userInitiatedChangeRef.current) {
+    if (
+      serverUiMode !== null &&
+      serverUiMode !== captureMode &&
+      !userInitiatedChangeRef.current
+    ) {
+      // Don't let hook "simulated" (reconnect/error) stomp an explicit Zeek selection before server mode arrives
+      if (captureMode === 'zeek' && serverUiMode === 'simulated') {
+        return;
+      }
       logger.log(`📡 Server reported capture mode: ${actualCaptureMode}, updating local state`);
-      setCaptureMode(actualCaptureMode as 'simulated' | 'real');
+      setCaptureMode(serverUiMode === 'zeek' ? 'zeek' : serverUiMode);
     }
   }, [actualCaptureMode, captureMode]);
   
@@ -348,12 +361,14 @@ export const App = memo(() => {
       document.title = 'Network Visualizer - REAL CAPTURE';
     } else if (actualCaptureMode === 'simulated') {
       document.title = 'Network Visualizer - SIMULATION';
+    } else if (actualCaptureMode === 'zeek_conn') {
+      document.title = 'Network Visualizer - ZEEK CONN';
     } else {
       document.title = 'Network Visualizer';
     }
   }, [actualCaptureMode]);
   
-  const handleCaptureModeChange = (mode: 'simulated' | 'real') => {
+  const handleCaptureModeChange = (mode: 'simulated' | 'real' | 'zeek') => {
     logger.log("🔄 User switching mode to:", mode);
     
     // Prevent multiple rapid calls
@@ -419,9 +434,9 @@ export const App = memo(() => {
   // Simplified error handling - fall back to simulation only if not user-initiated
   useEffect(() => {
     if (status === 'error' && 
-        captureMode === 'real' && 
+        (captureMode === 'real' || captureMode === 'zeek') && 
         !userInitiatedChangeRef.current) {
-      logger.log('🔄 Real capture failed, falling back to simulation mode');
+      logger.log('🔄 Capture failed, falling back to simulation mode');
       setCaptureMode('simulated');
       clearPackets();
       clearNetwork();
@@ -440,7 +455,12 @@ export const App = memo(() => {
   return (
     <div className="app">
       <CaptureContext.Provider value={{ 
-        captureMode: actualCaptureMode !== 'unknown' ? actualCaptureMode : captureMode,
+        captureMode:
+          actualCaptureMode === 'zeek_conn'
+            ? 'zeek'
+            : actualCaptureMode === 'real' || actualCaptureMode === 'simulated'
+              ? actualCaptureMode
+              : captureMode,
         captureInterface: selectedInterface 
       }}>
         {/* Route navigation & Settings Button */}
@@ -511,6 +531,9 @@ export const App = memo(() => {
                     interfaces={interfaces}
                     selectedInterface={selectedInterface}
                     onInterfaceSelect={handleInterfaceSelect}
+                    zeekTcpAddr={zeekTcpAddr}
+                    onZeekTcpAddrChange={setZeekTcpAddr}
+                    wsPreviewUrl={wsUrl}
                     onMinimize={() => setShowSettings(false)}
                   />
                 </div>

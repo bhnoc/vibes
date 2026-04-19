@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/c-robinson/iplib"
@@ -37,11 +38,14 @@ var (
 	useDumpcap  = flag.Bool("dumpcap", false, "use external dumpcap for high-performance capture (requires dumpcap to be running)")
 	dumpcapDir  = flag.String("dumpcap-dir", "/data/pcaps", "directory where dumpcap writes PCAP files")
 	launchDumpcap = flag.Bool("launch-dumpcap", false, "automatically launch dumpcap process if not running")
+	zeekTCPListen = flag.String("zeek-tcp", "", "default listen address for Zeek conn.log JSON over TCP (e.g. :4777); used when WebSocket connects with zeek_tcp=1")
 	upgrader    = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins
 		},
 	}
+	// Packets dropped when WebSocket send buffer is full (ingest faster than browser/network).
+	wsSendDropped atomic.Uint64
 )
 
 type Client struct {
@@ -76,7 +80,7 @@ func NewClientManager() *ClientManager {
 func NewClient(conn *websocket.Conn) *Client {
 	return &Client{
 		conn:          conn,
-		send:          make(chan []byte, 256),
+		send:          make(chan []byte, 8192), // large enough for bursty Zeek NDJSON without blocking the capture drain loop
 		disconnected:  make(chan struct{}),
 		stopForwarder: make(chan struct{}),
 	}
@@ -183,6 +187,20 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		selectedInterface = ifaceName
 	}
 
+	zeekParam := r.URL.Query().Get("zeek_tcp")
+	var zeekAddr string
+	if zeekParam != "" {
+		if zeekParam == "1" || zeekParam == "true" {
+			if *zeekTCPListen == "" {
+				http.Error(w, "zeek_tcp=1 requires -zeek-tcp (e.g. -zeek-tcp :4777)", http.StatusBadRequest)
+				return
+			}
+			zeekAddr = *zeekTCPListen
+		} else {
+			zeekAddr = zeekParam
+		}
+	}
+
 	if selectedPcapFile != "" {
 		config := capture.PCAPReplayConfig{
 			FilePath:    selectedPcapFile,
@@ -190,6 +208,9 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		}
 		captureSystem = capture.NewPCAPReplayCapture(config)
 		captureMode = "pcap_replay"
+	} else if zeekAddr != "" {
+		captureSystem = capture.NewZeekConnJSONCapture(zeekAddr)
+		captureMode = "zeek_conn"
 	} else if *useDumpcap {
 		// Check dumpcap status and optionally launch it
 		if err := handleDumpcapSetup(selectedInterface, *dumpcapDir); err != nil {
@@ -244,6 +265,8 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			log.Printf("*** 🚀 DUMPCAP MONITORING ACTIVE: %s (interface: %s) ***", *dumpcapDir, selectedInterface)
 		case "pcap_replay":
 			log.Printf("*** 🔥 PCAP REPLAY ACTIVE: %s (%.2fx speed) ***", selectedPcapFile, selectedReplaySpeed)
+		case "zeek_conn":
+			log.Printf("*** 🦅 ZEEK CONN JSON (TCP) ACTIVE: ingest %s ***", zeekAddr)
 		case "simulated":
 			log.Printf("*** 🎮 SIMULATION ACTIVE (synthetic traffic) ***")
 		}
@@ -273,6 +296,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			"interface": selectedInterface,
 			"pcapFile": selectedPcapFile,
 			"replaySpeed": selectedReplaySpeed,
+			"zeek_tcp": zeekAddr,
 			"error": true,
 			"errorMsg": captureErrorMsg,
 			"requestedMode": originalMode,
@@ -285,6 +309,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			"interface": selectedInterface,
 			"pcapFile": selectedPcapFile,
 			"replaySpeed": selectedReplaySpeed,
+			"zeek_tcp": zeekAddr,
 		})
 	}
 	client.send <- modeMessage
@@ -336,6 +361,12 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 						case client.send <- packetJSON:
 						case <-client.stopForwarder:
 							return
+						default:
+							// Never block the forwarder: if the WS queue is full, drop and keep draining ingest.
+							n := wsSendDropped.Add(1)
+							if n == 1 || n%10000 == 0 {
+								log.Printf("WebSocket send saturated: dropped %d packets (slow client vs ingest); graph may sample", n)
+							}
 						}
 					}
 				}
@@ -725,12 +756,15 @@ func main() {
 		fmt.Println("  Auto-launch:        go run main.go -dumpcap -launch-dumpcap -iface en1")
 		fmt.Println("  PCAP replay:        go run main.go -pcap /path/to/file.pcap")
 		fmt.Println("  PCAP replay 2x:     go run main.go -pcap /path/to/file.pcap -speed 2.0")
+		fmt.Println("  Zeek conn JSON:     go run main.go -zeek-tcp :4777   # then ws://.../ws?zeek_tcp=1")
 		fmt.Println("  Custom port:        go run main.go -addr :9090")
 		fmt.Println("  Time windows:       go run main.go -storage /data/pcaps")
 		fmt.Println()
 		fmt.Println("URL Parameters (override command line):")
 		fmt.Println("  ws://localhost:8080/ws?pcap=/path/file.pcap&speed=2.0")
 		fmt.Println("  ws://localhost:8080/ws?interface=eth0")
+		fmt.Println("  ws://localhost:8080/ws?zeek_tcp=:4777")
+		fmt.Println("  ws://localhost:8080/ws?zeek_tcp=1   (uses -zeek-tcp address)")
 		fmt.Println()
 		fmt.Println("WebSocket Commands:")
 		fmt.Println("  Time Window: {\"type\":\"select_time_window\",\"start_time\":\"2023-01-01T10:00:00Z\",\"end_time\":\"2023-01-01T11:00:00Z\",\"speed\":2.0}")
@@ -743,6 +777,12 @@ func main() {
 	}
 
 	log.Printf("🔥 Starting VIBES Backend Server")
+
+	if *zeekTCPListen != "" {
+		if err := capture.EnsureZeekListener(*zeekTCPListen); err != nil {
+			log.Printf("⚠️ Zeek TCP listen (optional startup): %v — listener will start when a WebSocket connects in Zeek mode", err)
+		}
+	}
 	
 	// Log the current configuration
 	if *pcapFile != "" {
@@ -751,6 +791,8 @@ func main() {
 		log.Printf("🚀 Dumpcap Monitor Mode: %s (interface: %s)", *dumpcapDir, *iface)
 	} else if *iface != "" {
 		log.Printf("📡 Real Capture Mode: interface %s", *iface)
+	} else if *zeekTCPListen != "" {
+		log.Printf("🦅 Zeek TCP ingest default: %s (connect WebSocket with ?zeek_tcp=1 or ?zeek_tcp=%s)", *zeekTCPListen, *zeekTCPListen)
 	} else {
 		log.Printf("🎮 Simulation Mode: generating synthetic traffic")
 	}

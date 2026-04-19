@@ -6,11 +6,15 @@ import { PhysicsPanel } from './PhysicsPanel';
 type Tab = 'network' | 'physics';
 
 export const SettingsPanel: React.FC<{
-  captureMode: 'simulated' | 'real' | 'waiting';
-  onCaptureModeChange: (mode: 'simulated' | 'real') => void;
+  captureMode: 'simulated' | 'real' | 'zeek' | 'waiting';
+  onCaptureModeChange: (mode: 'simulated' | 'real' | 'zeek') => void;
   interfaces: Array<{ name: string; description: string }>;
   selectedInterface: string;
   onInterfaceSelect: (iface: string) => void;
+  zeekTcpAddr: string;
+  onZeekTcpAddrChange: (addr: string) => void;
+  /** Current frontend WebSocket URL (updates when mode / Zeek address changes). */
+  wsPreviewUrl: string | null;
   onMinimize: () => void;
 }> = ({ 
   captureMode, 
@@ -18,6 +22,9 @@ export const SettingsPanel: React.FC<{
   interfaces, 
   selectedInterface, 
   onInterfaceSelect,
+  zeekTcpAddr,
+  onZeekTcpAddrChange,
+  wsPreviewUrl,
   onMinimize
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('network');
@@ -70,7 +77,37 @@ export const SettingsPanel: React.FC<{
               >
                 Real
               </button>
+              <button
+                className={captureMode === 'zeek' ? 'active' : ''}
+                onClick={() => onCaptureModeChange('zeek')}
+                title="Zeek conn.log as NDJSON over TCP"
+              >
+                Zeek (TCP)
+              </button>
             </div>
+
+            {captureMode === 'zeek' && (
+              <div style={{ marginTop: '16px' }}>
+                <h3>Zeek ingest address</h3>
+                <p style={{ fontSize: '12px', opacity: 0.85, marginBottom: '8px' }}>
+                  Backend listens here; stream conn JSON lines (e.g. from zeek-cut | your forwarder).
+                </p>
+                <input
+                  type="text"
+                  value={zeekTcpAddr}
+                  onChange={(e) => onZeekTcpAddrChange(e.target.value)}
+                  placeholder=":4777"
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid #00ff00',
+                    color: '#fff',
+                    fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            )}
 
             {captureMode === 'real' && (
               <div className="interface-select">
@@ -87,6 +124,25 @@ export const SettingsPanel: React.FC<{
               </div>
             )}
             
+            {wsPreviewUrl && (
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '8px',
+                  fontSize: '11px',
+                  lineHeight: 1.4,
+                  wordBreak: 'break-all',
+                  background: 'rgba(0,40,0,0.25)',
+                  border: '1px solid rgba(0,255,0,0.25)',
+                  borderRadius: '4px',
+                  fontFamily: 'ui-monospace, monospace',
+                }}
+              >
+                <div style={{ opacity: 0.85, marginBottom: '4px' }}>WebSocket URL (live)</div>
+                <div style={{ color: '#9f9' }}>{wsPreviewUrl}</div>
+              </div>
+            )}
+
             <button
               onClick={clearNetwork}
               style={{

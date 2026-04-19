@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { usePinStore } from '../stores/pinStore';
-import { useWebSocket } from './useWebSocket';
 
-export const useWebSocketPinning = (url: string | null) => {
+/** Pass `sendMessage` from the same `useWebSocket` instance that owns the connection (do not open a second socket). */
+export const useWebSocketPinning = (sendMessage: (message: string) => void) => {
   const { pinningRules } = usePinStore();
-  const { sendMessage } = useWebSocket(url);
   const previousRules = useRef<Set<string>>(new Set());
 
   useEffect(() => {
