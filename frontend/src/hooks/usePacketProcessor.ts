@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore, Node } from '../stores/networkStore';
 import { usePhysicsStore } from '../stores/physicsStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { logger } from '../utils/logger';
 
 // SHARED CONSTANTS - Export these to prevent collision detection mismatches between modules
@@ -329,18 +330,23 @@ export const usePacketProcessor = () => {
       
       const now = Date.now();
       let maxSeq = lastProcessedSeqRef.current;
-      
+      let latestTimestamp = 0;
+
       // Track nodes added in this batch for collision detection
       const nodesAddedThisBatch: Node[] = [];
-      
+
       // Process all new packets immediately
       unprocessedPackets.forEach(packet => {
         const sourceNode = packet.src;
         const targetNode = packet.dst;
         const srcPort = (packet as any).src_port;
         const dstPort = (packet as any).dst_port;
-        
-        // Track the latest timestamp we've processed
+
+        // Update seq cursor so we don't reprocess this packet next time
+        const seq = packet.seq ?? 0;
+        if (seq > maxSeq) maxSeq = seq;
+
+        // Track the latest timestamp for logging
         const packetTime = packet.timestamp || 0;
         if (packetTime > latestTimestamp) {
           latestTimestamp = packetTime;
