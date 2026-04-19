@@ -160,11 +160,24 @@ cd backend/cmd
 go run main.go
 ```
 
+Zeek Capture Mode:
+- Listens on 4777 for JSON over TCP
+- Expects NDJSON
+- Only supports conn.log 
+```bash
+cd backend/cmd
+go run . -addr :8080 -zeek-tcp :4777
+```
+
 ### Running the Frontend
 ```bash
 cd frontend
 npm run dev
 ```
+
+For Zeek capture
+- Go to settings
+- Select zeek (tcp)
 
 ## Design Philosophy
 

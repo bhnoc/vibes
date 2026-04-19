@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 export interface Packet {
   id: string;
+  /** Monotonic ingest order — used so we never skip packets that share the same timestamp (e.g. Zeek conn). */
+  seq?: number;
   type?: string;
   src: string;
   dst: string;
@@ -9,6 +11,8 @@ export interface Packet {
   protocol: string;
   timestamp: number;
   source?: 'real' | 'simulated' | string;
+  src_port?: number;
+  dst_port?: number;
 }
 
 export interface PacketState {
@@ -24,6 +28,8 @@ export interface PacketState {
 // Constants - increased for better visualization
 const MAX_PACKET_HISTORY = 10000; // Maximum number of packets to keep in history
 const PACKET_TRIM_THRESHOLD = 15000; // When to aggressively trim the packet history
+
+let nextPacketSeq = 0;
 
 // Batching system to prevent infinite updates
 const packetBatchBuffer: any[] = [];
@@ -63,12 +69,15 @@ export const usePacketStore = create<PacketState>((set, get) => ({
       // Create packet with ID - use minimal object creation
       const packet: Packet = {
         id,
+        seq: ++nextPacketSeq,
         src: packetData.src,
         dst: packetData.dst,
         size: packetData.size || 0,
         protocol: packetData.protocol || 'unknown',
-        timestamp: packetData.timestamp || Math.floor(Date.now() / 1000),
-        source: packetData.source // Include the source field
+        timestamp: packetData.timestamp ?? Math.floor(Date.now() / 1000),
+        source: packetData.source,
+        src_port: packetData.src_port,
+        dst_port: packetData.dst_port,
       };
       
       newPackets.push(packet);
@@ -86,7 +95,10 @@ export const usePacketStore = create<PacketState>((set, get) => ({
     return { packets: updatedPackets };
   }),
   
-  clearPackets: () => set({ packets: [] }),
+  clearPackets: () => {
+    nextPacketSeq = 0;
+    set({ packets: [] });
+  },
   
   trimPackets: (maxCount: number) => set((state) => {
     if (state.packets.length <= maxCount) return state;

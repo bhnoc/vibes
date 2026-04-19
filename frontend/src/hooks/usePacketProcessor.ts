@@ -283,27 +283,32 @@ export const usePacketProcessor = () => {
   
   // CRITICAL: Throttle processing to prevent infinite loops
   const lastProcessedCountRef = useRef<number>(0);
-  const lastProcessedTimestampRef = useRef<number>(0); // Track by timestamp instead of count
+  /** Monotonic packet seq from store — timestamps alone drop Zeek rows that share the same ms. */
+  const lastProcessedSeqRef = useRef<number>(0);
   const processingRef = useRef<boolean>(false);
   const lastAutocleanTimeRef = useRef<number>(Date.now());
   const processedNodesRef = useRef<Set<string>>(new Set());
   
+  // Reset seq cursor when history is cleared (store resets seq to 0)
+  useEffect(() => {
+    if (packets.length === 0) {
+      lastProcessedSeqRef.current = 0;
+    }
+  }, [packets.length]);
+
   // SIMPLIFIED: Process packets directly without complex batching
   useEffect(() => {
     if (processingRef.current) {
       logger.log('🚫 Processing already in progress, skipping...');
       return;
     }
-    
-    // FIXED: Use timestamp-based tracking instead of array length
-    // Filter to packets newer than what we've already processed
-    const unprocessedPackets = packets.filter(packet => {
-      const packetTime = packet.timestamp || 0;
-      return packetTime > lastProcessedTimestampRef.current;
+
+    const unprocessedPackets = packets.filter((packet) => {
+      const s = packet.seq ?? 0;
+      return s > lastProcessedSeqRef.current;
     });
 
     if (unprocessedPackets.length === 0) {
-      logger.log(`📝 No new packets by timestamp: ${packets.length} total, last processed timestamp: ${lastProcessedTimestampRef.current}`);
       return;
     }
 
@@ -316,14 +321,14 @@ export const usePacketProcessor = () => {
     logger.log(`📦 Processing ${unprocessedPackets.length} packets with ${uniqueIPs.size} unique IPs`);
     
     processingRef.current = true;
-    logger.log(`🔄 TIMESTAMP-BASED Processing: ${unprocessedPackets.length} new packets (total: ${packets.length})`);
+    logger.log(`🔄 Processing: ${unprocessedPackets.length} new packets (total: ${packets.length}, lastSeq: ${lastProcessedSeqRef.current})`);
     
     try {
       // Get store state fresh each time (don't rely on stale closure)
       const { nodes: currentNodes, addOrUpdateNode, addConnection, limitNetworkSize, updateNodeActivity } = useNetworkStore.getState();
       
       const now = Date.now();
-      let latestTimestamp = lastProcessedTimestampRef.current;
+      let maxSeq = lastProcessedSeqRef.current;
       
       // Track nodes added in this batch for collision detection
       const nodesAddedThisBatch: Node[] = [];
@@ -497,8 +502,7 @@ export const usePacketProcessor = () => {
         }
       });
       
-      // Update our tracking - use timestamp instead of count
-      lastProcessedTimestampRef.current = latestTimestamp;
+      lastProcessedSeqRef.current = maxSeq;
       lastProcessedCountRef.current = packets.length; // Keep for debugging
       processingRef.current = false;
       
