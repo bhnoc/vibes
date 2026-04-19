@@ -529,8 +529,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 							if n == 1 || n%10000 == 0 {
 								log.Printf("WebSocket send saturated: dropped %d packets (slow client vs ingest); graph may sample", n)
 							}
-						default:
-							// Send channel full, drop packet (should never happen with 100K buffer)
+
 						}
 					}
 				}
