@@ -5,7 +5,7 @@ import { getWebSocketUrl } from '../utils/websocketUtils';
 import { logger } from '../utils/logger';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'waiting';
-type CaptureMode = 'real' | 'simulated' | 'unknown' | 'waiting';
+type CaptureMode = 'real' | 'simulated' | 'zeek_conn' | 'unknown' | 'waiting';
 
 interface WebSocketState {
   status: ConnectionStatus;
@@ -90,10 +90,16 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         
         ws.onopen = () => {
           logger.log('WebSocket connected successfully!');
+          let guess: CaptureMode = 'simulated';
+          if (url.includes('zeek_tcp')) {
+            guess = 'zeek_conn';
+          } else if (url.includes('interface=')) {
+            guess = 'real';
+          }
           setState({
             status: 'connected',
             error: null,
-            captureMode: url.includes('simulation') ? 'simulated' : 'real',
+            captureMode: guess,
             deviceName: getDeviceFromUrl(url)
           });
           retryCount.current = 0;
