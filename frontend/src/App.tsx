@@ -130,16 +130,11 @@ export const App = memo(() => {
       } else {
         return baseUrl; // Let backend use command line interface
       }
-    } else if (captureMode === 'simulated') {
-      // Only connect to simulation if explicitly in simulation mode
-      return baseUrl;
     } else {
-      // Return null to prevent any connection when not ready
-      return null;
+      // simulated, zeek, or any other mode — connect and let the backend handle mode
+      return baseUrl;
     }
   }, [captureMode, selectedInterface]);
-  
-  useWebSocketPinning(wsUrl);
   
   // Handle hash-based routing
   useEffect(() => {
