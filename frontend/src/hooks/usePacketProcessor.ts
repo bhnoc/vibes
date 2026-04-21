@@ -272,7 +272,6 @@ function findCollisionFreePosition(
 
 export const usePacketProcessor = () => {
   const { packets } = usePacketStore();
-  const { addOrUpdateNode, addConnection, limitNetworkSize, nodes, updateNodeActivity } = useNetworkStore();
   const { nodeSpacing } = usePhysicsStore(); // Get dynamic node spacing from physics store
   
   // Console log occasional packet source statistics

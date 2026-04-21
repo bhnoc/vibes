@@ -624,14 +624,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         node.vy += dy * driftForce * deltaTime;
       }
 
-      // Handle fading for inactive (and unconnected) nodes
-      if (isInactive) {
+      // Connected nodes always stay fully visible; only fade disconnected inactive ones
+      if (isConnected) {
+        node.alpha = 1;
+      } else if (isInactive) {
         const fadeDuration = NODE_INACTIVITY_REMOVAL_MS - NODE_INACTIVITY_FADE_START_MS;
         const timeIntoFade = timeSinceActive - NODE_INACTIVITY_FADE_START_MS;
         const fadeProgress = Math.min(1, timeIntoFade / fadeDuration);
         node.alpha = 1 - fadeProgress;
       } else {
-        node.alpha = 1; // Instantly restore alpha if it becomes active again
+        node.alpha = 1;
       }
     });
 
@@ -785,29 +787,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     
-    // Log dimensions every 2 seconds to avoid spamming the console
-    if (currentTime - lastLogTime.current > 2000) {
-      logger.log(`[Debug] Canvas dimensions received by renderer: width=${width} height=${height}`);
-      lastLogTime.current = currentTime;
-    }
-
-    // Calculate FPS
-    frameCount.current++
-    if (currentTime - lastFrameTime.current >= 1000) {
-      fpsRef.current = frameCount.current
-      frameCount.current = 0
-      lastFrameTime.current = currentTime
-    }
-
     // Clear canvas using logical dimensions, as context is already scaled by DPR
     ctx.fillStyle = 'black'
     ctx.fillRect(0, 0, width, height)
-    
-    // DEBUG: Draw a border to check canvas boundaries
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 1; // 1 logical pixel will be scaled by DPR
-    ctx.strokeRect(0, 0, width, height);
-
 
     const vp = viewportRef.current
 
@@ -829,8 +811,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       if (!source || !target) return; // Extra safety check
 
-      // Recalculate alpha in real-time based on current time for smooth fading
-      const connectionAge = currentTime - conn.lastActive;
+      // Recalculate alpha based on age — conn.lastActive is Date.now()-based, not performance.now()
+      const connectionAge = Date.now() - conn.lastActive;
       const alpha = Math.max(0, Math.min(1, 1 - (connectionAge / connectionLifetime)));
 
       // Protocol-based colors and styles using stored protocol
@@ -929,11 +911,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     })
 
     // Determine which nodes have active connections to render them on top
-    const now = currentTime
+    // Use Date.now() — conn.lastActive is a Unix ms timestamp, not performance.now()
+    const nowMs = Date.now()
     const nodesWithActiveConnections = new Set<string>()
     connectionsToRender.forEach(conn => {
-      // An active connection is one that is still visible
-      if (now - conn.lastActive < connectionLifetime) {
+      if (nowMs - conn.lastActive < connectionLifetime) {
         nodesWithActiveConnections.add(conn.sourceId)
         nodesWithActiveConnections.add(conn.targetId)
       }
