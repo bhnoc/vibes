@@ -472,47 +472,73 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // Process connections — only active ones where both nodes exist in renderer.
-    // Apply per-node budget here so physics forces and rendering are both limited.
+    // Incremental connection update — stable objects, no full rebuild every 100ms.
+    // Full rebuild caused physics instability (spring forces changed completely each cycle).
     const MAX_CONNECTIONS_PER_NODE = 6;
-    const nodeIds = new Set(activeNodes.current.keys())
+    const nodeIds = new Set(activeNodes.current.keys());
+
+    // Build the wanted set: most-recent active connections, per-node budget applied.
     const nodeConnBudget = new Map<string, number>();
-    const recentConnections = storeConnections
-      .filter(conn => {
-        const isActive = now - conn.lastActive < connectionLifetime;
-        const bothNodesExist = nodeIds.has(conn.source) && nodeIds.has(conn.target);
-        return isActive && bothNodesExist;
-      })
+    const wantedMap = new Map<string, typeof storeConnections[0]>();
+    storeConnections
+      .filter(conn =>
+        (now - conn.lastActive < connectionLifetime) &&
+        nodeIds.has(conn.source) &&
+        nodeIds.has(conn.target)
+      )
       .sort((a, b) => b.lastActive - a.lastActive)
-      .filter(conn => {
+      .forEach(conn => {
+        const key = `${conn.source}→${conn.target}`;
+        if (wantedMap.has(key)) return; // dedup same pair
         const srcCount = nodeConnBudget.get(conn.source) ?? 0;
         const tgtCount = nodeConnBudget.get(conn.target) ?? 0;
         if (srcCount < MAX_CONNECTIONS_PER_NODE && tgtCount < MAX_CONNECTIONS_PER_NODE) {
           nodeConnBudget.set(conn.source, srcCount + 1);
           nodeConnBudget.set(conn.target, tgtCount + 1);
-          return true;
+          wantedMap.set(key, conn);
         }
-        return false;
-      })
+      });
 
-    activeConnections.current.forEach(c => connectionPool.release(c));
-    activeConnections.current.length = 0;
+    // Build lookup of existing render connections.
+    const existingRenderMap = new Map<string, typeof activeConnections.current[0]>();
+    activeConnections.current.forEach(c => {
+      existingRenderMap.set(`${c.sourceId}→${c.targetId}`, c);
+    });
 
-    recentConnections.forEach(conn => {
-      const sourceNode = activeNodes.current.get(conn.source)
-      const targetNode = activeNodes.current.get(conn.target)
-      if (sourceNode && targetNode) {
-        const renderedConn = connectionPool.acquire()
-        renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
-        renderedConn.protocol = conn.protocol
-        renderedConn.dstPort = conn.dstPort;
-        renderedConn.alpha = Math.max(0, 1 - ((now - conn.lastActive) / connectionLifetime))
-        renderedConn.lastActive = conn.lastActive
-        renderedConn.sourceId = conn.source
-        renderedConn.targetId = conn.target
-        activeConnections.current.push(renderedConn)
+    // Keep wanted render connections, release ones that left the budget/expired.
+    const kept: typeof activeConnections.current = [];
+    activeConnections.current.forEach(c => {
+      if (wantedMap.has(`${c.sourceId}→${c.targetId}`)) {
+        kept.push(c);
+      } else {
+        connectionPool.release(c);
       }
-    })
+    });
+    activeConnections.current.length = 0;
+    kept.forEach(c => activeConnections.current.push(c));
+
+    // Update existing in-place; add genuinely new ones.
+    wantedMap.forEach((conn, key) => {
+      const existing = existingRenderMap.get(key);
+      if (existing) {
+        existing.lastActive = conn.lastActive;
+        existing.alpha = Math.max(0, 1 - ((now - conn.lastActive) / connectionLifetime));
+      } else {
+        const sourceNode = activeNodes.current.get(conn.source);
+        const targetNode = activeNodes.current.get(conn.target);
+        if (sourceNode && targetNode) {
+          const renderedConn = connectionPool.acquire();
+          renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol);
+          renderedConn.protocol = conn.protocol;
+          renderedConn.dstPort = conn.dstPort;
+          renderedConn.alpha = Math.max(0, 1 - ((now - conn.lastActive) / connectionLifetime));
+          renderedConn.lastActive = conn.lastActive;
+          renderedConn.sourceId = conn.source;
+          renderedConn.targetId = conn.target;
+          activeConnections.current.push(renderedConn);
+        }
+      }
+    });
 
   }, [generatePosition, nodePool, connectionPool, connectionLifetime])
 
@@ -821,11 +847,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const source = activeNodes.current.get(conn.sourceId);
       const target = activeNodes.current.get(conn.targetId);
 
-      if (!source || !target) return; // Extra safety check
+      if (!source || !target) return;
 
-      // Recalculate alpha based on age — conn.lastActive is Date.now()-based, not performance.now()
       const connectionAge = Date.now() - conn.lastActive;
       const alpha = Math.max(0, Math.min(1, 1 - (connectionAge / connectionLifetime)));
+      if (alpha < 0.05) return; // skip fully-faded connections
 
       // Protocol-based colors and styles using stored protocol
       let strokeColor = `rgba(0, 255, 255, ${alpha})` // Default cyan
