@@ -405,10 +405,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const now = Date.now()
     const activeAge = 30000
 
-    const storeNodesById = new Map(storeNodes.map(n => [n.id, n]));
+    // Cap rendered nodes to the most recently active to prevent pile-up
+    // when the store accumulates thousands of idle nodes.
+    const MAX_RENDERED_NODES = 100;
+    const limitedNodes = storeNodes
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .slice(0, MAX_RENDERED_NODES);
+    const storeNodesById = new Map(limitedNodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
 
-    // Remove nodes that are no longer in the store
+    // Remove nodes that are no longer in the limited set
     for (const nodeId of currentRenderedNodeIds) {
       if (!storeNodesById.has(nodeId)) {
         const nodeToRelease = activeNodes.current.get(nodeId);
@@ -676,12 +682,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // 2. Collision detection and resolution — skip when node count is high
-    // O(n²) becomes too expensive above ~150 nodes; center pull + spawn placement
-    // keeps things readable without per-frame collision at larger scales.
-    const MAX_COLLISION_NODES = 150;
+    // 2. Collision detection and resolution
+    // Renderer is capped at MAX_RENDERED_NODES (100), so O(n²) ≤ 10,000 pairs — always fast.
     const nodes = Array.from(activeNodes.current.values());
-    if (nodes.length <= MAX_COLLISION_NODES) {
+    {
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const nodeA = nodes[i];
