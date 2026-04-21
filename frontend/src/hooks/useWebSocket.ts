@@ -38,7 +38,8 @@ export const useWebSocket = (url: string | null): WebSocketState => {
     'no such device'
   ];
   
-  const { addPacket } = usePacketStore();
+  const { addPacket, clearPackets } = usePacketStore();
+  const { clearNetwork } = useNetworkStore();
 
   const sendMessage = useCallback((message: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -89,7 +90,9 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         wsRef.current = ws;
         
         ws.onopen = () => {
-          logger.log('WebSocket connected successfully!');
+          logger.log('WebSocket connected successfully! Flushing stale state.');
+          clearPackets();
+          clearNetwork();
           let guess: CaptureMode = 'simulated';
           if (url.includes('zeek_tcp')) {
             guess = 'zeek_conn';
@@ -156,7 +159,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [url, addPacket]);
+  }, [url, addPacket, clearPackets, clearNetwork]);
   
   return { ...state, sendMessage };
 };
