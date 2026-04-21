@@ -801,11 +801,24 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Render connections first (behind nodes) with protocol-based styling
     // Filter out connections where either node no longer exists
     // IMPORTANT: Don't mutate activeConnections.current - physics needs the full list!
-    const MAX_RENDERED_CONNECTIONS = 150;
-    const connectionsToRender = activeConnections.current
+    const MAX_RENDERED_CONNECTIONS = 200;
+    const MAX_CONNECTIONS_PER_NODE = 5;
+    const sortedConns = activeConnections.current
       .filter(conn => activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId))
-      .sort((a, b) => b.lastActive - a.lastActive)
-      .slice(0, MAX_RENDERED_CONNECTIONS);
+      .sort((a, b) => b.lastActive - a.lastActive);
+
+    const nodeConnCount = new Map<string, number>();
+    const connectionsToRender: typeof sortedConns = [];
+    for (const conn of sortedConns) {
+      if (connectionsToRender.length >= MAX_RENDERED_CONNECTIONS) break;
+      const srcCount = nodeConnCount.get(conn.sourceId) ?? 0;
+      const tgtCount = nodeConnCount.get(conn.targetId) ?? 0;
+      if (srcCount < MAX_CONNECTIONS_PER_NODE && tgtCount < MAX_CONNECTIONS_PER_NODE) {
+        connectionsToRender.push(conn);
+        nodeConnCount.set(conn.sourceId, srcCount + 1);
+        nodeConnCount.set(conn.targetId, tgtCount + 1);
+      }
+    }
 
     connectionsToRender.forEach(conn => {
       const source = activeNodes.current.get(conn.sourceId);
