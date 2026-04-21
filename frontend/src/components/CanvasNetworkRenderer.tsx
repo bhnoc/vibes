@@ -472,15 +472,28 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // Process connections — only active ones where both nodes exist in renderer
+    // Process connections — only active ones where both nodes exist in renderer.
+    // Apply per-node budget here so physics forces and rendering are both limited.
+    const MAX_CONNECTIONS_PER_NODE = 6;
     const nodeIds = new Set(activeNodes.current.keys())
+    const nodeConnBudget = new Map<string, number>();
     const recentConnections = storeConnections
       .filter(conn => {
         const isActive = now - conn.lastActive < connectionLifetime;
         const bothNodesExist = nodeIds.has(conn.source) && nodeIds.has(conn.target);
         return isActive && bothNodesExist;
       })
-      .slice(0, 5000)
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .filter(conn => {
+        const srcCount = nodeConnBudget.get(conn.source) ?? 0;
+        const tgtCount = nodeConnBudget.get(conn.target) ?? 0;
+        if (srcCount < MAX_CONNECTIONS_PER_NODE && tgtCount < MAX_CONNECTIONS_PER_NODE) {
+          nodeConnBudget.set(conn.source, srcCount + 1);
+          nodeConnBudget.set(conn.target, tgtCount + 1);
+          return true;
+        }
+        return false;
+      })
 
     activeConnections.current.forEach(c => connectionPool.release(c));
     activeConnections.current.length = 0;
@@ -509,7 +522,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // --- Physics Constants ---
     const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03;
-    const CENTER_PULL_STRENGTH = 0.0001; // Increased 500x to actually pull nodes toward center!
+    const CENTER_PULL_STRENGTH = 0.000002; // gentle nudge toward center
 
     // Node lifetime should match connection lifetime from physics slider
     // A node should remain visible as long as its connections are active
@@ -694,7 +707,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const restLength = 40;
+          const restLength = 150;
 
           const displacement = distance - restLength;
           const pullForce = connectionPullStrength * PULL_SCALING;
@@ -801,24 +814,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Render connections first (behind nodes) with protocol-based styling
     // Filter out connections where either node no longer exists
     // IMPORTANT: Don't mutate activeConnections.current - physics needs the full list!
-    const MAX_RENDERED_CONNECTIONS = 200;
-    const MAX_CONNECTIONS_PER_NODE = 5;
-    const sortedConns = activeConnections.current
-      .filter(conn => activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId))
-      .sort((a, b) => b.lastActive - a.lastActive);
-
-    const nodeConnCount = new Map<string, number>();
-    const connectionsToRender: typeof sortedConns = [];
-    for (const conn of sortedConns) {
-      if (connectionsToRender.length >= MAX_RENDERED_CONNECTIONS) break;
-      const srcCount = nodeConnCount.get(conn.sourceId) ?? 0;
-      const tgtCount = nodeConnCount.get(conn.targetId) ?? 0;
-      if (srcCount < MAX_CONNECTIONS_PER_NODE && tgtCount < MAX_CONNECTIONS_PER_NODE) {
-        connectionsToRender.push(conn);
-        nodeConnCount.set(conn.sourceId, srcCount + 1);
-        nodeConnCount.set(conn.targetId, tgtCount + 1);
-      }
-    }
+    const connectionsToRender = activeConnections.current
+      .filter(conn => activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId));
 
     connectionsToRender.forEach(conn => {
       const source = activeNodes.current.get(conn.sourceId);
