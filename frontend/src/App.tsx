@@ -164,8 +164,7 @@ export const App = memo(() => {
   usePacketProcessor()
 
   // Periodic cleanup of expired nodes/connections
-  // DISABLED FOR TESTING - Suspected to be causing issues
-  // useNetworkCleanup()
+  useNetworkCleanup()
 
   // Check URL on initial load to see if real capture was requested
   useEffect(() => {
