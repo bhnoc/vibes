@@ -238,7 +238,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
     () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', highlightColor: '', alpha: 0, lastActive: 0 }),
-    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; }
+    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.x = 0; node.y = 0; node.vx = 0; node.vy = 0; }
   ), [])
 
   const connectionPool = useMemo(() => new ObjectPool<RenderedConnection>(
@@ -761,6 +761,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
+
+      // Clamp to visible viewport + 20px margin
+      const vp = viewportRef.current;
+      const visibleLeft = vp.x;
+      const visibleRight = vp.x + width / vp.zoom;
+      const visibleTop = vp.y;
+      const visibleBottom = vp.y + height / vp.zoom;
+      const margin = 20 / vp.zoom;
+      if (node.x < visibleLeft - margin) { node.x = visibleLeft - margin; node.vx = Math.abs(node.vx) * 0.3; }
+      if (node.x > visibleRight + margin) { node.x = visibleRight + margin; node.vx = -Math.abs(node.vx) * 0.3; }
+      if (node.y < visibleTop - margin) { node.y = visibleTop - margin; node.vy = Math.abs(node.vy) * 0.3; }
+      if (node.y > visibleBottom + margin) { node.y = visibleBottom + margin; node.vy = -Math.abs(node.vy) * 0.3; }
     });
 
     // Check for off-screen nodes and add to removal list
