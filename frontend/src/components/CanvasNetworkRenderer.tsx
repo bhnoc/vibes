@@ -801,9 +801,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Render connections first (behind nodes) with protocol-based styling
     // Filter out connections where either node no longer exists
     // IMPORTANT: Don't mutate activeConnections.current - physics needs the full list!
-    const connectionsToRender = activeConnections.current.filter(conn => {
-      return activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId);
-    });
+    const MAX_RENDERED_CONNECTIONS = 150;
+    const connectionsToRender = activeConnections.current
+      .filter(conn => activeNodes.current.has(conn.sourceId) && activeNodes.current.has(conn.targetId))
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .slice(0, MAX_RENDERED_CONNECTIONS);
 
     connectionsToRender.forEach(conn => {
       const source = activeNodes.current.get(conn.sourceId);
@@ -829,15 +831,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         switch (protocol) {
           case 'tcp':
             strokeColor = `rgba(0, 255, 0, ${alpha})`; // Bright green for TCP
-            lineWidth = 3; // Thicker line
+            lineWidth = 1;
             break;
           case 'udp':
             strokeColor = `rgba(255, 0, 255, ${alpha})`; // Bright magenta for UDP
-            lineWidth = 2; // Medium line
+            lineWidth = 1;
             break;
           case 'icmp':
             strokeColor = `rgba(255, 255, 0, ${alpha})`; // Bright yellow for ICMP
-            lineWidth = 2; // Medium line
+            lineWidth = 1;
             break;
           case 'http':
           case 'https':
