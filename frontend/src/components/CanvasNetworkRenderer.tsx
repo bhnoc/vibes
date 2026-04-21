@@ -212,7 +212,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   })
 
   // Store hooks
-  const { nodes, connections } = useNetworkStore()
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
   const { isPined } = usePinStore()
@@ -227,6 +226,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
+
+  // Stable refs — keep latest values without making render/physics deps churn
+  const connectionLifetimeRef = useRef(connectionLifetime)
+  const isPinedRef = useRef(isPined)
+  const updatePhysicsRef = useRef<(dt: number) => void>(() => {})
+  useEffect(() => { connectionLifetimeRef.current = connectionLifetime }, [connectionLifetime])
+  useEffect(() => { isPinedRef.current = isPined }, [isPined])
 
 
   // Object pools
@@ -417,8 +423,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (existingNode) {
         existingNode.lastActive = node.lastActive;
         existingNode.radius = (now - node.lastActive) < activeAge ? 10 : 6;
+        // Re-place if stuck at origin — can happen if viewport wasn't ready on first sync
+        if (existingNode.x === 0 && existingNode.y === 0 && node.x) {
+          existingNode.x = node.x
+          existingNode.y = node.y ?? 0
+        }
       } else {
-        const position = generatePosition(node.id);
+        // Prefer store coords (set by packet processor using window dimensions).
+        // Fall back to generatePosition only if store coords are absent or zero.
+        const hasStorePos = node.x !== undefined && node.y !== undefined && (node.x !== 0 || node.y !== 0)
+        const position = hasStorePos ? { x: node.x!, y: node.y! } : generatePosition(node.id)
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
         renderedNode.x = position.x;
@@ -515,12 +529,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // Dynamic margin based on viewport size (10% buffer)
     const offscreenMargin = Math.max(viewportRef.current.width, viewportRef.current.height) * 0.1;
 
-    // Build connected nodes from STORE connections, not cached activeConnections
-    // This ensures nodes that just got connections are immediately recognized
+    // Read connections fresh from store — avoids this callback being in the dep array
+    // and thus avoids cancelling the animation loop on every incoming packet.
+    const storeConns = useNetworkStore.getState().connections;
     const connectedNodeIds = new Set<string>();
     let activeConns = 0;
     let expiredConns = 0;
-    connections.forEach(conn => {
+    storeConns.forEach(conn => {
       if (now - conn.lastActive < connectionLifetime) {
         connectedNodeIds.add(conn.source);
         connectedNodeIds.add(conn.target);
@@ -532,7 +547,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Debug logging every 2 seconds
     if (now - lastLogTime.current > 2000) {
-      logger.log(`🔗 Connections: ${connections.length} total, ${activeConns} active (<${connectionLifetime}ms), ${expiredConns} expired, ${connectedNodeIds.size} connected nodes`);
+      logger.log(`🔗 Connections: ${storeConns.length} total, ${activeConns} active (<${connectionLifetime}ms), ${expiredConns} expired, ${connectedNodeIds.size} connected nodes`);
     }
 
     // --- Pinned Node Positioning (Bottom of Screen) ---
@@ -739,15 +754,30 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       nodesToRemove.forEach(id => removeFunc(id));
     }
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool, connections]);
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, isPined, connectionLifetime, nodePool]);
 
-  // High-performance render loop
+  // Keep ref fresh so render doesn't need updatePhysics as a dep
+  useEffect(() => { updatePhysicsRef.current = updatePhysics }, [updatePhysics])
+
+  // High-performance render loop — deps are only width/height (resize events).
+  // connectionLifetime and isPined are read via stable refs so the rAF loop
+  // is never cancelled due to incoming packets or store updates.
   const render = useCallback((currentTime: number) => {
-    const deltaTime = Math.max(16, currentTime - lastFrameTime.current); // Clamp to avoid huge jumps
-    lastFrameTime.current = currentTime;
+    const connectionLifetime = connectionLifetimeRef.current
 
-    // Update physics simulation
-    updatePhysics(deltaTime);
+    // FPS counter — must happen BEFORE updating lastFrameTime
+    frameCount.current++
+    if (currentTime - lastFrameTime.current >= 1000) {
+      fpsRef.current = frameCount.current
+      frameCount.current = 0
+      lastFrameTime.current = currentTime
+    }
+
+    const deltaTime = Math.max(16, currentTime - lastFrameTime.current)
+    lastFrameTime.current = currentTime
+
+    // Update physics via ref — avoids dep on updatePhysics callback
+    updatePhysicsRef.current(deltaTime);
 
     const canvas = canvasRef.current
     if (!canvas || !width || !height) return;
@@ -937,7 +967,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
 
-      if (isPined(node.id)) {
+      if (isPinedRef.current(node.id)) {
         ctx.strokeStyle = '#FFFF00'; // Yellow highlight for pinned nodes
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -995,34 +1025,20 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     ctx.restore()
 
-    // No data message - position at screen center, not viewport center
+    // "Waiting" message — drawn after ctx.restore() so we're in screen space (DPR-scaled).
+    // Use width/2, height/2 directly; world coords would be way off-screen here.
     if (activeNodes.current.size === 0) {
       ctx.fillStyle = '#888'
       ctx.font = '16px monospace'
       ctx.textAlign = 'center'
-      // Convert screen center to viewport coordinates
-      const screenCenterX = vp.x + (width / 2) / vp.zoom
-      const screenCenterY = vp.y + (height / 2) / vp.zoom
-      ctx.fillText(
-        'Waiting for network activity...',
-        screenCenterX,
-        screenCenterY
-      )
+      ctx.fillText('Waiting for network activity...', width / 2, height / 2)
       ctx.textAlign = 'left'
     }
 
-    // Only continue animation if there are nodes to render or user is interacting
-    if (activeNodes.current.size > 0) {
-      animationRef.current = requestAnimationFrame(render)
-    } else {
-      // No nodes - render once more to show "waiting" message and stop
-      setTimeout(() => {
-        if (canvasRef.current) { // Check if component is still mounted
-        animationRef.current = requestAnimationFrame(render)
-        }
-      }, 1000) // Render every second when no data
-    }
-  }, [updatePhysics, connectionLifetime, width, height])
+    // Always schedule the next frame — never halt the loop.
+    // Stopping at 1fps when idle caused up to 1s of black screen when nodes arrive.
+    animationRef.current = requestAnimationFrame(render)
+  }, [width, height])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {
