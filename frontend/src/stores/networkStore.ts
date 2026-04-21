@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { throttle } from 'lodash';
 import { useSettingsStore } from './settingsStore';
 import { usePhysicsStore } from './physicsStore';
 import { usePinStore } from './pinStore';
@@ -253,72 +252,35 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   nodes: [],
   connections: [],
   
-  // DIRECT method to update node activity - bypasses batching
+  // Update node activity timestamp — mutates in place to avoid GC churn.
+  // lastActive changes don't need to trigger React re-renders; renderer reads
+  // via getState() every 100ms and removeInactiveElements reads via get().
   updateNodeActivity: (nodeId: string, port?: number) => {
-    const now = Date.now();
-    set((state) => {
-      const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
-      if (nodeIndex !== -1) {
-        const updatedNodes = [...state.nodes];
-        const existingNode = updatedNodes[nodeIndex];
-        const updatedPorts = new Set(existingNode.ports);
-        if (port) {
-          updatedPorts.add(port);
-        }
-        updatedNodes[nodeIndex] = { ...existingNode, lastActive: now, ports: updatedPorts };
-        logger.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
-        return { ...state, nodes: updatedNodes };
-      }
-      return state;
-    });
+    const node = get().nodes.find(n => n.id === nodeId);
+    if (node) {
+      node.lastActive = Date.now();
+      if (port !== undefined) node.ports.add(port);
+    }
   },
   
-  // Add or update a node (replace if exists)
-  addOrUpdateNode: throttle((node: Node) => {
+  // Add or update a node.
+  // For existing nodes: mutates in place (no set() = no GC churn from per-packet updates).
+  // For new nodes: calls set() so subscribers see the updated count.
+  addOrUpdateNode: (node: Node) => {
     totalNodesProcessed++;
     lastNodeAddTime = Date.now();
-    
-    set((state) => {
-      // Normal flow - find and update node if it exists
-      const nodeIndex = state.nodes.findIndex((n) => n.id === node.id);
-      if (nodeIndex !== -1) {
-        const updatedNodes = [...state.nodes];
-        const existingNode = updatedNodes[nodeIndex];
-        const mergedPorts = new Set([...(existingNode.ports || []), ...(node.ports || [])]);
-        updatedNodes[nodeIndex] = { ...existingNode, ...node, ports: mergedPorts };
-        return { ...state, nodes: updatedNodes };
-      } else {
-        totalNodesAdded++;
-        
-        // Ensure new nodes have an initialized ports set
-        const newNode = { ...node, ports: new Set(node.ports || []) };
-
-        // Check if we're approaching the max node count
-        // DISABLED FOR TESTING - Suspected to be causing issues
-        const maxNodes = useSettingsStore.getState().maxNodes;
-        if (false && state.nodes.length >= maxNodes) {
-          // Perform pruning to make room for new node
-          // Only prune nodes WITHOUT active connections
-          logger.log(`⚠️ Pruning triggered! Current nodes: ${state.nodes.length}, maxNodes setting: ${maxNodes}`);
-          const prunedNodes = pruneOldestNodes(state.nodes, maxNodes, state.connections);
-
-          // Check if pruning actually freed up space
-          if (prunedNodes.length < state.nodes.length) {
-            // Space was freed, add the new node
-            logger.log(`✅ Pruned ${state.nodes.length - prunedNodes.length} disconnected nodes, adding new node`);
-            return { ...state, nodes: [...prunedNodes, newNode] };
-          } else {
-            // All nodes have active connections, cannot add new node
-            logger.log(`⚠️ Cannot add new node: all ${state.nodes.length} nodes have active connections`);
-            return state; // Don't add the node
-          }
-        }
-
-        // Otherwise just add the new node
-        return { ...state, nodes: [...state.nodes, newNode] };
-      }
-    });
-  }, 0), // No throttle - process immediately like a game engine
+    const existing = get().nodes.find(n => n.id === node.id);
+    if (existing) {
+      existing.lastActive = node.lastActive;
+      existing.x = node.x ?? existing.x;
+      existing.y = node.y ?? existing.y;
+      if (node.ports) node.ports.forEach(p => existing.ports.add(p));
+    } else {
+      totalNodesAdded++;
+      const newNode = { ...node, ports: new Set(node.ports || []) };
+      set(state => ({ ...state, nodes: [...state.nodes, newNode] }));
+    }
+  },
   
   // COMPATIBILITY FUNCTION: Add node with separate id and data params (old API)
   addNode: (id: string, data: Partial<Node> = {}) => {
@@ -336,38 +298,20 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     useNetworkStore.getState().addOrUpdateNode(node);
   },
   
-  // Add or update a connection (replace if exists)
-  addOrUpdateConnection: throttle((connection: Connection) => {
-    set((state) => {
-      const connectionIndex = state.connections.findIndex(
-        (c) => c.id === connection.id
-      );
-      
-      if (connectionIndex !== -1) {
-        // Update existing connection
-        const updatedConnections = [...state.connections];
-        const existingConnection = updatedConnections[connectionIndex];
-        // Smart merge: preserve port numbers if the new packet doesn't have them
-        updatedConnections[connectionIndex] = {
-          ...existingConnection,
-          ...connection,
-          srcPort: connection.srcPort || existingConnection.srcPort,
-          dstPort: connection.dstPort || existingConnection.dstPort,
-        };
-        return { ...state, connections: updatedConnections };
-      } else {
-        // Add new connection (with pruning if needed)
-        // DISABLED FOR TESTING - Suspected to be causing issues
-        const maxNodes = useSettingsStore.getState().maxNodes;
-        if (false && state.connections.length > maxNodes * 3) {
-          // Keep connection count in check relative to node count (increased ratio)
-          const prunedConnections = pruneOldestConnections(state.connections, maxNodes);
-          return { ...state, connections: [...prunedConnections, connection] };
-        }
-        return { ...state, connections: [...state.connections, connection] };
-      }
-    });
-  }, 0), // No throttle - process immediately
+  // Add or update a connection.
+  // For existing connections: mutates lastActive in place (no set() = no GC churn).
+  // For new connections: calls set() to notify subscribers (node/connection counts update).
+  addOrUpdateConnection: (connection: Connection) => {
+    const existing = get().connections.find(c => c.id === connection.id);
+    if (existing) {
+      existing.lastActive = connection.lastActive;
+      if (connection.protocol) existing.protocol = connection.protocol;
+      if (connection.srcPort) existing.srcPort = connection.srcPort;
+      if (connection.dstPort) existing.dstPort = connection.dstPort;
+    } else {
+      set(state => ({ ...state, connections: [...state.connections, connection] }));
+    }
+  },
   
   // COMPATIBILITY FUNCTION: Add connection (old API wrapper for addOrUpdateConnection)
   addConnection: (connection: Partial<Connection>) => {
