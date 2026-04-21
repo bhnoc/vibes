@@ -1,12 +1,10 @@
 import React, { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNetworkStore } from '../stores/networkStore'
-import { usePacketStore } from '../stores/packetStore'
 import { useSizeStore } from '../stores/sizeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
 import { usePinStore } from '../stores/pinStore'
 import { logger } from '../utils/logger'
-import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -215,7 +213,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   // Store hooks
   const { nodes, connections } = useNetworkStore()
-  const { packets } = usePacketStore()
   const { height, width } = useSizeStore()
   const { verboseLogging } = useSettingsStore()
   const { isPined } = usePinStore()
@@ -227,9 +224,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     connectionLifetime,
     driftAwayStrength,
   } = usePhysicsStore()
-
-  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
-  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
@@ -398,21 +392,21 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     return position
   }, [])
 
-  // Update rendered objects from store data
+  // Update rendered objects from store data — reads store directly to avoid
+  // being recreated on every packet (which would reset the 100ms interval).
   const updateRenderObjects = useCallback(() => {
+    const { nodes: storeNodes, connections: storeConnections } = useNetworkStore.getState();
     const now = Date.now()
-    const activeAge = 30000 // 30 seconds for "active" state
+    const activeAge = 30000
 
-    const storeNodesById = new Map(nodes.map(n => [n.id, n]));
+    const storeNodesById = new Map(storeNodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
 
     // Remove nodes that are no longer in the store
     for (const nodeId of currentRenderedNodeIds) {
       if (!storeNodesById.has(nodeId)) {
         const nodeToRelease = activeNodes.current.get(nodeId);
-        if (nodeToRelease) {
-          nodePool.release(nodeToRelease);
-        }
+        if (nodeToRelease) nodePool.release(nodeToRelease);
         activeNodes.current.delete(nodeId);
       }
     }
@@ -421,15 +415,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     storeNodesById.forEach((node, nodeId) => {
       const existingNode = activeNodes.current.get(nodeId);
       if (existingNode) {
-        // Update existing node
         existingNode.lastActive = node.lastActive;
-        const isActive = (now - node.lastActive) < activeAge;
-        existingNode.radius = isActive ? 10 : 6;
-
+        existingNode.radius = (now - node.lastActive) < activeAge ? 10 : 6;
       } else {
-        // Add new node - use cached/generated position for consistency
         const position = generatePosition(node.id);
-
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
         renderedNode.x = position.x;
@@ -438,28 +427,21 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         renderedNode.vy = 0;
         renderedNode.lastActive = node.lastActive;
         const age = now - node.lastActive;
-        const isActive = age < activeAge;
-        
-        const latestConnection = connections
+
+        const latestConnection = storeConnections
           .filter(c => c.source === node.id || c.target === node.id)
           .sort((a, b) => b.lastActive - a.lastActive)[0];
-
         renderedNode.color = getProtocolColor(latestConnection?.protocol);
 
-        let highlightColor = '#00ff41'; // Default green
+        let highlightColor = '#00ff41';
         if (node.id.includes('.')) {
           const parts = node.id.split('.').map(Number);
           if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
             const [firstOctet] = parts;
-            if (firstOctet === 192) {
-              highlightColor = '#0080ff'; // Blue for home networks
-            } else if (firstOctet === 10) {
-              highlightColor = '#ff00ff'; // Magenta for corporate
-            } else if (firstOctet === 172) {
-              highlightColor = '#ff4500'; // Orange for other private
-            } else if (firstOctet === 8 || firstOctet === 1) {
-              highlightColor = '#ffff00'; // Yellow for public DNS
-            }
+            if (firstOctet === 192)      highlightColor = '#0080ff';
+            else if (firstOctet === 10)  highlightColor = '#ff00ff';
+            else if (firstOctet === 172) highlightColor = '#ff4500';
+            else if (firstOctet === 8 || firstOctet === 1) highlightColor = '#ffff00';
           }
         } else {
           let hash = 0;
@@ -467,20 +449,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
             hash = ((hash << 5) - hash) + node.id.charCodeAt(i);
             hash = hash & hash;
           }
-          const hue = Math.abs(hash) % 360;
-          highlightColor = hslToHex(hue, 90, 60);
+          highlightColor = hslToHex(Math.abs(hash) % 360, 90, 60);
         }
-        
+
         renderedNode.highlightColor = highlightColor;
         renderedNode.alpha = Math.max(0.4, 1 - (age / 600000));
         activeNodes.current.set(nodeId, renderedNode);
       }
     });
 
-
-    // Process connections - only include active connections (within connectionLifetime)
-    const nodeIds = new Set(Array.from(activeNodes.current.keys()))
-    const recentConnections = connections
+    // Process connections — only active ones where both nodes exist in renderer
+    const nodeIds = new Set(activeNodes.current.keys())
+    const recentConnections = storeConnections
       .filter(conn => {
         const isActive = now - conn.lastActive < connectionLifetime;
         const bothNodesExist = nodeIds.has(conn.source) && nodeIds.has(conn.target);
@@ -488,30 +468,26 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       })
       .slice(0, 5000)
 
-    // Release all old connections
     activeConnections.current.forEach(c => connectionPool.release(c));
     activeConnections.current.length = 0;
 
     recentConnections.forEach(conn => {
       const sourceNode = activeNodes.current.get(conn.source)
       const targetNode = activeNodes.current.get(conn.target)
-      
       if (sourceNode && targetNode) {
         const renderedConn = connectionPool.acquire()
         renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
         renderedConn.protocol = conn.protocol
         renderedConn.dstPort = conn.dstPort;
-        const connectionAge = now - conn.lastActive;
-        renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
+        renderedConn.alpha = Math.max(0, 1 - ((now - conn.lastActive) / connectionLifetime))
         renderedConn.lastActive = conn.lastActive
         renderedConn.sourceId = conn.source
         renderedConn.targetId = conn.target
-        
         activeConnections.current.push(renderedConn)
       }
     })
 
-  }, [nodes, connections, generatePosition, nodePool, connectionPool])
+  }, [generatePosition, nodePool, connectionPool, connectionLifetime])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
@@ -644,27 +620,32 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // 2. Collision detection and resolution
+    // 2. Collision detection and resolution — skip when node count is high
+    // O(n²) becomes too expensive above ~150 nodes; center pull + spawn placement
+    // keeps things readable without per-frame collision at larger scales.
+    const MAX_COLLISION_NODES = 150;
     const nodes = Array.from(activeNodes.current.values());
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const nodeA = nodes[i];
-        const nodeB = nodes[j];
-        const dx = nodeB.x - nodeA.x;
-        const dy = nodeB.y - nodeA.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const minDistance = nodeA.radius + nodeB.radius + nodeSpacing;
+    if (nodes.length <= MAX_COLLISION_NODES) {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const nodeA = nodes[i];
+          const nodeB = nodes[j];
+          const dx = nodeB.x - nodeA.x;
+          const dy = nodeB.y - nodeA.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const minDistance = nodeA.radius + nodeB.radius + nodeSpacing;
 
-        if (distance < minDistance) {
-          const overlap = minDistance - distance;
-          const ax = dx / distance;
-          const ay = dy / distance;
+          if (distance < minDistance && distance > 0) {
+            const overlap = minDistance - distance;
+            const ax = dx / distance;
+            const ay = dy / distance;
 
-          const repulsionForce = collisionRepulsion * REPULSION_SCALING;
-          nodeA.vx -= ax * overlap * repulsionForce;
-          nodeA.vy -= ay * overlap * repulsionForce;
-          nodeB.vx += ax * overlap * repulsionForce;
-          nodeB.vy += ay * overlap * repulsionForce;
+            const repulsionForce = collisionRepulsion * REPULSION_SCALING;
+            nodeA.vx -= ax * overlap * repulsionForce;
+            nodeA.vy -= ay * overlap * repulsionForce;
+            nodeB.vx += ax * overlap * repulsionForce;
+            nodeB.vy += ay * overlap * repulsionForce;
+          }
         }
       }
     }
