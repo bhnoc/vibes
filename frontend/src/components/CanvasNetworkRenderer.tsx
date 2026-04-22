@@ -252,33 +252,34 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
 
 
-  // Update viewport size and center it
+  // The physics world is WORLD_SCALE times the screen viewport in each dimension,
+  // so zooming out reveals a much larger area rather than empty screen edges.
+  const WORLD_SCALE = 5;
+
+  // Update viewport size and center on the world
   useEffect(() => {
     if (canvasRef.current && width && height) {
       const canvas = canvasRef.current;
       const dpr = window.devicePixelRatio || 1;
 
-      // Set actual size
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
 
-      // Update viewport dimensions
       viewportRef.current.width = width;
       viewportRef.current.height = height;
 
-      // Center the viewport only on the initial load, accounting for zoom
+      // On first load, center the viewport on the middle of the world
       if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
-        viewportRef.current.x = (width - width / viewportRef.current.zoom) / 2;
-        viewportRef.current.y = (height - height / viewportRef.current.zoom) / 2;
+        const worldW = width * WORLD_SCALE;
+        const worldH = height * WORLD_SCALE;
+        viewportRef.current.x = worldW / 2 - width / 2;
+        viewportRef.current.y = worldH / 2 - height / 2;
       }
-      
-      // Scale context for high DPI
+
       const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.scale(dpr, dpr);
-      }
+      if (ctx) ctx.scale(dpr, dpr);
     }
   }, [width, height]);
 
@@ -302,8 +303,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       return nodePositions.current.get(nodeId)!
     }
 
-    const W = viewportRef.current.width  || 1280;
-    const H = viewportRef.current.height || 800;
+    const W = (viewportRef.current.width  || 1280) * WORLD_SCALE;
+    const H = (viewportRef.current.height || 800)  * WORLD_SCALE;
 
     let x: number;
     let y: number;
@@ -312,7 +313,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const parts = nodeId.split('.').map(Number)
       if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
         const [a, b, c, d] = parts;
-        // Spread across the full viewport using octet entropy
         x = W * 0.05 + ((a * 13 + b * 7 + c * 3 + d) % Math.round(W * 0.9))
         y = H * 0.05 + ((a * 11 + b * 5 + c * 17 + d * 3) % Math.round(H * 0.9))
       } else {
@@ -380,12 +380,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
 
       } else {
-        // Spawn randomly across most of the viewport
-        const W = viewportRef.current.width  || 1280;
-        const H = viewportRef.current.height || 800;
+        const W = (viewportRef.current.width  || 1280) * WORLD_SCALE;
+        const H = (viewportRef.current.height || 800)  * WORLD_SCALE;
         const position = {
-          x: W * 0.1 + Math.random() * W * 0.8,
-          y: H * 0.1 + Math.random() * H * 0.8,
+          x: W * 0.05 + Math.random() * W * 0.9,
+          y: H * 0.05 + Math.random() * H * 0.9,
         };
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
@@ -490,8 +489,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const CENTER_PULL_STRENGTH = centerPullStrength;
 
     const now = Date.now();
-    const centerX = viewportRef.current.width / 2;
-    const centerY = viewportRef.current.height / 2;
+    const worldW = viewportRef.current.width  * WORLD_SCALE;
+    const worldH = viewportRef.current.height * WORLD_SCALE;
+    const centerX = worldW / 2;
+    const centerY = worldH / 2;
     const nodesToRemove: string[] = [];
     const offscreenMargin = 200;
 
@@ -545,9 +546,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       const isOffscreen =
         node.x < -offscreenMargin ||
-        node.x > viewportRef.current.width + offscreenMargin ||
+        node.x > worldW + offscreenMargin ||
         node.y < -offscreenMargin ||
-        node.y > viewportRef.current.height + offscreenMargin;
+        node.y > worldH + offscreenMargin;
 
       if (isOffscreen) {
         nodesToRemove.push(node.id);
@@ -690,14 +691,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
 
-      // Bounce nodes at the viewport edge + 20px margin so they never
-      // drift permanently off-screen even with high driftAwayStrength.
+      // Bounce at world boundaries
       const margin = 20;
-      const vp = viewportRef.current;
-      if (node.x < -margin)              { node.x = -margin;              node.vx = Math.abs(node.vx) * 0.3; }
-      if (node.x > vp.width + margin)    { node.x = vp.width + margin;    node.vx = -Math.abs(node.vx) * 0.3; }
-      if (node.y < -margin)              { node.y = -margin;              node.vy = Math.abs(node.vy) * 0.3; }
-      if (node.y > vp.height + margin)   { node.y = vp.height + margin;   node.vy = -Math.abs(node.vy) * 0.3; }
+      if (node.x < -margin)              { node.x = -margin;              node.vx =  Math.abs(node.vx) * 0.3; }
+      if (node.x > worldW + margin)      { node.x = worldW + margin;      node.vx = -Math.abs(node.vx) * 0.3; }
+      if (node.y < -margin)              { node.y = -margin;              node.vy =  Math.abs(node.vy) * 0.3; }
+      if (node.y > worldH + margin)      { node.y = worldH + margin;      node.vy = -Math.abs(node.vy) * 0.3; }
     });
 
   }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, centerPullStrength, springRestLength]);
@@ -941,17 +940,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.textAlign = 'left'
     }
 
-    // Only continue animation if there are nodes to render or user is interacting
-    if (activeNodes.current.size > 0) {
-      animationRef.current = requestAnimationFrame(render)
-    } else {
-      // No nodes - render once more to show "waiting" message and stop
-      setTimeout(() => {
-        if (canvasRef.current) { // Check if component is still mounted
-        animationRef.current = requestAnimationFrame(render)
-        }
-      }, 1000) // Render every second when no data
-    }
+    animationRef.current = requestAnimationFrame(render)
   }, [updatePhysics, connectionLifetime, width, height])
 
   // Mouse interaction for panning and zooming
@@ -1008,10 +997,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
-        viewportRef.current.x = 0
-        viewportRef.current.y = 0
-        viewportRef.current.zoom = 1.0
-        logger.log('🔄 View reset')
+        const vp = viewportRef.current;
+        const worldW = vp.width  * WORLD_SCALE;
+        const worldH = vp.height * WORLD_SCALE;
+        vp.x = worldW / 2 - vp.width  / 2;
+        vp.y = worldH / 2 - vp.height / 2;
+        vp.zoom = 1.0;
+        logger.log('🔄 View reset to world center')
       }
     }
 

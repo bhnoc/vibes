@@ -134,67 +134,65 @@ export const usePacketProcessor = () => {
     lastProcessedSeqRef.current = maxSeq;
   }, [packets]);
 
-  // Stage 2: flush flowBuffer to store every FLUSH_INTERVAL ms
+  // Stage 2: flush flowBuffer to store every FLUSH_INTERVAL ms.
+  // Uses addFlowBatch so every node lands in the same set() call as its connection —
+  // eliminating the orphan-node window caused by throttled individual adds.
   useEffect(() => {
     const interval = setInterval(() => {
       if (flowBuffer.current.size === 0) return;
 
-      const { nodes: currentNodes, addOrUpdateNode, addConnection, updateNodeActivity, limitNetworkSize } = useNetworkStore.getState();
+      const { nodes: currentNodes, addFlowBatch, limitNetworkSize } = useNetworkStore.getState();
       const existingIds = new Set(currentNodes.map(n => n.id));
       let newFlowCount = 0;
+      const now = Date.now();
+
+      const batch: Array<{ src: Node; dst: Node; conn: import('../stores/networkStore').Connection }> = [];
 
       flowBuffer.current.forEach((flow) => {
         const isNewSrc = !existingIds.has(flow.src);
         const isNewDst = !existingIds.has(flow.dst);
 
-        // Cap how many new nodes we introduce per flush to avoid sudden explosions
         if ((isNewSrc || isNewDst) && newFlowCount >= MAX_NEW_FLOWS_PER_FLUSH) return;
 
-        if (isNewSrc) {
-          const pos = generatePosition(flow.src);
-          addOrUpdateNode({
+        const srcPos = generatePosition(flow.src);
+        const dstPos = generatePosition(flow.dst);
+
+        batch.push({
+          src: {
             id: flow.src, label: flow.src,
-            x: pos.x, y: pos.y,
+            x: srcPos.x, y: srcPos.y,
             size: 10, lastActive: flow.lastActive,
             packetSource: flow.packetSource,
             ports: new Set(flow.srcPort ? [flow.srcPort] : []),
-          } as Node);
-          existingIds.add(flow.src);
-        } else {
-          updateNodeActivity(flow.src, flow.srcPort);
-        }
-
-        if (isNewDst) {
-          const pos = generatePosition(flow.dst);
-          addOrUpdateNode({
+          } as Node,
+          dst: {
             id: flow.dst, label: flow.dst,
-            x: pos.x, y: pos.y,
+            x: dstPos.x, y: dstPos.y,
             size: 10, lastActive: flow.lastActive,
             packetSource: flow.packetSource,
             ports: new Set(flow.dstPort ? [flow.dstPort] : []),
-          } as Node);
-          existingIds.add(flow.dst);
-        } else {
-          updateNodeActivity(flow.dst, flow.dstPort);
-        }
-
-        addConnection({
-          id: `${flow.src}-${flow.dst}`,
-          source: flow.src,
-          target: flow.dst,
-          protocol: flow.protocol,
-          lastActive: flow.lastActive,
-          packetColor: getPacketColor(flow.src, flow.dst, flow.protocol),
-          srcPort: flow.srcPort,
-          dstPort: flow.dstPort,
+          } as Node,
+          conn: {
+            id: `${flow.src}-${flow.dst}`,
+            source: flow.src,
+            target: flow.dst,
+            protocol: flow.protocol,
+            lastActive: now,
+            packetColor: getPacketColor(flow.src, flow.dst, flow.protocol),
+            srcPort: flow.srcPort,
+            dstPort: flow.dstPort,
+          },
         });
 
+        if (isNewSrc) existingIds.add(flow.src);
+        if (isNewDst) existingIds.add(flow.dst);
         if (isNewSrc || isNewDst) newFlowCount++;
       });
 
       flowBuffer.current.clear();
 
-      // Periodic store housekeeping
+      if (batch.length > 0) addFlowBatch(batch);
+
       if (Date.now() - lastAutocleanTimeRef.current > 15000) {
         limitNetworkSize(3000, 5000);
         lastAutocleanTimeRef.current = Date.now();

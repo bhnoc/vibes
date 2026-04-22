@@ -41,6 +41,7 @@ interface NetworkState {
   updateNodeActivity: (nodeId: string, port?: number) => void;
   addOrUpdateNode: (node: Node) => void;
   addOrUpdateConnection: (connection: Connection) => void;
+  addFlowBatch: (flows: Array<{ src: Node; dst: Node; conn: Connection }>) => void;
   // Legacy/compatibility API methods
   addNode: (id: string, data?: Partial<Node>) => void;
   addConnection: (connection: Partial<Connection>) => void;
@@ -323,6 +324,53 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     }
   }, 10),
   
+  // Atomically add/update a batch of src-node + dst-node + connection triples.
+  // A single set() call ensures nodes and their connections always land together,
+  // preventing the orphan-node window caused by independent per-call throttles.
+  addFlowBatch: (flows) => {
+    if (flows.length === 0) return;
+    set((state) => {
+      const nodeById = new Map<string, Node>(state.nodes.map(n => [n.id, n]));
+      const connById = new Map<string, Connection>(state.connections.map(c => [c.id, c]));
+
+      flows.forEach(({ src, dst, conn }) => {
+        const eSrc = nodeById.get(src.id);
+        if (eSrc) {
+          eSrc.lastActive = src.lastActive;
+          src.ports?.forEach(p => eSrc.ports.add(p));
+        } else {
+          nodeById.set(src.id, { ...src, ports: new Set(src.ports) });
+        }
+
+        const eDst = nodeById.get(dst.id);
+        if (eDst) {
+          eDst.lastActive = dst.lastActive;
+          dst.ports?.forEach(p => eDst.ports.add(p));
+        } else {
+          nodeById.set(dst.id, { ...dst, ports: new Set(dst.ports) });
+        }
+
+        const eConn = connById.get(conn.id);
+        if (eConn) {
+          eConn.lastActive = conn.lastActive;
+          if (conn.protocol) eConn.protocol = conn.protocol;
+          if (conn.srcPort) eConn.srcPort = conn.srcPort;
+          if (conn.dstPort) eConn.dstPort = conn.dstPort;
+        } else {
+          connById.set(conn.id, conn);
+        }
+      });
+
+      let nodes = Array.from(nodeById.values());
+      let connections = Array.from(connById.values());
+
+      if (nodes.length > MAX_NODES) nodes = pruneOldestNodes(nodes);
+      if (connections.length > MAX_NODES * 5) connections = pruneOldestConnections(connections);
+
+      return { nodes, connections };
+    });
+  },
+
   // COMPATIBILITY FUNCTION: Add connection (old API wrapper for addOrUpdateConnection)
   addConnection: (connection: Partial<Connection>) => {
     const now = Date.now();
