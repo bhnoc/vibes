@@ -256,3 +256,4 @@ docs/generated/
 *.bak
 *.backup
 *.orig 
+*.tgz
