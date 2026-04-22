@@ -544,15 +544,17 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // Collision repulsion — pushes overlapping nodes apart
+    // Collision repulsion — O(n²) with cheap bbox early-out to avoid sqrt on distant pairs
     const nodeArr = Array.from(activeNodes.current.values());
     for (let i = 0; i < nodeArr.length; i++) {
       for (let j = i + 1; j < nodeArr.length; j++) {
         const a = nodeArr[i], b = nodeArr[j];
         if (isPined(a.id) && isPined(b.id)) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
         const minDist = a.radius + b.radius + ns;
+        // Reject pairs that are clearly too far apart before computing sqrt
+        if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
         if (dist < minDist) {
           const push = cr * 0.3 * (minDist - dist) / dist * dt;
           if (!isPined(a.id)) { a.vx -= dx * push; a.vy -= dy * push; }
@@ -561,7 +563,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     }
 
-    // Spring + centre-pull for connected pairs
+    // Spring forces for connected pairs
     activeConnections.current.forEach(conn => {
       if (now - conn.lastActive > clt) return;
       const src = activeNodes.current.get(conn.sourceId);
@@ -578,11 +580,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const sf = springK * displacement * dt;
       if (!srcPinned) { src.vx += (dx / dist) * sf; src.vy += (dy / dist) * sf; }
       if (!tgtPinned) { tgt.vx -= (dx / dist) * sf; tgt.vy -= (dy / dist) * sf; }
+    });
 
-      // Gentle centre gravity so clusters float toward screen centre
-      const gravK = cps2 * 8;
-      if (!srcPinned) { src.vx += (centerX - src.x) * gravK * dt; src.vy += (centerY - src.y) * gravK * dt; }
-      if (!tgtPinned) { tgt.vx += (centerX - tgt.x) * gravK * dt; tgt.vy += (centerY - tgt.y) * gravK * dt; }
+    // Centre gravity — applied ONCE per connected node (NOT inside the connections loop,
+    // or hub nodes with many connections would receive N× the pull and slam to center)
+    const gravK = cps2 * 3;
+    activeNodes.current.forEach(node => {
+      if (isPined(node.id) || !connectedNodeIds.has(node.id)) return;
+      node.vx += (centerX - node.x) * gravK * dt;
+      node.vy += (centerY - node.y) * gravK * dt;
     });
 
     // Integrate: damp → cap → move → soft boundary
