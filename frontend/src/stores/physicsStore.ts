@@ -21,13 +21,13 @@ const defaultPhysics = {
   connectionPullStrength: 1.30,
   collisionRepulsion: 1.25,
   damping: 0.06,
-  connectionLifetime: 30000, // 30 seconds
+  connectionLifetime: 10000, // 10 seconds
   nodeSpacing: 150,
   driftAwayStrength: 3.0,
 }
 
 // Increment to force-reset localStorage when defaults change
-const PHYSICS_VERSION = 1;
+const PHYSICS_VERSION = 2;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(

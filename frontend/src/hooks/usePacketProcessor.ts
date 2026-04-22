@@ -83,8 +83,8 @@ interface FlowEntry {
 // every FLUSH_INTERVAL ms. This decouples packet rate from store update rate,
 // making the frontend safe at 10G/100G where individual packet processing would
 // overwhelm the GC.
-const FLUSH_INTERVAL = 100; // ms between store flushes
-const MAX_NEW_FLOWS_PER_FLUSH = 50; // cap on new node/connection pairs per flush
+const FLUSH_INTERVAL = 50; // ms between store flushes
+const MAX_NEW_FLOWS_PER_FLUSH = 200; // cap on new node/connection pairs per flush
 
 export const usePacketProcessor = () => {
   const { packets } = usePacketStore();

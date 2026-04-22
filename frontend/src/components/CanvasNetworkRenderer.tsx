@@ -461,20 +461,31 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     });
 
 
-    // Process connections
-    const nodeIds = new Set(Array.from(activeNodes.current.keys()))
-    const recentConnections = connections
+    // Process connections — per-node budget prevents hub nodes from drawing
+    // hundreds of spokes. Sort newest-first so the budget keeps recent activity.
+    const MAX_CONNS_PER_NODE = 5;
+    const nodeIds = new Set(Array.from(activeNodes.current.keys()));
+    const nodeBudget = new Map<string, number>();
+    const budgetedConnections = connections
       .filter(conn => nodeIds.has(conn.source) && nodeIds.has(conn.target))
-      .slice(0, 5000)
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .filter(conn => {
+        const src = nodeBudget.get(conn.source) ?? 0;
+        const dst = nodeBudget.get(conn.target) ?? 0;
+        if (src >= MAX_CONNS_PER_NODE || dst >= MAX_CONNS_PER_NODE) return false;
+        nodeBudget.set(conn.source, src + 1);
+        nodeBudget.set(conn.target, dst + 1);
+        return true;
+      });
 
     // Release all old connections
     activeConnections.current.forEach(c => connectionPool.release(c));
     activeConnections.current.length = 0;
 
-    recentConnections.forEach(conn => {
+    budgetedConnections.forEach(conn => {
       const sourceNode = activeNodes.current.get(conn.source)
       const targetNode = activeNodes.current.get(conn.target)
-      
+
       if (sourceNode && targetNode) {
         const renderedConn = connectionPool.acquire()
         renderedConn.color = conn.packetColor || getPacketColor(conn.source, conn.target, conn.protocol)
@@ -485,7 +496,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         renderedConn.lastActive = conn.lastActive
         renderedConn.sourceId = conn.source
         renderedConn.targetId = conn.target
-        
+
         activeConnections.current.push(renderedConn)
       }
     })
@@ -503,7 +514,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 //   const DRIFT_AWAY_SCALING = 0.000001;
     const INACTIVE_REMOVAL_SECONDS = 6000;
     const INACTIVITY_START_TIME = 3000;
-    const CENTER_PULL_STRENGTH = 0.0000002;
+    // At damping=0.06 (94% velocity killed per frame), steady-state velocity =
+    // force * 0.06 / 0.94. This value produces ~8px/s pull for nodes 300px away.
+    const CENTER_PULL_STRENGTH = 0.0015;
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;
@@ -652,7 +665,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const restLength = 40; // The desired distance between connected nodes
+          const restLength = 120; // desired spacing between connected nodes
 
           const displacement = distance - restLength;
           const pullForce = connectionPullStrength * PULL_SCALING;
@@ -1072,7 +1085,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   useEffect(() => {
     updateRenderObjects()
     
-    const interval = setInterval(updateRenderObjects, 500)
+    const interval = setInterval(updateRenderObjects, 100)
     return () => clearInterval(interval)
   }, [updateRenderObjects])
 
