@@ -266,14 +266,13 @@ body {
 
 /* Canvas container */
 .canvas-container {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: calc(100% - 36px); /* FIXED: Account for status bar height */
-  z-index: 1; /* Ensure canvas is behind UI panels */
-  overflow: hidden; /* FIXED: Prevent scrollbars */
-  padding-bottom: 36px; /* FIXED: Add padding to prevent overlap with status bar */
+  right: 0;
+  bottom: 36px; /* stop above the status bar */
+  z-index: 0;
+  overflow: hidden;
 }
 
 /* CRT effect */

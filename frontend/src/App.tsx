@@ -516,15 +516,7 @@ export const App = memo(() => {
           <IPDebugPage />
         ) : (
           <>
-            <div className="canvas-container" style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 0,
-              overflow: 'hidden'
-            }}>
+            <div className="canvas-container">
               {/* Use the fully memoized renderer component for maximum stability */}
               {memoizedRenderer}
             </div>

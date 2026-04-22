@@ -29,11 +29,11 @@ const defaultPhysics = {
   nodeSpacing: 150,
   driftAwayStrength: 3.0,
   centerPullStrength: 0.0015, // pulls connected nodes toward screen center
-  springRestLength: 120,      // desired px distance between connected nodes
+  springRestLength: 200,      // desired px distance between connected nodes (must exceed nodeSpacing + 2*nodeRadius = 170px)
 }
 
 // Increment to force-reset localStorage when defaults change
-const PHYSICS_VERSION = 3;
+const PHYSICS_VERSION = 4;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(

@@ -6,8 +6,10 @@ interface SizeState {
   setSize: (width: number, height: number) => void;
 }
 
+const STATUS_BAR_HEIGHT = 36;
+
 export const useSizeStore = create<SizeState>((set) => ({
   width: window.innerWidth,
-  height: window.innerHeight,
-  setSize: (width, height) => set({ width, height }),
-})); 
+  height: window.innerHeight - STATUS_BAR_HEIGHT,
+  setSize: (width, height) => set({ width, height: height - STATUS_BAR_HEIGHT }),
+}));

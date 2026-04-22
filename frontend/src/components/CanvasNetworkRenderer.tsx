@@ -514,8 +514,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const PULL_SCALING = 0.001;
     const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
 //   const DRIFT_AWAY_SCALING = 0.000001;
-    const INACTIVE_REMOVAL_SECONDS = 6000;
-    const INACTIVITY_START_TIME = 3000;
     const CENTER_PULL_STRENGTH = centerPullStrength;
 
     const now = Date.now();
@@ -567,7 +565,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       const timeSinceActive = now - node.lastActive;
 
-      if (timeSinceActive > INACTIVE_REMOVAL_SECONDS * 1000) {
+      if (timeSinceActive > connectionLifetime) {
         nodesToRemove.push(node.id);
         return;
       }
@@ -592,13 +590,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         node.vy += dy * driftForce * deltaTime;
       }
       
-      // Handle fading for inactive nodes
-      if (timeSinceActive > INACTIVITY_START_TIME) {
-        const fadeDuration = (INACTIVE_REMOVAL_SECONDS * 1000) - INACTIVITY_START_TIME;
-        const fadeProgress = (timeSinceActive - INACTIVITY_START_TIME) / fadeDuration;
-        node.alpha = 1 - Math.min(1, fadeProgress);
+      // Connected nodes stay fully visible; disconnected ones fade over connectionLifetime
+      if (connectedNodeIds.has(node.id)) {
+        node.alpha = 1;
       } else {
-        node.alpha = 1; // Instantly restore alpha if it becomes active again
+        node.alpha = Math.max(0, 1 - (timeSinceActive / connectionLifetime));
       }
     });
 
@@ -938,32 +934,20 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         ctx.fill()
       }
       
-      // Draw IP address label for nodes (if zoom is high enough)
-      if (vp.zoom > 0.75 && node.id.includes('.')) {
-        ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha * 0.9})`
-        ctx.font = `${Math.max(8, 10 * vp.zoom)}px monospace`
+      // Draw IP address label for nodes
+      if (node.id.includes('.')) {
+        const fontSize = Math.max(11, 14 * vp.zoom)
+        ctx.font = `${fontSize}px monospace`
         ctx.textAlign = 'center'
-        
-        // Position text below the node
-        const textY = node.y + node.radius + 15
-        
-        // For IP addresses, show short form if zoom is low
-        let displayText = node.id
-        if (vp.zoom < 1) {
-          // Show only last two octets when zoomed out
-          const parts = node.id.split('.')
-          if (parts.length === 4) {
-            displayText = `...${parts[2]}.${parts[3]}`
-          }
-        }
-        
-        // Draw text with background for better readability
-        const textWidth = ctx.measureText(displayText).width
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-        ctx.fillRect(node.x - textWidth/2 - 2, textY - 10, textWidth + 4, 12)
-        
+
+        const textY = node.y + node.radius + fontSize + 2
+        const textWidth = ctx.measureText(node.id).width
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)'
+        ctx.fillRect(node.x - textWidth/2 - 3, textY - fontSize, textWidth + 6, fontSize + 2)
+
         ctx.fillStyle = `rgba(${hr}, ${hg}, ${hb}, ${node.alpha})`
-        ctx.fillText(displayText, node.x, textY)
+        ctx.fillText(node.id, node.x, textY)
       }
     })
     
