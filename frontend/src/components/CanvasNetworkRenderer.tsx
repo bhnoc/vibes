@@ -256,11 +256,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
 
 
-  // The physics world is WORLD_SCALE times the screen viewport in each dimension,
-  // so zooming out reveals a much larger area rather than empty screen edges.
-  const WORLD_SCALE = 5;
-
-  // Update viewport size and center on the world
+  // Update viewport size
   useEffect(() => {
     if (canvasRef.current && width && height) {
       const canvas = canvasRef.current;
@@ -273,14 +269,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       viewportRef.current.width = width;
       viewportRef.current.height = height;
-
-      // On first load, center the viewport on the middle of the world
-      if (viewportRef.current.x === 0 && viewportRef.current.y === 0) {
-        const worldW = width * WORLD_SCALE;
-        const worldH = height * WORLD_SCALE;
-        viewportRef.current.x = worldW / 2 - width / 2;
-        viewportRef.current.y = worldH / 2 - height / 2;
-      }
 
       const ctx = canvas.getContext('2d');
       // setTransform (not scale) so repeated resizes don't accumulate DPR multiplication
@@ -308,8 +296,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       return nodePositions.current.get(nodeId)!
     }
 
-    const W = (viewportRef.current.width  || 1280) * WORLD_SCALE;
-    const H = (viewportRef.current.height || 800)  * WORLD_SCALE;
+    const W = viewportRef.current.width  || 1280;
+    const H = viewportRef.current.height || 800;
+
+    // Spawn in the centre third of the viewport so physics can spread things out naturally
+    const marginX = W * 0.25;
+    const marginY = H * 0.25;
+    const rangeX  = W * 0.5;
+    const rangeY  = H * 0.5;
 
     let x: number;
     let y: number;
@@ -318,11 +312,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const parts = nodeId.split('.').map(Number)
       if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
         const [a, b, c, d] = parts;
-        x = W * 0.05 + ((a * 13 + b * 7 + c * 3 + d) % Math.round(W * 0.9))
-        y = H * 0.05 + ((a * 11 + b * 5 + c * 17 + d * 3) % Math.round(H * 0.9))
+        x = marginX + ((a * 13 + b * 7 + c * 3 + d) % Math.round(rangeX))
+        y = marginY + ((a * 11 + b * 5 + c * 17 + d * 3) % Math.round(rangeY))
       } else {
-        x = W * 0.1 + Math.random() * W * 0.8
-        y = H * 0.1 + Math.random() * H * 0.8
+        x = marginX + Math.random() * rangeX
+        y = marginY + Math.random() * rangeY
       }
     } else {
       let hash = 0
@@ -330,8 +324,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         hash = ((hash << 5) - hash) + nodeId.charCodeAt(i)
         hash = hash & hash
       }
-      x = W * 0.05 + (Math.abs(hash) % Math.round(W * 0.9))
-      y = H * 0.05 + (Math.abs(hash >> 8) % Math.round(H * 0.9))
+      x = marginX + (Math.abs(hash)      % Math.round(rangeX))
+      y = marginY + (Math.abs(hash >> 8) % Math.round(rangeY))
     }
 
     const position = { x, y }
@@ -385,11 +379,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
 
       } else {
-        const W = (viewportRef.current.width  || 1280) * WORLD_SCALE;
-        const H = (viewportRef.current.height || 800)  * WORLD_SCALE;
+        const W = viewportRef.current.width  || 1280;
+        const H = viewportRef.current.height || 800;
         const position = {
-          x: W * 0.05 + Math.random() * W * 0.9,
-          y: H * 0.05 + Math.random() * H * 0.9,
+          x: W * 0.25 + Math.random() * W * 0.5,
+          y: H * 0.25 + Math.random() * H * 0.5,
         };
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
@@ -482,29 +476,32 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   }, [generatePosition, nodePool, connectionPool])
 
-  // updatePhysics reads all values from refs so it never needs to be recreated.
-  // Stable deps = the RAF loop is never restarted due to physics param changes.
   const updatePhysics = useCallback((deltaTime: number) => {
     const vp = viewportRef.current;
     if (!vp.width || !vp.height) return;
 
-    const {
-      nodeSpacing: ns, connectionPullStrength: cps, collisionRepulsion: cr,
-      damping: dmp, connectionLifetime: clt, driftAwayStrength: das,
-      centerPullStrength: cps2, springRestLength: srl,
-    } = physicsRef.current;
+    const { nodeSpacing: ns, connectionPullStrength: cps, collisionRepulsion: cr,
+            damping: dmp, connectionLifetime: clt, driftAwayStrength: das,
+            centerPullStrength: cps2, springRestLength: srl } = physicsRef.current;
 
-    const PULL_SCALING = 0.001;
-    const REPULSION_SCALING = 0.03;
+    // Normalise to 60 fps so force constants don't need to change with frame rate.
+    // dt = 1.0 at 60 fps, 0.5 at 120 fps, 2.0 at 30 fps.
+    const dt = Math.min(deltaTime, 50) / 16.67;
+
+    // Correct damping: retain (1-dmp) fraction of velocity each normalised frame.
+    // dmp = 0.06 → 94 % retained per frame (smooth, slightly damped).
+    const retain = Math.pow(1 - dmp, dt);
+
+    // Max px moved per normalised frame — prevents teleportation on first frame.
+    const MAX_V = 15;
 
     const now = Date.now();
-    const worldW = vp.width  * WORLD_SCALE;
-    const worldH = vp.height * WORLD_SCALE;
-    const centerX = worldW / 2;
-    const centerY = worldH / 2;
+    const centerX = vp.width  / 2;
+    const centerY = vp.height / 2;
     const nodesToRemove: string[] = [];
-    const offscreenMargin = 200;
+    const { isPined } = usePinStore.getState();
 
+    // Mark which nodes have at least one live connection
     const connectedNodeIds = new Set<string>();
     activeConnections.current.forEach(conn => {
       if (now - conn.lastActive < clt) {
@@ -513,197 +510,105 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-      // --- Pinned Node Positioning ---
-      const renderedNodes = Array.from(activeNodes.current.values());
-      const pinnedNodes = renderedNodes.filter(node => usePinStore.getState().isPined(node.id));
-      const sortedPinnedNodes = pinnedNodes.sort((a, b) => a.id.localeCompare(b.id));
-      
-      const NODES_PER_COLUMN = 18;
-      const COLUMN_SPACING = 200;
-      const NODE_SPACING_Y = 50;
-
-      sortedPinnedNodes.forEach((node, index) => {
-        const column = Math.floor(index / NODES_PER_COLUMN);
-        const rowIndex = index % NODES_PER_COLUMN;
-        
-        const x = viewportRef.current.width - 100 - (column * COLUMN_SPACING);
-        const y = 100 + (rowIndex * NODE_SPACING_Y);
-
-        pinnedNodePositions.current.set(node.id, { x, y });
-      });
-
-
-      // Apply forces
-      activeNodes.current.forEach(node => {
-        if (usePinStore.getState().isPined(node.id)) {
-          const pos = pinnedNodePositions.current.get(node.id);
-          if (pos) {
-            node.x = pos.x;
-            node.y = pos.y;
-            node.vx = 0;
-            node.vy = 0;
-          }
-          return; // Skip other physics for pinned nodes
-        }
-
-      const timeSinceActive = now - node.lastActive;
-
-      if (timeSinceActive > clt) {
-        nodesToRemove.push(node.id);
-        return;
-      }
-
-      const isOffscreen =
-        node.x < -offscreenMargin ||
-        node.x > worldW + offscreenMargin ||
-        node.y < -offscreenMargin ||
-        node.y > worldH + offscreenMargin;
-
-      if (isOffscreen) {
-        nodesToRemove.push(node.id);
-        return;
-      }
-
-      if (!connectedNodeIds.has(node.id)) {
-        const driftForce = das * 0.000001;
-        const dx = node.x - centerX;
-        const dy = node.y - centerY;
-        node.vx += dx * driftForce * deltaTime;
-        node.vy += dy * driftForce * deltaTime;
-      }
-      
-      if (connectedNodeIds.has(node.id)) {
-        node.alpha = 1;
-      } else {
-        node.alpha = Math.max(0, 1 - (timeSinceActive / clt));
-      }
+    // Pinned nodes — stack along the right edge
+    const pinnedList = Array.from(activeNodes.current.values())
+      .filter(n => isPined(n.id))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    pinnedList.forEach((node, i) => {
+      const col = Math.floor(i / 18);
+      node.x = vp.width - 100 - col * 200;
+      node.y = 100 + (i % 18) * 50;
+      node.vx = 0; node.vy = 0;
+      pinnedNodePositions.current.set(node.id, { x: node.x, y: node.y });
     });
 
-    // Collision detection and resolution
-    const nodes = Array.from(activeNodes.current.values());
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const nodeA = nodes[i];
-        const nodeB = nodes[j];
-        const dx = nodeB.x - nodeA.x;
-        const dy = nodeB.y - nodeA.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const minDistance = nodeA.radius + nodeB.radius + ns;
-
-        if (distance < minDistance) {
-          const overlap = minDistance - distance;
-          const ax = dx / distance;
-          const ay = dy / distance;
-
-          const repulsionForce = cr * REPULSION_SCALING;
-          nodeA.vx -= ax * overlap * repulsionForce;
-          nodeA.vy -= ay * overlap * repulsionForce;
-          nodeB.vx += ax * overlap * repulsionForce;
-          nodeB.vy += ay * overlap * repulsionForce;
-        }
-      }
-    }
-
-    activeConnections.current.forEach(conn => {
-      // Expired connections should not apply physics
-      if (now - conn.lastActive > clt) {
-        return;
-      }
-      const source = activeNodes.current.get(conn.sourceId);
-      const target = activeNodes.current.get(conn.targetId);
-
-      if (source && target) {
-        const isSourcePinned = usePinStore.getState().isPined(source.id);
-        const isTargetPinned = usePinStore.getState().isPined(target.id);
-        const PULL_IN_SPEED = 0.1; // Aggressive pull-in
-        const ORBIT_DISTANCE = 30; // 30px orbit
-
-        if (isSourcePinned && !isTargetPinned) {
-          const dx = target.x - source.x;
-          const dy = target.y - source.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > ORBIT_DISTANCE) {
-            const targetX = source.x + (dx / distance) * ORBIT_DISTANCE;
-            const targetY = source.y + (dy / distance) * ORBIT_DISTANCE;
-            target.x = lerp(target.x, targetX, PULL_IN_SPEED);
-            target.y = lerp(target.y, targetY, PULL_IN_SPEED);
-          }
-        } else if (!isSourcePinned && isTargetPinned) {
-          const dx = source.x - target.x;
-          const dy = source.y - target.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > ORBIT_DISTANCE) {
-            const targetX = target.x + (dx / distance) * ORBIT_DISTANCE;
-            const targetY = target.y + (dy / distance) * ORBIT_DISTANCE;
-            source.x = lerp(source.x, targetX, PULL_IN_SPEED);
-            source.y = lerp(source.y, targetY, PULL_IN_SPEED);
-          }
-        } else {
-          const dx = target.x - source.x;
-          const dy = target.y - source.y;
-          const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const displacement = distance - srl;
-          const pullForce = cps * PULL_SCALING;
-          
-          // Apply a spring-like force (F = -kx)
-          const forceMagnitude = displacement * pullForce * 0.1; // Using a smaller multiplier for stability
-          
-          const fx = (dx / distance) * forceMagnitude;
-          const fy = (dy / distance) * forceMagnitude;
-
-          source.vx += fx * deltaTime;
-          source.vy += fy * deltaTime;
-          target.vx -= fx * deltaTime;
-          target.vy -= fy * deltaTime;
-        }
-
-        // 2. Center pull for connected nodes
-        const source_dx_center = centerX - source.x;
-        const source_dy_center = centerY - source.y;
-        source.vx += source_dx_center * cps2 * deltaTime;
-        source.vy += source_dy_center * cps2 * deltaTime;
-
-        const target_dx_center = centerX - target.x;
-        const target_dy_center = centerY - target.y;
-        target.vx += target_dx_center * cps2 * deltaTime;
-        target.vy += target_dy_center * cps2 * deltaTime;
-
-        // When a connection is active, stop drifting and reset velocity
-        if (source.isDriftingAway) {
-          source.isDriftingAway = false;
-          source.vx = 0;
-          source.vy = 0;
-        }
-        if (target.isDriftingAway) {
-          target.isDriftingAway = false;
-          target.vx = 0;
-          target.vy = 0;
-        }
-      }
-    });
-
-    // Handle removal after physics calculations
-    if (nodesToRemove.length > 0) {
-      const removeFunc = useNetworkStore.getState().removeNode;
-      nodesToRemove.forEach(id => removeFunc(id));
-    }
-
-    // Update positions
+    // Per-node: expiry, fade, drift
     activeNodes.current.forEach(node => {
-      node.vx *= dmp;
-      node.vy *= dmp;
+      if (isPined(node.id)) return;
 
-      node.x += node.vx * deltaTime;
-      node.y += node.vy * deltaTime;
+      const age = now - node.lastActive;
+      if (age > clt) { nodesToRemove.push(node.id); return; }
 
-      // Bounce at world boundaries
-      const margin = 20;
-      if (node.x < -margin)              { node.x = -margin;              node.vx =  Math.abs(node.vx) * 0.3; }
-      if (node.x > worldW + margin)      { node.x = worldW + margin;      node.vx = -Math.abs(node.vx) * 0.3; }
-      if (node.y < -margin)              { node.y = -margin;              node.vy =  Math.abs(node.vy) * 0.3; }
-      if (node.y > worldH + margin)      { node.y = worldH + margin;      node.vy = -Math.abs(node.vy) * 0.3; }
+      const offscreen = node.x < -200 || node.x > vp.width + 200 ||
+                        node.y < -200 || node.y > vp.height + 200;
+      if (offscreen) { nodesToRemove.push(node.id); return; }
+
+      // Alpha
+      node.alpha = connectedNodeIds.has(node.id) ? 1 : Math.max(0, 1 - age / clt);
+
+      // Drift: disconnected nodes slowly wander away from centre
+      if (!connectedNodeIds.has(node.id)) {
+        const driftK = das * 0.000002;
+        node.vx += (node.x - centerX) * driftK * dt;
+        node.vy += (node.y - centerY) * driftK * dt;
+      }
     });
 
+    // Collision repulsion — pushes overlapping nodes apart
+    const nodeArr = Array.from(activeNodes.current.values());
+    for (let i = 0; i < nodeArr.length; i++) {
+      for (let j = i + 1; j < nodeArr.length; j++) {
+        const a = nodeArr[i], b = nodeArr[j];
+        if (isPined(a.id) && isPined(b.id)) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+        const minDist = a.radius + b.radius + ns;
+        if (dist < minDist) {
+          const push = cr * 0.3 * (minDist - dist) / dist * dt;
+          if (!isPined(a.id)) { a.vx -= dx * push; a.vy -= dy * push; }
+          if (!isPined(b.id)) { b.vx += dx * push; b.vy += dy * push; }
+        }
+      }
+    }
+
+    // Spring + centre-pull for connected pairs
+    activeConnections.current.forEach(conn => {
+      if (now - conn.lastActive > clt) return;
+      const src = activeNodes.current.get(conn.sourceId);
+      const tgt = activeNodes.current.get(conn.targetId);
+      if (!src || !tgt) return;
+
+      const srcPinned = isPined(src.id), tgtPinned = isPined(tgt.id);
+      const dx = tgt.x - src.x, dy = tgt.y - src.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
+      const displacement = dist - srl;
+
+      // Spring: F = k * displacement, normalised by distance for direction
+      const springK = cps * 0.003;
+      const sf = springK * displacement * dt;
+      if (!srcPinned) { src.vx += (dx / dist) * sf; src.vy += (dy / dist) * sf; }
+      if (!tgtPinned) { tgt.vx -= (dx / dist) * sf; tgt.vy -= (dy / dist) * sf; }
+
+      // Gentle centre gravity so clusters float toward screen centre
+      const gravK = cps2 * 8;
+      if (!srcPinned) { src.vx += (centerX - src.x) * gravK * dt; src.vy += (centerY - src.y) * gravK * dt; }
+      if (!tgtPinned) { tgt.vx += (centerX - tgt.x) * gravK * dt; tgt.vy += (centerY - tgt.y) * gravK * dt; }
+    });
+
+    // Integrate: damp → cap → move → soft boundary
+    activeNodes.current.forEach(node => {
+      if (isPined(node.id)) return;
+
+      node.vx *= retain;
+      node.vy *= retain;
+      node.vx = Math.max(-MAX_V, Math.min(MAX_V, node.vx));
+      node.vy = Math.max(-MAX_V, Math.min(MAX_V, node.vy));
+
+      node.x += node.vx * dt;
+      node.y += node.vy * dt;
+
+      // Soft wall: push back from edges
+      const edge = 40;
+      if (node.x < edge)            node.vx += (edge - node.x)            * 0.2 * dt;
+      if (node.x > vp.width - edge) node.vx -= (node.x - (vp.width - edge)) * 0.2 * dt;
+      if (node.y < edge)            node.vy += (edge - node.y)            * 0.2 * dt;
+      if (node.y > vp.height - edge) node.vy -= (node.y - (vp.height - edge)) * 0.2 * dt;
+    });
+
+    if (nodesToRemove.length > 0) {
+      const { removeNode } = useNetworkStore.getState();
+      nodesToRemove.forEach(id => removeNode(id));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -821,7 +726,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           
           // --- Draw Port and Protocol Text ---
           const protocolText = (conn.protocol?.toUpperCase() || '???');
-          const portText = conn.dstPort > 0 ? `:${conn.dstPort}` : '';
+          const portText = (conn.dstPort ?? 0) > 0 ? `:${conn.dstPort}` : '';
           const fullText = `${protocolText}${portText}`;
           
           ctx.font = `${Math.max(9, 11 * vp.zoom)}px monospace`;
@@ -1004,12 +909,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
         const vp = viewportRef.current;
-        const worldW = vp.width  * WORLD_SCALE;
-        const worldH = vp.height * WORLD_SCALE;
-        vp.x = worldW / 2 - vp.width  / 2;
-        vp.y = worldH / 2 - vp.height / 2;
+        vp.x = 0;
+        vp.y = 0;
         vp.zoom = 1.0;
-        logger.log('🔄 View reset to world center')
+        logger.log('🔄 View reset')
       }
     }
 

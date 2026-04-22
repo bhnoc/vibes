@@ -369,10 +369,6 @@ body {
   100% { transform: translateY(100%); }
 }
 
-/* Debug styles - temporary */
-.settings-panel, .stats-panel, .status-bar {
-  border: 3px solid #ff0000 !important; /* Red border to help locate */
-}
 
 /* Error bar */
 .error-bar {
