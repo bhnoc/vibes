@@ -295,67 +295,40 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     )
   }, [])
 
-  // Generate stable positions for nodes based on IP address
+  // Generate stable spawn positions proportional to the current viewport.
+  // Positions are cached so a node doesn't jump on re-render.
   const generatePosition = useCallback((nodeId: string): {x: number, y: number} => {
     if (nodePositions.current.has(nodeId)) {
       return nodePositions.current.get(nodeId)!
     }
 
-    // IP-based positioning for network topology visualization
+    const W = viewportRef.current.width  || 1280;
+    const H = viewportRef.current.height || 800;
+
+    let x: number;
+    let y: number;
+
     if (nodeId.includes('.')) {
-      // Parse IP address for intelligent positioning
       const parts = nodeId.split('.').map(Number)
       if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
-        // Much more spread out positioning based on IP structure
-        const firstOctet = parts[0]
-        const secondOctet = parts[1] 
-        const thirdOctet = parts[2]
-        const fourthOctet = parts[3]
-        
-        // Create major regions based on first octet (10.x, 172.x, 192.x, etc.)
-        let regionX = 0
-        let regionY = 0
-        
-        if (firstOctet === 192) {
-          regionX = 200 + secondOctet * 4 // 192.168.x -> spread horizontally
-          regionY = 150
-        } else if (firstOctet === 10) {
-          regionX = 500 + secondOctet * 3 // 10.x.x -> different region
-          regionY = 300
-        } else if (firstOctet === 172) {
-          regionX = 800 + (secondOctet - 16) * 5 // 172.16-31.x -> another region
-          regionY = 200
-        } else {
-          // Other ranges spread out more
-          regionX = 100 + (firstOctet % 20) * 50
-          regionY = 400 + (firstOctet % 10) * 40
-        }
-        
-        // Add variation based on 3rd and 4th octets
-        const spreadX = (thirdOctet * 2) + (fourthOctet % 50) - 25 // More spread
-        const spreadY = (fourthOctet * 1.5) + (thirdOctet % 40) - 20
-        
-        // Final position with bounds checking
-        const x = Math.max(50, Math.min(1400, regionX + spreadX))
-        const y = Math.max(50, Math.min(800, regionY + spreadY))
-        
-        const position = { x, y }
-        nodePositions.current.set(nodeId, position)
-        return position
+        const [a, b, c, d] = parts;
+        // Spread across the full viewport using octet entropy
+        x = W * 0.05 + ((a * 13 + b * 7 + c * 3 + d) % Math.round(W * 0.9))
+        y = H * 0.05 + ((a * 11 + b * 5 + c * 17 + d * 3) % Math.round(H * 0.9))
+      } else {
+        x = W * 0.1 + Math.random() * W * 0.8
+        y = H * 0.1 + Math.random() * H * 0.8
       }
+    } else {
+      let hash = 0
+      for (let i = 0; i < nodeId.length; i++) {
+        hash = ((hash << 5) - hash) + nodeId.charCodeAt(i)
+        hash = hash & hash
+      }
+      x = W * 0.05 + (Math.abs(hash) % Math.round(W * 0.9))
+      y = H * 0.05 + (Math.abs(hash >> 8) % Math.round(H * 0.9))
     }
 
-    // Fallback to hash-based positioning for non-IP nodes
-    let hash = 0
-    for (let i = 0; i < nodeId.length; i++) {
-      const char = nodeId.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-
-    const x = 200 + (Math.abs(hash) % 800)
-    const y = 150 + (Math.abs(hash >> 8) % 500)
-    
     const position = { x, y }
     nodePositions.current.set(nodeId, position)
     return position
@@ -370,9 +343,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     const now = Date.now()
     const activeAge = 30000 // 30 seconds for "active" state
 
-    // Cap to the most recently active nodes — keeps visual complexity bounded
-    // regardless of how many nodes the store has accumulated.
+    // Only render nodes that have at least one connection — orphan nodes are impossible.
+    const nodesWithConnections = new Set<string>();
+    connections.forEach(c => { nodesWithConnections.add(c.source); nodesWithConnections.add(c.target); });
+
     const limitedNodes = storeNodes
+      .filter(n => nodesWithConnections.has(n.id))
       .slice()
       .sort((a, b) => b.lastActive - a.lastActive)
       .slice(0, maxNodes);
@@ -404,15 +380,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         }
 
       } else {
-        // Add new node - place it randomly around the center up to 500px away
-        const centerX = viewportRef.current.width / 2;
-        const centerY = viewportRef.current.height / 2;
-        const angle = Math.random() * 2 * Math.PI;
-        const radius = 500 + Math.random() * 300; // Spawn between 500 and 800px radius
-        
+        // Spawn randomly across most of the viewport
+        const W = viewportRef.current.width  || 1280;
+        const H = viewportRef.current.height || 800;
         const position = {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
+          x: W * 0.1 + Math.random() * W * 0.8,
+          y: H * 0.1 + Math.random() * H * 0.8,
         };
         const renderedNode = nodePool.acquire();
         renderedNode.id = node.id;
@@ -1035,11 +1008,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
-        // Reset view to show full network
-        viewportRef.current.x = -400
-        viewportRef.current.y = -200
-        viewportRef.current.zoom = 0.3
-        logger.log('🔄 View reset to show full network')
+        viewportRef.current.x = 0
+        viewportRef.current.y = 0
+        viewportRef.current.zoom = 1.0
+        logger.log('🔄 View reset')
       }
     }
 
