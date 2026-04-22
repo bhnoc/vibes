@@ -24,16 +24,16 @@ export interface PhysicsSettings {
 const defaultPhysics = {
   connectionPullStrength: 1.30,
   collisionRepulsion: 1.25,
-  damping: 0.06,
-  connectionLifetime: 10000,  // 10 seconds
-  nodeSpacing: 150,
+  damping: 0.20,             // overdamped — nodes settle without oscillating (critical ≈ 0.17 for our spring)
+  connectionLifetime: 30000, // 30 seconds — stable enough to see the network
+  nodeSpacing: 120,
   driftAwayStrength: 3.0,
-  centerPullStrength: 0.0015, // pulls connected nodes toward screen center
-  springRestLength: 200,      // desired px distance between connected nodes (must exceed nodeSpacing + 2*nodeRadius = 170px)
+  centerPullStrength: 0.0008, // gentle pull toward screen center
+  springRestLength: 180,      // desired px distance between connected nodes (must exceed nodeSpacing + 2*nodeRadius = 140px)
 }
 
 // Increment to force-reset localStorage when defaults change
-const PHYSICS_VERSION = 4;
+const PHYSICS_VERSION = 5;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(

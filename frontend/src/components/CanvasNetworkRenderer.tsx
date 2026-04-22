@@ -544,7 +544,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
-    // Collision repulsion — O(n²) with cheap bbox early-out to avoid sqrt on distant pairs
+    // Repulsion — all nodes repel each other within a soft zone.
+    // The outer soft zone (minDist * 1.5) spreads nodes out naturally;
+    // the inner hard zone (< minDist) prevents overlap.
+    // Bbox early-out skips the sqrt for distant pairs cheaply.
     const nodeArr = Array.from(activeNodes.current.values());
     for (let i = 0; i < nodeArr.length; i++) {
       for (let j = i + 1; j < nodeArr.length; j++) {
@@ -552,18 +555,22 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         if (isPined(a.id) && isPined(b.id)) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
         const minDist = a.radius + b.radius + ns;
-        // Reject pairs that are clearly too far apart before computing sqrt
-        if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
+        const softDist = minDist * 1.5;
+        if (Math.abs(dx) > softDist || Math.abs(dy) > softDist) continue;
         const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
-        if (dist < minDist) {
-          const push = cr * 0.3 * (minDist - dist) / dist * dt;
+        if (dist < softDist) {
+          // Hard zone: strong push; soft zone: gentle spread
+          const strength = dist < minDist
+            ? cr * 0.5 * (minDist - dist) / dist
+            : cr * 0.05 * (softDist - dist) / dist;
+          const push = strength * dt;
           if (!isPined(a.id)) { a.vx -= dx * push; a.vy -= dy * push; }
           if (!isPined(b.id)) { b.vx += dx * push; b.vy += dy * push; }
         }
       }
     }
 
-    // Spring forces for connected pairs
+    // Spring forces for connected pairs — doubled constant for stronger attraction
     activeConnections.current.forEach(conn => {
       if (now - conn.lastActive > clt) return;
       const src = activeNodes.current.get(conn.sourceId);
@@ -575,8 +582,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
       const displacement = dist - srl;
 
-      // Spring: F = k * displacement, normalised by distance for direction
-      const springK = cps * 0.003;
+      const springK = cps * 0.006;
       const sf = springK * displacement * dt;
       if (!srcPinned) { src.vx += (dx / dist) * sf; src.vy += (dy / dist) * sf; }
       if (!tgtPinned) { tgt.vx -= (dx / dist) * sf; tgt.vy -= (dy / dist) * sf; }
@@ -584,7 +590,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Centre gravity — applied ONCE per connected node (NOT inside the connections loop,
     // or hub nodes with many connections would receive N× the pull and slam to center)
-    const gravK = cps2 * 3;
+    const gravK = cps2;
     activeNodes.current.forEach(node => {
       if (isPined(node.id) || !connectedNodeIds.has(node.id)) return;
       node.vx += (centerX - node.x) * gravK * dt;
@@ -719,8 +725,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.lineTo(target.x, target.y)
       ctx.stroke()
       
-      // Add arrow indicator for direction and port/protocol info (if zoom is high enough)
-      if (vp.zoom > 0.8) {
+      // Port/protocol labels only when zoomed in — reduces visual noise at default zoom
+      if (vp.zoom > 1.5) {
         const dx = target.x - source.x
         const dy = target.y - source.y
         const len = Math.sqrt(dx * dx + dy * dy)
@@ -948,7 +954,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   useEffect(() => {
     updateRenderObjects()
     
-    const interval = setInterval(updateRenderObjects, 100)
+    const interval = setInterval(updateRenderObjects, 200)
     return () => clearInterval(interval)
   }, [updateRenderObjects])
 

@@ -15,7 +15,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       verboseLogging: false,
       toggleVerboseLogging: () => set((state) => ({ verboseLogging: !state.verboseLogging })),
-      maxNodes: 200,
+      maxNodes: 75,
       setMaxNodes: (n) => set({ maxNodes: n }),
       maxConnectionsPerNode: 5,
       setMaxConnectionsPerNode: (n) => set({ maxConnectionsPerNode: n }),
