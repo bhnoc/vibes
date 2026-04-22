@@ -158,6 +158,13 @@ export const App = memo(() => {
   
   // Process packets into nodes and connections
   usePacketProcessor()
+
+  // Periodically remove expired nodes and connections from the store
+  useEffect(() => {
+    const { removeInactiveElements } = useNetworkStore.getState();
+    const id = setInterval(removeInactiveElements, 5000);
+    return () => clearInterval(id);
+  }, [])
   
   // Check URL on initial load to see if real capture was requested
   useEffect(() => {
@@ -571,13 +578,6 @@ export const App = memo(() => {
             />
           </>
         )}
-        
-        {/* Performance Test Data Generator (always active for both routes) */}
-        <PerformanceTestData 
-          enabled={performanceTestData.enabled}
-          nodeCount={performanceTestData.nodeCount}
-          connectionCount={performanceTestData.connectionCount}
-        />
         
         {error && (
           <div className="error-bar">

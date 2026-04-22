@@ -101,14 +101,14 @@ export const PhysicsPanel: React.FC = () => {
           onChange={(v: number) => setDamping(v / 1000)}
           displayValue={damping.toFixed(3)}
         />
-        <RangeSlider 
+        <RangeSlider
           label="Connection Lifetime"
           value={connectionLifetime}
-          min="100"
-          max="10000"
-          step="100"
+          min="1000"
+          max="60000"
+          step="1000"
           onChange={setConnectionLifetime}
-          displayValue={`${connectionLifetime} ms`}
+          displayValue={`${(connectionLifetime / 1000).toFixed(0)}s`}
         />
       </div>
     </div>

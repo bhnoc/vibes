@@ -6,7 +6,6 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { usePhysicsStore } from '../stores/physicsStore'
 import { usePinStore } from '../stores/pinStore'
 import { logger } from '../utils/logger'
-import { useWhyDidYouUpdate } from '../hooks/useWhyDidYouUpdate'
 
 // Color utility functions for enhanced node coloring
 function hexToRgb(hex: string): {r: number, g: number, b: number} | null {
@@ -229,9 +228,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     driftAwayStrength,
   } = usePhysicsStore()
 
-  console.log('--- CanvasNetworkRenderer RE-RENDER ---');
-  useWhyDidYouUpdate('CanvasNetworkRenderer', { nodes, connections, height, width, verboseLogging, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, connectionLifetime, driftAwayStrength });
-
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
 
@@ -239,7 +235,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   // Object pools
   const nodePool = useMemo(() => new ObjectPool<RenderedNode>(
     () => ({ id: '', x: 0, y: 0, vx: 0, vy: 0, radius: 0, color: '', highlightColor: '', alpha: 0, lastActive: 0, isDriftingAway: false }),
-    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.isDriftingAway = false }
+    (node) => { node.id = ''; node.alpha = 0; node.lastActive = 0; node.isDriftingAway = false; node.x = 0; node.y = 0; node.vx = 0; node.vy = 0; }
   ), [])
 
   const connectionPool = useMemo(() => new ObjectPool<RenderedConnection>(
@@ -363,12 +359,23 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     return position
   }, [])
 
-  // Update rendered objects from store data
+  // Update rendered objects from store data.
+  // Reads store state directly so this callback is stable and won't reset the
+  // interval on every packet (which would make the interval never fire).
   const updateRenderObjects = useCallback(() => {
+    const { nodes: storeNodes, connections } = useNetworkStore.getState();
+    const { maxNodes } = useSettingsStore.getState();
     const now = Date.now()
     const activeAge = 30000 // 30 seconds for "active" state
 
-    const storeNodesById = new Map(nodes.map(n => [n.id, n]));
+    // Cap to the most recently active nodes — keeps visual complexity bounded
+    // regardless of how many nodes the store has accumulated.
+    const limitedNodes = storeNodes
+      .slice()
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .slice(0, maxNodes);
+
+    const storeNodesById = new Map(limitedNodes.map(n => [n.id, n]));
     const currentRenderedNodeIds = new Set(activeNodes.current.keys());
 
     // Remove nodes that are no longer in the store
@@ -483,7 +490,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     })
 
-  }, [nodes, connections, generatePosition, nodePool, connectionPool])
+  }, [generatePosition, nodePool, connectionPool])
 
   const updatePhysics = useCallback((deltaTime: number) => {
     if (!width || !height) return;
@@ -700,6 +707,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
+
+      // Bounce nodes at the viewport edge + 20px margin so they never
+      // drift permanently off-screen even with high driftAwayStrength.
+      const margin = 20;
+      const vp = viewportRef.current;
+      if (node.x < -margin)              { node.x = -margin;              node.vx = Math.abs(node.vx) * 0.3; }
+      if (node.x > vp.width + margin)    { node.x = vp.width + margin;    node.vx = -Math.abs(node.vx) * 0.3; }
+      if (node.y < -margin)              { node.y = -margin;              node.vy = Math.abs(node.vy) * 0.3; }
+      if (node.y > vp.height + margin)   { node.y = vp.height + margin;   node.vy = -Math.abs(node.vy) * 0.3; }
     });
 
   }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength]);
@@ -736,12 +752,6 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     ctx.fillStyle = 'black'
     ctx.fillRect(0, 0, width, height)
     
-    // DEBUG: Draw a border to check canvas boundaries
-    ctx.strokeStyle = 'red';
-    ctx.lineWidth = 1; // 1 logical pixel will be scaled by DPR
-    ctx.strokeRect(0, 0, width, height);
-
-
     const vp = viewportRef.current
 
     // Save context and apply viewport transform
@@ -1062,8 +1072,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   useEffect(() => {
     updateRenderObjects()
     
-    // Only update every 2 seconds instead of 1 second for better performance
-    const interval = setInterval(updateRenderObjects, 2000)
+    const interval = setInterval(updateRenderObjects, 500)
     return () => clearInterval(interval)
   }, [updateRenderObjects])
 

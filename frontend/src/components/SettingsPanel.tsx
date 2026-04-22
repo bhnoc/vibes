@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNetworkStore } from '../stores/networkStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { FiWifi, FiSliders } from 'react-icons/fi';
 import { PhysicsPanel } from './PhysicsPanel';
 
@@ -29,6 +30,7 @@ export const SettingsPanel: React.FC<{
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('network');
   const { clearNetwork } = useNetworkStore();
+  const { maxNodes, setMaxNodes } = useSettingsStore();
 
   const handlePanelMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -142,6 +144,23 @@ export const SettingsPanel: React.FC<{
                 <div style={{ color: '#9f9' }}>{wsPreviewUrl}</div>
               </div>
             )}
+
+            <div style={{ marginTop: '20px' }}>
+              <h3>Display</h3>
+              <label>Max Nodes on Screen: {maxNodes}</label>
+              <input
+                type="range"
+                min="50"
+                max="1000"
+                step="50"
+                value={maxNodes}
+                onChange={(e) => setMaxNodes(Number(e.target.value))}
+                style={{ width: '100%', marginTop: '6px' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', opacity: 0.6 }}>
+                <span>50</span><span>1000</span>
+              </div>
+            </div>
 
             <button
               onClick={clearNetwork}

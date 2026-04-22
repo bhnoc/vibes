@@ -38,7 +38,7 @@ export interface Connection {
 interface NetworkState {
   nodes: Node[];
   connections: Connection[];
-  updateNodeActivity: (nodeId: string) => void;
+  updateNodeActivity: (nodeId: string, port?: number) => void;
   addOrUpdateNode: (node: Node) => void;
   addOrUpdateConnection: (connection: Connection) => void;
   // Legacy/compatibility API methods
@@ -243,24 +243,14 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
   nodes: [],
   connections: [],
   
-  // DIRECT method to update node activity - bypasses batching
+  // Mutate lastActive in place — no set() means no React re-render on every packet.
+  // The renderer reads via getState() every 500ms, so it will pick up the change.
   updateNodeActivity: (nodeId: string, port?: number) => {
-    const now = Date.now();
-    set((state) => {
-      const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
-      if (nodeIndex !== -1) {
-        const updatedNodes = [...state.nodes];
-        const existingNode = updatedNodes[nodeIndex];
-        const updatedPorts = new Set(existingNode.ports);
-        if (port) {
-          updatedPorts.add(port);
-        }
-        updatedNodes[nodeIndex] = { ...existingNode, lastActive: now, ports: updatedPorts };
-        logger.log(`⚡ DIRECT UPDATE: ${nodeId} lastActive updated to ${now}`);
-        return { ...state, nodes: updatedNodes };
-      }
-      return state;
-    });
+    const node = get().nodes.find(n => n.id === nodeId);
+    if (node) {
+      node.lastActive = Date.now();
+      if (port !== undefined) node.ports.add(port);
+    }
   },
   
   // Add or update a node (replace if exists)
@@ -312,36 +302,26 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
     useNetworkStore.getState().addOrUpdateNode(node);
   },
   
-  // Add or update a connection (replace if exists)
+  // Add or update a connection.
+  // Existing connections mutate lastActive in place (no set() = no re-render per packet).
+  // New connections call set() so subscribers see the structural change.
   addOrUpdateConnection: throttle((connection: Connection) => {
-    set((state) => {
-      const connectionIndex = state.connections.findIndex(
-        (c) => c.id === connection.id
-      );
-      
-      if (connectionIndex !== -1) {
-        // Update existing connection
-        const updatedConnections = [...state.connections];
-        const existingConnection = updatedConnections[connectionIndex];
-        // Smart merge: preserve port numbers if the new packet doesn't have them
-        updatedConnections[connectionIndex] = {
-          ...existingConnection,
-          ...connection,
-          srcPort: connection.srcPort || existingConnection.srcPort,
-          dstPort: connection.dstPort || existingConnection.dstPort,
-        };
-        return { ...state, connections: updatedConnections };
-      } else {
-        // Add new connection (with pruning if needed)
+    const existing = get().connections.find(c => c.id === connection.id);
+    if (existing) {
+      existing.lastActive = connection.lastActive;
+      if (connection.protocol) existing.protocol = connection.protocol;
+      if (connection.srcPort) existing.srcPort = connection.srcPort;
+      if (connection.dstPort) existing.dstPort = connection.dstPort;
+    } else {
+      set((state) => {
         if (state.connections.length > MAX_NODES * 3) {
-          // Keep connection count in check relative to node count (increased ratio)
           const prunedConnections = pruneOldestConnections(state.connections);
           return { ...state, connections: [...prunedConnections, connection] };
         }
         return { ...state, connections: [...state.connections, connection] };
-      }
-    });
-  }, 10), // Throttle to 10ms
+      });
+    }
+  }, 10),
   
   // COMPATIBILITY FUNCTION: Add connection (old API wrapper for addOrUpdateConnection)
   addConnection: (connection: Partial<Connection>) => {
@@ -415,9 +395,10 @@ export const useNetworkStore = create<NetworkState>((set, get) => ({
         ? CONNECTION_EXPIRATION_TIME * 0.6
         : CONNECTION_EXPIRATION_TIME;
       
-      // Always keep most recent connections and nodes regardless of activity
-      // This ensures recent activity is always visible
-      const PRESERVE_NEWEST_COUNT = 1500; // INCREASED: Always preserve 1500 newest nodes regardless of total count
+      // Preserve newest nodes up to the user's configured display limit.
+      // Using maxNodes from settings so cleanup respects the same cap as the renderer.
+      const maxNodes = useSettingsStore.getState().maxNodes;
+      const PRESERVE_NEWEST_COUNT = Math.floor(maxNodes * 0.8);
       
       // Sort nodes by activity time (most recent first)
       const sortedNodes = [...state.nodes].sort((a, b) => b.lastActive - a.lastActive);

@@ -18,13 +18,16 @@ export interface PhysicsSettings {
 }
 
 const defaultPhysics = {
-    connectionPullStrength: 1.30,
-    collisionRepulsion: 1.25,
-    damping: 0.06,
-    connectionLifetime: 1200,
-    nodeSpacing: 150,
-    driftAwayStrength: 3.0,
+  connectionPullStrength: 1.30,
+  collisionRepulsion: 1.25,
+  damping: 0.06,
+  connectionLifetime: 30000, // 30 seconds
+  nodeSpacing: 150,
+  driftAwayStrength: 3.0,
 }
+
+// Increment to force-reset localStorage when defaults change
+const PHYSICS_VERSION = 1;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
@@ -32,15 +35,22 @@ export const usePhysicsStore = create<PhysicsSettings>()(
       ...defaultPhysics,
       setConnectionPullStrength: (strength) => set({ connectionPullStrength: strength }),
       setCollisionRepulsion: (repulsion) => set({ collisionRepulsion: repulsion }),
-      setDamping: (damping) => set({ damping: damping }),
+      setDamping: (damping) => set({ damping }),
       setConnectionLifetime: (lifetime) => set({ connectionLifetime: lifetime }),
-      setNodeSpacing: (spacing: number) => set({ nodeSpacing: spacing }),
-      setDriftAwayStrength: (strength: number) => set({ driftAwayStrength: strength }),
+      setNodeSpacing: (spacing) => set({ nodeSpacing: spacing }),
+      setDriftAwayStrength: (strength) => set({ driftAwayStrength: strength }),
       resetPhysicsDefaults: () => set({ ...defaultPhysics }),
     }),
     {
-      name: 'physics-settings-storage', 
-      storage: createJSONStorage(() => localStorage), 
+      name: 'physics-settings-storage',
+      version: PHYSICS_VERSION,
+      storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState: any, version: number) => {
+        if (version < PHYSICS_VERSION) {
+          return { ...defaultPhysics };
+        }
+        return persistedState;
+      },
     }
   )
-) 
+)

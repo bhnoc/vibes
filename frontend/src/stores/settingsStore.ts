@@ -4,8 +4,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 export interface SettingsState {
   verboseLogging: boolean;
   toggleVerboseLogging: () => void;
-  // This store is reserved for future non-physics display settings,
-  // such as theme or layout choices.
+  maxNodes: number;
+  setMaxNodes: (n: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -13,10 +13,12 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       verboseLogging: false,
       toggleVerboseLogging: () => set((state) => ({ verboseLogging: !state.verboseLogging })),
+      maxNodes: 200,
+      setMaxNodes: (n) => set({ maxNodes: n }),
     }),
     {
-      name: 'display-settings-storage', 
-      storage: createJSONStorage(() => localStorage), 
+      name: 'display-settings-storage',
+      storage: createJSONStorage(() => localStorage),
     }
   )
-); 
+);
