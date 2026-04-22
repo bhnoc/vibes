@@ -226,6 +226,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     damping,
     connectionLifetime,
     driftAwayStrength,
+    centerPullStrength,
+    springRestLength,
   } = usePhysicsStore()
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
@@ -463,7 +465,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Process connections — per-node budget prevents hub nodes from drawing
     // hundreds of spokes. Sort newest-first so the budget keeps recent activity.
-    const MAX_CONNS_PER_NODE = 5;
+    const MAX_CONNS_PER_NODE = useSettingsStore.getState().maxConnectionsPerNode;
     const nodeIds = new Set(Array.from(activeNodes.current.keys()));
     const nodeBudget = new Map<string, number>();
     const budgetedConnections = connections
@@ -514,9 +516,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 //   const DRIFT_AWAY_SCALING = 0.000001;
     const INACTIVE_REMOVAL_SECONDS = 6000;
     const INACTIVITY_START_TIME = 3000;
-    // At damping=0.06 (94% velocity killed per frame), steady-state velocity =
-    // force * 0.06 / 0.94. This value produces ~8px/s pull for nodes 300px away.
-    const CENTER_PULL_STRENGTH = 0.0015;
+    const CENTER_PULL_STRENGTH = centerPullStrength;
 
     const now = Date.now();
     const centerX = viewportRef.current.width / 2;
@@ -665,7 +665,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const restLength = 120; // desired spacing between connected nodes
+          const restLength = springRestLength;
 
           const displacement = distance - restLength;
           const pullForce = connectionPullStrength * PULL_SCALING;
@@ -731,7 +731,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (node.y > vp.height + margin)   { node.y = vp.height + margin;   node.vy = -Math.abs(node.vy) * 0.3; }
     });
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength]);
+  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, centerPullStrength, springRestLength]);
 
   // High-performance render loop
   const render = useCallback((currentTime: number) => {

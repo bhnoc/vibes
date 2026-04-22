@@ -8,12 +8,16 @@ export interface PhysicsSettings {
   connectionLifetime: number;
   nodeSpacing: number;
   driftAwayStrength: number;
-  setConnectionPullStrength: (strength: number) => void;
-  setCollisionRepulsion: (repulsion: number) => void;
-  setDamping: (damping: number) => void;
-  setConnectionLifetime: (lifetime: number) => void;
-  setNodeSpacing: (spacing: number) => void;
-  setDriftAwayStrength: (strength: number) => void;
+  centerPullStrength: number;
+  springRestLength: number;
+  setConnectionPullStrength: (v: number) => void;
+  setCollisionRepulsion: (v: number) => void;
+  setDamping: (v: number) => void;
+  setConnectionLifetime: (v: number) => void;
+  setNodeSpacing: (v: number) => void;
+  setDriftAwayStrength: (v: number) => void;
+  setCenterPullStrength: (v: number) => void;
+  setSpringRestLength: (v: number) => void;
   resetPhysicsDefaults: () => void;
 }
 
@@ -21,24 +25,28 @@ const defaultPhysics = {
   connectionPullStrength: 1.30,
   collisionRepulsion: 1.25,
   damping: 0.06,
-  connectionLifetime: 10000, // 10 seconds
+  connectionLifetime: 10000,  // 10 seconds
   nodeSpacing: 150,
   driftAwayStrength: 3.0,
+  centerPullStrength: 0.0015, // pulls connected nodes toward screen center
+  springRestLength: 120,      // desired px distance between connected nodes
 }
 
 // Increment to force-reset localStorage when defaults change
-const PHYSICS_VERSION = 2;
+const PHYSICS_VERSION = 3;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
     (set) => ({
       ...defaultPhysics,
-      setConnectionPullStrength: (strength) => set({ connectionPullStrength: strength }),
-      setCollisionRepulsion: (repulsion) => set({ collisionRepulsion: repulsion }),
-      setDamping: (damping) => set({ damping }),
-      setConnectionLifetime: (lifetime) => set({ connectionLifetime: lifetime }),
-      setNodeSpacing: (spacing) => set({ nodeSpacing: spacing }),
-      setDriftAwayStrength: (strength) => set({ driftAwayStrength: strength }),
+      setConnectionPullStrength: (v) => set({ connectionPullStrength: v }),
+      setCollisionRepulsion: (v) => set({ collisionRepulsion: v }),
+      setDamping: (v) => set({ damping: v }),
+      setConnectionLifetime: (v) => set({ connectionLifetime: v }),
+      setNodeSpacing: (v) => set({ nodeSpacing: v }),
+      setDriftAwayStrength: (v) => set({ driftAwayStrength: v }),
+      setCenterPullStrength: (v) => set({ centerPullStrength: v }),
+      setSpringRestLength: (v) => set({ springRestLength: v }),
       resetPhysicsDefaults: () => set({ ...defaultPhysics }),
     }),
     {

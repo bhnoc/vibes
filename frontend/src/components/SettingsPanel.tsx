@@ -30,7 +30,7 @@ export const SettingsPanel: React.FC<{
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('network');
   const { clearNetwork } = useNetworkStore();
-  const { maxNodes, setMaxNodes } = useSettingsStore();
+  const { maxNodes, setMaxNodes, maxConnectionsPerNode, setMaxConnectionsPerNode } = useSettingsStore();
 
   const handlePanelMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -159,6 +159,22 @@ export const SettingsPanel: React.FC<{
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', opacity: 0.6 }}>
                 <span>50</span><span>1000</span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '16px' }}>
+              <label>Max Connections per Node: {maxConnectionsPerNode}</label>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="1"
+                value={maxConnectionsPerNode}
+                onChange={(e) => setMaxConnectionsPerNode(Number(e.target.value))}
+                style={{ width: '100%', marginTop: '6px' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', opacity: 0.6 }}>
+                <span>1</span><span>20</span>
               </div>
             </div>
 

@@ -6,6 +6,8 @@ export interface SettingsState {
   toggleVerboseLogging: () => void;
   maxNodes: number;
   setMaxNodes: (n: number) => void;
+  maxConnectionsPerNode: number;
+  setMaxConnectionsPerNode: (n: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -15,6 +17,8 @@ export const useSettingsStore = create<SettingsState>()(
       toggleVerboseLogging: () => set((state) => ({ verboseLogging: !state.verboseLogging })),
       maxNodes: 200,
       setMaxNodes: (n) => set({ maxNodes: n }),
+      maxConnectionsPerNode: 5,
+      setMaxConnectionsPerNode: (n) => set({ maxConnectionsPerNode: n }),
     }),
     {
       name: 'display-settings-storage',

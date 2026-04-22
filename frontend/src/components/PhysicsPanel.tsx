@@ -38,12 +38,16 @@ export const PhysicsPanel: React.FC = () => {
     connectionLifetime,
     nodeSpacing,
     driftAwayStrength,
+    centerPullStrength,
+    springRestLength,
     setConnectionPullStrength,
     setCollisionRepulsion,
     setDamping,
     setConnectionLifetime,
     setNodeSpacing,
     setDriftAwayStrength,
+    setCenterPullStrength,
+    setSpringRestLength,
     resetPhysicsDefaults,
   } = usePhysicsStore();
 
@@ -109,6 +113,24 @@ export const PhysicsPanel: React.FC = () => {
           step="1000"
           onChange={setConnectionLifetime}
           displayValue={`${(connectionLifetime / 1000).toFixed(0)}s`}
+        />
+        <RangeSlider
+          label="Center Pull"
+          value={Math.round(centerPullStrength * 100000)}
+          min="0"
+          max="500"
+          step="1"
+          onChange={(v) => setCenterPullStrength(v / 100000)}
+          displayValue={centerPullStrength.toFixed(5)}
+        />
+        <RangeSlider
+          label="Spring Rest Length"
+          value={springRestLength}
+          min="20"
+          max="400"
+          step="10"
+          onChange={setSpringRestLength}
+          displayValue={`${springRestLength} px`}
         />
       </div>
     </div>
