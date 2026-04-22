@@ -213,22 +213,26 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     height: 0
   })
 
-  // Store hooks
-  const { nodes, connections } = useNetworkStore()
-  const { packets } = usePacketStore()
+  // Canvas dimensions — only store subscription the renderer needs.
+  // React re-renders here on resize, which is rare and expected.
   const { height, width } = useSizeStore()
-  const { verboseLogging } = useSettingsStore()
-  const { isPined } = usePinStore()
-  const { nodeSpacing } = usePhysicsStore()
-  const {
-    connectionPullStrength,
-    collisionRepulsion,
-    damping,
-    connectionLifetime,
-    driftAwayStrength,
-    centerPullStrength,
-    springRestLength,
-  } = usePhysicsStore()
+
+  // All other store values go into refs so store updates never trigger
+  // React re-renders (which would recreate callbacks and destabilise the RAF loop).
+  const physicsRef = useRef(usePhysicsStore.getState())
+  const settingsRef = useRef(useSettingsStore.getState())
+
+  useEffect(() => {
+    physicsRef.current = usePhysicsStore.getState()
+    const unsubPhysics = usePhysicsStore.subscribe(s => { physicsRef.current = s })
+    const unsubSettings = useSettingsStore.subscribe(s => { settingsRef.current = s })
+    return () => { unsubPhysics(); unsubSettings() }
+  }, [])
+
+  // Convenience destructures for the few callbacks that still need reactive deps
+  // (canvas sizing effect). All game-loop callbacks read from physicsRef instead.
+  const { nodeSpacing, connectionPullStrength, collisionRepulsion, damping,
+          connectionLifetime, driftAwayStrength, centerPullStrength, springRestLength } = physicsRef.current
 
   const pinnedNodePositions = useRef<Map<string, {x: number, y: number}>>(new Map());
   const PINNED_PULL_SCALING = 0.0005;
@@ -279,7 +283,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
 
       const ctx = canvas.getContext('2d');
-      if (ctx) ctx.scale(dpr, dpr);
+      // setTransform (not scale) so repeated resizes don't accumulate DPR multiplication
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }, [width, height]);
 
@@ -466,7 +471,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         renderedConn.protocol = conn.protocol
         renderedConn.dstPort = conn.dstPort;
         const connectionAge = now - conn.lastActive;
-        renderedConn.alpha = Math.max(0, 1 - (connectionAge / connectionLifetime))
+        renderedConn.alpha = Math.max(0, 1 - (connectionAge / physicsRef.current.connectionLifetime))
         renderedConn.lastActive = conn.lastActive
         renderedConn.sourceId = conn.source
         renderedConn.targetId = conn.target
@@ -477,20 +482,24 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
   }, [generatePosition, nodePool, connectionPool])
 
+  // updatePhysics reads all values from refs so it never needs to be recreated.
+  // Stable deps = the RAF loop is never restarted due to physics param changes.
   const updatePhysics = useCallback((deltaTime: number) => {
-    if (!width || !height) return;
+    const vp = viewportRef.current;
+    if (!vp.width || !vp.height) return;
 
-    // --- Physics Constants ---
-    // These factors scale the user-friendly values from the store 
-    // into numbers that work well with the physics simulation.
+    const {
+      nodeSpacing: ns, connectionPullStrength: cps, collisionRepulsion: cr,
+      damping: dmp, connectionLifetime: clt, driftAwayStrength: das,
+      centerPullStrength: cps2, springRestLength: srl,
+    } = physicsRef.current;
+
     const PULL_SCALING = 0.001;
-    const REPULSION_SCALING = 0.03; // Increased to prevent node overlap
-//   const DRIFT_AWAY_SCALING = 0.000001;
-    const CENTER_PULL_STRENGTH = centerPullStrength;
+    const REPULSION_SCALING = 0.03;
 
     const now = Date.now();
-    const worldW = viewportRef.current.width  * WORLD_SCALE;
-    const worldH = viewportRef.current.height * WORLD_SCALE;
+    const worldW = vp.width  * WORLD_SCALE;
+    const worldH = vp.height * WORLD_SCALE;
     const centerX = worldW / 2;
     const centerY = worldH / 2;
     const nodesToRemove: string[] = [];
@@ -498,7 +507,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     const connectedNodeIds = new Set<string>();
     activeConnections.current.forEach(conn => {
-      if (now - conn.lastActive < connectionLifetime) {
+      if (now - conn.lastActive < clt) {
         connectedNodeIds.add(conn.sourceId);
         connectedNodeIds.add(conn.targetId);
       }
@@ -506,7 +515,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       // --- Pinned Node Positioning ---
       const renderedNodes = Array.from(activeNodes.current.values());
-      const pinnedNodes = renderedNodes.filter(node => isPined(node.id));
+      const pinnedNodes = renderedNodes.filter(node => usePinStore.getState().isPined(node.id));
       const sortedPinnedNodes = pinnedNodes.sort((a, b) => a.id.localeCompare(b.id));
       
       const NODES_PER_COLUMN = 18;
@@ -526,7 +535,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       // Apply forces
       activeNodes.current.forEach(node => {
-        if (isPined(node.id)) {
+        if (usePinStore.getState().isPined(node.id)) {
           const pos = pinnedNodePositions.current.get(node.id);
           if (pos) {
             node.x = pos.x;
@@ -539,7 +548,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
       const timeSinceActive = now - node.lastActive;
 
-      if (timeSinceActive > connectionLifetime) {
+      if (timeSinceActive > clt) {
         nodesToRemove.push(node.id);
         return;
       }
@@ -555,20 +564,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         return;
       }
 
-      // Always apply drift unless the node is connected
       if (!connectedNodeIds.has(node.id)) {
-        const driftForce = driftAwayStrength * 0.000001;
+        const driftForce = das * 0.000001;
         const dx = node.x - centerX;
         const dy = node.y - centerY;
         node.vx += dx * driftForce * deltaTime;
         node.vy += dy * driftForce * deltaTime;
       }
       
-      // Connected nodes stay fully visible; disconnected ones fade over connectionLifetime
       if (connectedNodeIds.has(node.id)) {
         node.alpha = 1;
       } else {
-        node.alpha = Math.max(0, 1 - (timeSinceActive / connectionLifetime));
+        node.alpha = Math.max(0, 1 - (timeSinceActive / clt));
       }
     });
 
@@ -581,14 +588,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        const minDistance = nodeA.radius + nodeB.radius + nodeSpacing;
+        const minDistance = nodeA.radius + nodeB.radius + ns;
 
         if (distance < minDistance) {
           const overlap = minDistance - distance;
           const ax = dx / distance;
           const ay = dy / distance;
 
-          const repulsionForce = collisionRepulsion * REPULSION_SCALING;
+          const repulsionForce = cr * REPULSION_SCALING;
           nodeA.vx -= ax * overlap * repulsionForce;
           nodeA.vy -= ay * overlap * repulsionForce;
           nodeB.vx += ax * overlap * repulsionForce;
@@ -599,15 +606,15 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     activeConnections.current.forEach(conn => {
       // Expired connections should not apply physics
-      if (now - conn.lastActive > connectionLifetime) {
+      if (now - conn.lastActive > clt) {
         return;
       }
       const source = activeNodes.current.get(conn.sourceId);
       const target = activeNodes.current.get(conn.targetId);
 
       if (source && target) {
-        const isSourcePinned = isPined(source.id);
-        const isTargetPinned = isPined(target.id);
+        const isSourcePinned = usePinStore.getState().isPined(source.id);
+        const isTargetPinned = usePinStore.getState().isPined(target.id);
         const PULL_IN_SPEED = 0.1; // Aggressive pull-in
         const ORBIT_DISTANCE = 30; // 30px orbit
 
@@ -635,10 +642,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-          const restLength = springRestLength;
-
-          const displacement = distance - restLength;
-          const pullForce = connectionPullStrength * PULL_SCALING;
+          const displacement = distance - srl;
+          const pullForce = cps * PULL_SCALING;
           
           // Apply a spring-like force (F = -kx)
           const forceMagnitude = displacement * pullForce * 0.1; // Using a smaller multiplier for stability
@@ -655,13 +660,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         // 2. Center pull for connected nodes
         const source_dx_center = centerX - source.x;
         const source_dy_center = centerY - source.y;
-        source.vx += source_dx_center * CENTER_PULL_STRENGTH * deltaTime;
-        source.vy += source_dy_center * CENTER_PULL_STRENGTH * deltaTime;
+        source.vx += source_dx_center * cps2 * deltaTime;
+        source.vy += source_dy_center * cps2 * deltaTime;
 
         const target_dx_center = centerX - target.x;
         const target_dy_center = centerY - target.y;
-        target.vx += target_dx_center * CENTER_PULL_STRENGTH * deltaTime;
-        target.vy += target_dy_center * CENTER_PULL_STRENGTH * deltaTime;
+        target.vx += target_dx_center * cps2 * deltaTime;
+        target.vy += target_dy_center * cps2 * deltaTime;
 
         // When a connection is active, stop drifting and reset velocity
         if (source.isDriftingAway) {
@@ -685,8 +690,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
 
     // Update positions
     activeNodes.current.forEach(node => {
-      node.vx *= damping;
-      node.vy *= damping;
+      node.vx *= dmp;
+      node.vy *= dmp;
 
       node.x += node.vx * deltaTime;
       node.y += node.vy * deltaTime;
@@ -699,41 +704,41 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (node.y > worldH + margin)      { node.y = worldH + margin;      node.vy = -Math.abs(node.vy) * 0.3; }
     });
 
-  }, [width, height, nodeSpacing, connectionPullStrength, collisionRepulsion, damping, driftAwayStrength, centerPullStrength, springRestLength]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // High-performance render loop
+  // High-performance render loop — stable callback, never recreated.
   const render = useCallback((currentTime: number) => {
-    const deltaTime = Math.max(16, currentTime - lastFrameTime.current); // Clamp to avoid huge jumps
+    // Cap deltaTime to 50ms to prevent physics explosions when tab is hidden.
+    // Do NOT use Math.max here — at 120fps (8ms) that would inflate to 16ms
+    // and run physics at 2× speed.
+    const rawDelta = currentTime - lastFrameTime.current;
+    const deltaTime = rawDelta > 0 ? Math.min(50, rawDelta) : 16;
     lastFrameTime.current = currentTime;
 
-    // Update physics simulation
     updatePhysics(deltaTime);
 
     const canvas = canvasRef.current
-    if (!canvas || !width || !height) return;
+    const vp = viewportRef.current
+    if (!canvas || !vp.width || !vp.height) {
+      animationRef.current = requestAnimationFrame(render)
+      return;
+    }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     
-    // Log dimensions every 2 seconds to avoid spamming the console
-    if (currentTime - lastLogTime.current > 2000) {
-      logger.log(`[Debug] Canvas dimensions received by renderer: width=${width} height=${height}`);
-      lastLogTime.current = currentTime;
-    }
-
-    // Calculate FPS
+    // FPS counter (uses a separate timestamp so it doesn't interfere with deltaTime)
     frameCount.current++
-    if (currentTime - lastFrameTime.current >= 1000) {
+    if (currentTime - lastLogTime.current >= 1000) {
       fpsRef.current = frameCount.current
       frameCount.current = 0
-      lastFrameTime.current = currentTime
+      lastLogTime.current = currentTime
     }
 
-    // Clear canvas using logical dimensions, as context is already scaled by DPR
     ctx.fillStyle = 'black'
-    ctx.fillRect(0, 0, width, height)
-    
-    const vp = viewportRef.current
+    ctx.fillRect(0, 0, vp.width, vp.height)
+
 
     // Save context and apply viewport transform
     ctx.save()
@@ -754,7 +759,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       if (conn.protocol) {
         const protocol = conn.protocol.toLowerCase();
         // Debug log to see what protocols we're getting
-        if (verboseLogging && Math.random() < 0.01) { // Log 1% of connections to avoid spam
+        if (settingsRef.current.verboseLogging && Math.random() < 0.01) { // Log 1% of connections to avoid spam
           logger.log(`🎨 Connection protocol: ${protocol} for ${conn.sourceId} -> ${conn.targetId}`);
         }
         
@@ -780,13 +785,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
             strokeColor = `rgba(0, 255, 255, ${conn.alpha})`; // Cyan for others
             lineWidth = 1;
             // Log unknown protocols
-            if (verboseLogging && Math.random() < 0.05) {
+            if (settingsRef.current.verboseLogging && Math.random() < 0.05) {
               logger.log(`🔍 Unknown protocol: ${protocol}`);
             }
         }
       } else {
         // Debug: no protocol found
-        if (verboseLogging && Math.random() < 0.01) {
+        if (settingsRef.current.verboseLogging && Math.random() < 0.01) {
           logger.log(`⚠️ No protocol found for connection ${conn.sourceId} -> ${conn.targetId}`);
         }
       }
@@ -881,7 +886,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2)
       ctx.fill()
 
-      if (isPined(node.id)) {
+      if (usePinStore.getState().isPined(node.id)) {
         ctx.strokeStyle = '#FFFF00'; // Yellow highlight for pinned nodes
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -941,7 +946,8 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     }
 
     animationRef.current = requestAnimationFrame(render)
-  }, [updatePhysics, connectionLifetime, width, height])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Mouse interaction for panning and zooming
   useEffect(() => {
