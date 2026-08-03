@@ -48,6 +48,42 @@ export const SettingsPanel: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const [position, setPosition] = useState({ x: typeof window !== 'undefined' ? window.innerWidth - 380 : 800, y: 68 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+  };
+
   const handlePanelMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
@@ -62,10 +98,31 @@ export const SettingsPanel: React.FC<{
       className="settings-panel"
       onMouseDown={handlePanelMouseDown}
       onWheel={handlePanelWheel}
+      style={{ top: `${position.y}px`, left: `${position.x}px`, right: 'auto' }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>Settings</h2>
-        <button onClick={onMinimize} className="minimize-btn">_</button>
+      <div
+        onMouseDown={handleHeaderMouseDown}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'move',
+          paddingBottom: '12px',
+          marginBottom: '12px',
+          borderBottom: 'var(--border-inset, 1px solid rgba(255,255,255,0.1))',
+        }}
+      >
+        <span
+          style={{
+            font: 'var(--type-label)',
+            letterSpacing: '0.14em',
+            color: 'var(--text-hi, #fff)',
+            textTransform: 'uppercase',
+          }}
+        >
+          SETTINGS
+        </span>
+        <button onClick={onMinimize} className="minimize-btn">Minimize</button>
       </div>
       
       {/* Tab Navigation */}
@@ -91,12 +148,14 @@ export const SettingsPanel: React.FC<{
         {activeTab === 'network' && (
           <div style={{marginTop: '20px'}}>
             <h3>Theme</h3>
-            <div className="button-group">
+            <div className="button-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               {Object.values(THEMES).map(t => (
                 <button
                   key={t.key}
                   className={themeKey === t.key ? 'active' : ''}
                   onClick={() => setTheme(t.key)}
+                  style={{ fontSize: '11px', padding: '8px 4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                  title={t.label}
                 >
                   {t.label}
                 </button>
@@ -129,7 +188,7 @@ export const SettingsPanel: React.FC<{
             {captureMode === 'zeek' && (
               <div style={{ marginTop: '16px' }}>
                 <h3>Zeek ingest address</h3>
-                <p style={{ fontSize: '12px', opacity: 0.85, marginBottom: '8px' }}>
+                <p style={{ fontSize: '11px', opacity: 0.8, marginBottom: '8px', color: 'var(--text-muted)' }}>
                   Backend listens here; stream conn JSON lines (e.g. from zeek-cut | your forwarder).
                 </p>
                 <input
@@ -139,27 +198,36 @@ export const SettingsPanel: React.FC<{
                   placeholder=":4777"
                   style={{
                     width: '100%',
-                    padding: '8px',
-                    background: 'rgba(0,0,0,0.4)',
-                    border: '1px solid #00ff00',
-                    color: '#fff',
-                    fontFamily: 'inherit',
+                    padding: '8px 10px',
+                    background: 'var(--card, #141414)',
+                    border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    color: 'var(--text-hi, #fff)',
+                    font: 'var(--type-mono)',
                   }}
                 />
               </div>
             )}
 
             {captureMode === 'real' && (
-              <div className="interface-select">
+              <div className="interface-select" style={{ marginTop: '16px' }}>
                 <h3>Network Interface</h3>
                 <div ref={ifaceRef} style={{ position: 'relative' }}>
                   <button
                     onClick={() => setIfaceOpen(v => !v)}
                     style={{
-                      width: '100%', background: 'rgba(0,0,0,0.8)', border: '1px solid #00ff00',
-                      color: '#00ff00', padding: '8px 12px', fontFamily: 'VT323, monospace',
-                      fontSize: '18px', textAlign: 'left', cursor: 'pointer',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      width: '100%',
+                      background: 'var(--card, #141414)',
+                      border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                      borderRadius: 'var(--radius-md, 8px)',
+                      color: 'var(--text-hi, #fff)',
+                      padding: '8px 12px',
+                      font: 'var(--type-ui)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
                     }}
                   >
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -167,16 +235,24 @@ export const SettingsPanel: React.FC<{
                         ? (interfaces.find(i => i.name === selectedInterface)?.description || selectedInterface)
                         : 'Select Interface'}
                     </span>
-                    <span style={{ marginLeft: '8px', flexShrink: 0 }}>{ifaceOpen ? '▲' : '▼'}</span>
+                    <span style={{ marginLeft: '8px', flexShrink: 0, color: 'var(--text-muted)' }}>{ifaceOpen ? '▲' : '▼'}</span>
                   </button>
                   {ifaceOpen && (
                     <div style={{
-                      position: 'absolute', top: '100%', left: 0, right: 0,
-                      background: '#000', border: '1px solid #00ff00',
-                      zIndex: 1100, maxHeight: '200px', overflowY: 'auto',
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      background: 'var(--surface-card, #141414)',
+                      border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.15))',
+                      borderRadius: 'var(--radius-md, 8px)',
+                      zIndex: 1100,
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.65)',
                     }}>
                       {interfaces.length === 0 && (
-                        <div style={{ padding: '8px 12px', color: '#666', fontFamily: 'VT323, monospace', fontSize: '16px' }}>
+                        <div style={{ padding: '8px 12px', color: 'var(--text-muted)', font: 'var(--type-ui-sm)' }}>
                           No interfaces found
                         </div>
                       )}
@@ -185,12 +261,14 @@ export const SettingsPanel: React.FC<{
                           key={iface.name}
                           onClick={() => { onInterfaceSelect(iface.name); setIfaceOpen(false); }}
                           style={{
-                            padding: '8px 12px', cursor: 'pointer',
-                            color: iface.name === selectedInterface ? '#000' : '#00ff00',
-                            background: iface.name === selectedInterface ? '#00ff00' : 'transparent',
-                            fontFamily: 'VT323, monospace', fontSize: '16px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            color: iface.name === selectedInterface ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
+                            background: iface.name === selectedInterface ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'transparent',
+                            font: 'var(--type-ui-sm)',
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
                           }}
-                          onMouseEnter={e => { if (iface.name !== selectedInterface) (e.currentTarget as HTMLDivElement).style.background = 'rgba(0,255,0,0.15)'; }}
+                          onMouseEnter={e => { if (iface.name !== selectedInterface) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)'; }}
                           onMouseLeave={e => { if (iface.name !== selectedInterface) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                         >
                           {iface.description || iface.name}
@@ -251,7 +329,9 @@ export const SettingsPanel: React.FC<{
         )}
 
         {activeTab === 'physics' && (
-          <PhysicsPanel />
+          <div style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto', paddingRight: '8px' }}>
+            <PhysicsPanel />
+          </div>
         )}
       </div>
     </div>

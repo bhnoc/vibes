@@ -129,100 +129,10 @@ export const PerformanceTestData: React.FC<TestDataProps> = ({
     }
   }, [enabled, nodeCount, connectionCount, addNode, addConnection, addPacket, clearNetwork])
 
-  if (!enabled) return null
-
-  return (
-    <div style={{
-      position: 'fixed',
-      top: '80px',
-      left: '10px',
-      background: 'rgba(0, 0, 0, 0.8)',
-      color: '#00ff00',
-      padding: '10px',
-      border: '1px solid #00ff00',
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      zIndex: 1000
-    }}>
-      <div>🧪 Performance Test Mode</div>
-      <div>Nodes: {nodeCount}</div>
-      <div>Connections: {connectionCount}</div>
-      <div>Simulating Agar.io-scale data</div>
-    </div>
-  )
+  return null;
 }
 
-// Add control to toggle test mode
+// Add control to toggle test mode (disabled/hidden)
 export const PerformanceTestControl: React.FC = () => {
-  const [testEnabled, setTestEnabled] = React.useState(false)
-  const [nodeCount, setNodeCount] = React.useState(2000)
-  const [connectionCount, setConnectionCount] = React.useState(3000)
-
-  return (
-    <>
-      <div style={{
-        position: 'fixed',
-        top: '10px',
-        right: '200px',
-        background: 'rgba(0, 0, 0, 0.9)',
-        color: '#00ff00',
-        padding: '10px',
-        border: '1px solid #00ff00',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        zIndex: 1000
-      }}>
-        <div style={{ marginBottom: '5px' }}>Performance Test</div>
-        <label style={{ display: 'block', marginBottom: '5px' }}>
-          <input
-            type="checkbox"
-            checked={testEnabled}
-            onChange={(e) => setTestEnabled(e.target.checked)}
-            style={{ marginRight: '5px' }}
-          />
-          Enable Test Mode
-        </label>
-        <label style={{ display: 'block', marginBottom: '5px' }}>
-          Nodes:
-          <input
-            type="number"
-            value={nodeCount}
-            onChange={(e) => setNodeCount(parseInt(e.target.value) || 1000)}
-            min="100"
-            max="10000"
-            style={{ 
-              width: '60px', 
-              marginLeft: '5px',
-              background: 'black',
-              color: '#00ff00',
-              border: '1px solid #00ff00'
-            }}
-          />
-        </label>
-        <label style={{ display: 'block' }}>
-          Connections:
-          <input
-            type="number"
-            value={connectionCount}
-            onChange={(e) => setConnectionCount(parseInt(e.target.value) || 1500)}
-            min="100"
-            max="15000"
-            style={{ 
-              width: '60px', 
-              marginLeft: '5px',
-              background: 'black',
-              color: '#00ff00',
-              border: '1px solid #00ff00'
-            }}
-          />
-        </label>
-      </div>
-      
-      <PerformanceTestData 
-        nodeCount={nodeCount}
-        connectionCount={connectionCount}
-        enabled={testEnabled}
-      />
-    </>
-  )
+  return null;
 }

@@ -8,6 +8,7 @@ import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 import { logger } from './utils/logger'
 import { useWebSocketPinning } from './hooks/useWebSocketPinning'
+import { useThemeStore } from './stores/themeStore'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -22,68 +23,8 @@ const StatsPanel = lazy(() => import('./components/StatsPanel').then(module => (
 const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module => ({ default: module.IPDebugPage })))
 
 import { CommandBar } from './components/CommandBar';
-
-// Status bar component with active panel
-const CAPTURE_SOURCE_LABELS: Record<string, string> = {
-  dumpcap: '🚀 DUMPCAP',
-  real: '📡 LIVE',
-  simulated: '🎮 SIM',
-  zeek: '🦅 ZEEK',
-  pcap_replay: '🎞️ PCAP',
-};
-
-const StatusBar = memo(({ status, error }: { status: string; error: string | null }) => {
-  const { nodes, connections } = useNetworkStore();
-  const { packets } = usePacketStore();
-
-  // Capture source badge, derived from the actual packets flowing (the honest
-  // signal — reflects what the backend is really serving, not the UI's guess).
-  const latestSource = packets.length ? packets[packets.length - 1].source : undefined;
-  const sourceLabel = latestSource
-    ? (CAPTURE_SOURCE_LABELS[latestSource] ?? latestSource.toUpperCase())
-    : '— NO DATA';
-
-  return (
-    <div className="status-bar" style={{ zIndex: 999, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-        <span className={`status ${status}`}>{status}</span>
-        {error && <span className="error">{error}</span>}
-      </div>
-      <CommandBar />
-      
-      
-      {/* Active Panel - Shows current network activity */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '15px',
-        fontSize: '14px',
-        color: 'var(--vibes-primary, #00ff00)'
-      }}>
-        <span style={{
-          fontWeight: 'bold',
-          padding: '2px 8px',
-          borderRadius: '3px',
-          border: '1px solid var(--vibes-primary, #00ff00)',
-          background: 'rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.15)',
-          letterSpacing: '1px',
-        }}>{sourceLabel}</span>
-        <span>📦 Packets: <strong style={{ color: '#fff' }}>{packets.length}</strong></span>
-        <span>🔘 Nodes: <strong style={{ color: '#fff' }}>{nodes.length}</strong></span>
-        <span>🔗 Connections: <strong style={{ color: '#fff' }}>{connections.length}</strong></span>
-        <span style={{
-          fontSize: '12px',
-          padding: '2px 6px',
-          background: nodes.length > 0 ? 'rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.2)' : 'rgba(255, 0, 0, 0.2)',
-          borderRadius: '3px',
-          border: `1px solid ${nodes.length > 0 ? 'var(--vibes-primary, #00ff00)' : '#ff0000'}`
-        }}>
-          {nodes.length > 0 ? '✅ ACTIVE' : '⚠️ WAITING'}
-        </span>
-      </div>
-    </div>
-  );
-});
+import { NocHeader, NocStatusBar, PerformanceTestWindow } from './components/noc';
+import { ThemeLegend } from './components/ThemeLegend';
 
 // Loading fallback
 const LoadingFallback = () => (
@@ -112,12 +53,19 @@ export const App = memo(() => {
   const [initialLoad, setInitialLoad] = useState(true);
   const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
   const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
+  const [showDebug, setShowDebug] = useState(false);
+  const [showLegend, setShowLegend] = useState(true);
+  const [showPerfTest, setShowPerfTest] = useState(false);
 
   // --- Store Hooks ---
   const { packets, clearPackets } = usePacketStore()
   const { clearNetwork } = useNetworkStore()
   const { setSize } = useSizeStore()
+  const { themeKey } = useThemeStore()
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', themeKey);
+  }, [themeKey]);
 
   // WebSocket connection
   const wsUrl = useMemo(() => {
@@ -339,6 +287,16 @@ export const App = memo(() => {
 
   const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl);
   useWebSocketPinning(sendMessage);
+
+  // Auto-enable fallback simulation if WebSocket is unavailable / blocked while in simulated mode
+  useEffect(() => {
+    if (captureMode === 'simulated' && (status === 'error' || status === 'disconnected' || status === 'waiting') && !performanceTestData.enabled) {
+      logger.log('🎮 Enabling automatic browser simulation fallback for Black Hat NOC Console');
+      setPerformanceTestData({ enabled: true, nodeCount: 150, connectionCount: 250 });
+    } else if (status === 'connected' && performanceTestData.enabled) {
+      setPerformanceTestData({ enabled: false, nodeCount: 0, connectionCount: 0 });
+    }
+  }, [captureMode, status, performanceTestData.enabled]);
   
   // Update local state if the server reports a different mode
   // Add a ref to track user-initiated changes to prevent conflicts
@@ -490,114 +448,82 @@ export const App = memo(() => {
               : captureMode,
         captureInterface: selectedInterface 
       }}>
-        {/* Route navigation & Settings Button */}
-        <div style={{
-          position: 'fixed',
-          top: '10px',
-          left: '10px',
-          zIndex: 1000,
-          display: 'flex',
-          gap: '10px'
-        }}>
-          {!showSettings && (
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="settings-button"
-            >
-              Settings
-            </button>
-          )}
-        </div>
-
-        <div style={{
-          position: 'fixed',
-          top: '10px',
-          right: '10px',
-          zIndex: 1000,
-          display: 'flex',
-          gap: '10px'
-        }}>
-          <a 
-            href="#main" 
-            className="px-3 py-1 bg-blue-900 hover:bg-blue-800 text-blue-300 rounded text-sm"
-          >
-            Main
-          </a>
-          <a 
-            href="#debug" 
-            className="px-3 py-1 bg-green-900 hover:bg-green-800 text-green-300 rounded text-sm"
-          >
-            IP Debug
-          </a>
-        </div>
+        {/* Black Hat NOC Header */}
+        <NocHeader
+          currentRoute={currentRoute}
+          status={status}
+          error={error}
+          captureMode={captureMode}
+          showSettings={showSettings}
+          onToggleSettings={() => setShowSettings(!showSettings)}
+          showDebug={showDebug}
+          onToggleDebug={() => setShowDebug(!showDebug)}
+          showLegend={showLegend}
+          onToggleLegend={() => setShowLegend(!showLegend)}
+        />
         
         {/* Conditionally render content based on route */}
         {currentRoute === 'debug' ? (
           <IPDebugPage />
         ) : (
-          <>
-            <div className="canvas-container">
-              {/* Use the fully memoized renderer component for maximum stability */}
-              {memoizedRenderer}
-            </div>
-            
-            {showSettings && (
-              <div className="sidebar">
-                <div className="sidebar-section">
-                  <SettingsPanel 
-                    captureMode={captureMode}
-                    onCaptureModeChange={handleCaptureModeChange} 
-                    interfaces={interfaces}
-                    selectedInterface={selectedInterface}
-                    onInterfaceSelect={handleInterfaceSelect}
-                    zeekTcpAddr={zeekTcpAddr}
-                    onZeekTcpAddrChange={setZeekTcpAddr}
-                    wsPreviewUrl={wsUrl}
-                    onMinimize={() => setShowSettings(false)}
-                  />
-                </div>
-              </div>
-            )}
-            
-            {/* Performance Test Data Generator */}
-            <PerformanceTestData 
-              enabled={performanceTestData.enabled}
-              nodeCount={performanceTestData.nodeCount}
-              connectionCount={performanceTestData.connectionCount}
-            />
-            
-            {/* Unified Debug Panel */}
-            <UnifiedDebugPanel 
-              onTestModeChange={handleTestModeChange}
-              onRendererChange={handleRendererChange}
-              currentRenderer={currentRenderer}
-              rendererOptions={[
-                {
-                  key: 'canvas',
-                  name: '🎨 Canvas (High Performance)',
-                  description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
-                  performance: '⭐⭐⭐⭐⭐',
-                  status: '✅ Recommended'
-                },
-                {
-                  key: 'minimal',
-                  name: '⚡ Minimal DOM',
-                  description: 'Lightweight DOM renderer - good for < 100 objects',
-                  performance: '⭐⭐⭐',
-                  status: '⚠️ Limited scale'
-                }
-              ]}
-            />
-          </>
+          <div className="canvas-container">
+            {/* Use the fully memoized renderer component for maximum stability */}
+            {memoizedRenderer}
+          </div>
         )}
-        
-        {error && (
-          <div className="error-bar">
-            <span className="error">{error}</span>
+
+        {showSettings && (
+          <div className="sidebar">
+            <div className="sidebar-section">
+              <SettingsPanel 
+                captureMode={captureMode}
+                onCaptureModeChange={handleCaptureModeChange} 
+                interfaces={interfaces}
+                selectedInterface={selectedInterface}
+                onInterfaceSelect={handleInterfaceSelect}
+                zeekTcpAddr={zeekTcpAddr}
+                onZeekTcpAddrChange={setZeekTcpAddr}
+                wsPreviewUrl={wsUrl}
+                onMinimize={() => setShowSettings(false)}
+              />
+            </div>
           </div>
         )}
         
-        <StatusBar status={status} error={error} />
+        {/* Performance Test Data Generator */}
+        <PerformanceTestData 
+          enabled={performanceTestData.enabled}
+          nodeCount={performanceTestData.nodeCount}
+          connectionCount={performanceTestData.connectionCount}
+        />
+
+        {/* Unified Debug Panel */}
+        <UnifiedDebugPanel 
+          isOpen={showDebug}
+          onMinimize={() => setShowDebug(false)}
+          onTestModeChange={handleTestModeChange}
+          onRendererChange={handleRendererChange}
+          currentRenderer={currentRenderer}
+          rendererOptions={[
+            {
+              key: 'canvas',
+              name: '🎨 Canvas (High Performance)',
+              description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
+              performance: '⭐⭐⭐⭐⭐',
+              status: '✅ Recommended'
+            },
+            {
+              key: 'minimal',
+              name: '⚡ Minimal DOM',
+              description: 'Lightweight DOM renderer - good for < 100 objects',
+              performance: '⭐⭐⭐',
+              status: '⚠️ Limited scale'
+            }
+          ]}
+        />
+        <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
+        
+        <NocStatusBar status={status} error={error} />
       </CaptureContext.Provider>
     </div>
   )

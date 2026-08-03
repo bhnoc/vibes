@@ -16,12 +16,16 @@ interface UnifiedDebugPanelProps {
     performance: string;
     status: string;
   }>;
+  isOpen?: boolean;
+  onMinimize?: () => void;
 }
 
 export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   onTestModeChange,
   onRendererChange,
   currentRenderer = 'canvas',
+  isOpen = false,
+  onMinimize,
   rendererOptions = [
     {
       key: 'canvas',
@@ -44,6 +48,42 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   const [testEnabled, setTestEnabled] = useState(false);
   const [nodeCount, setNodeCount] = useState(2000);
   const [connectionCount, setConnectionCount] = useState(3000);
+
+  const [position, setPosition] = useState({ x: 18, y: 68 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+  };
 
   const { packets } = usePacketStore();
   const { nodes, connections } = useNetworkStore();
@@ -212,74 +252,66 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   const lastPacketAge = wsStats.lastPacketTime > 0 ? 
     Math.round((Date.now() - wsStats.lastPacketTime) / 1000) : 0;
 
-  if (isMinimized) {
-    return (
-      <div style={{
-        position: 'fixed',
-        top: '60px',
-        right: '10px',
-        zIndex: 1001,
-        background: 'rgba(0, 0, 0, 0.9)',
-        border: '1px solid var(--vibes-primary, #00ff00)',
-        borderRadius: '4px',
-        padding: '8px 12px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: 'var(--vibes-primary, #00ff00)',
-        cursor: 'pointer'
-      }} onClick={() => setIsMinimized(false)}>
-        🔧 Debug Panel (Click to expand)
-      </div>
-    );
+  if (!isOpen) {
+    return null;
   }
 
   return (
     <div style={{
       position: 'fixed',
-      top: '60px',
-      right: '10px',
+      top: `${position.y}px`,
+      left: `${position.x}px`,
       zIndex: 1001,
-      background: 'rgba(0, 0, 0, 0.95)',
-      border: '1px solid var(--vibes-primary, #00ff00)',
-      borderRadius: '6px',
-      fontFamily: 'monospace',
-      fontSize: '11px',
-      color: 'var(--vibes-primary, #00ff00)',
-      width: '400px',
+      background: 'var(--surface-card, #141414)',
+      border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
+      borderRadius: 'var(--radius-xl, 14px)',
+      fontFamily: 'var(--font-sans)',
+      fontSize: '12px',
+      color: 'var(--text-hi, #fff)',
+      width: '420px',
       maxHeight: '80vh',
       overflow: 'hidden',
-      backdropFilter: 'blur(4px)'
+      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
+      backdropFilter: 'blur(8px)'
     }}>
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '8px 12px',
-        borderBottom: '1px solid var(--vibes-primary, #00ff00)',
-        background: 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.1)'
-      }}>
-        <span style={{ fontWeight: 'bold', color: 'var(--vibes-primary, #00ff00)' }}>🔧 Debug Panel</span>
+      <div 
+        onMouseDown={handleHeaderMouseDown}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 14px',
+          borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
+          background: 'var(--sidebar, #0e0e0e)',
+          cursor: 'move'
+        }}
+      >
+        <span style={{ font: 'var(--type-label)', letterSpacing: '0.14em', color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
+          DEBUG
+        </span>
         <button
-          onClick={() => setIsMinimized(true)}
+          onClick={onMinimize || (() => setIsMinimized(true))}
           style={{
-            background: 'none',
-            border: '1px solid var(--vibes-primary, #00ff00)',
-            color: 'var(--vibes-primary, #00ff00)',
+            background: 'transparent',
+            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+            color: 'var(--text-muted)',
             cursor: 'pointer',
-            borderRadius: '2px',
-            padding: '2px 6px',
-            fontSize: '10px'
+            borderRadius: 'var(--radius-sm, 6px)',
+            padding: '2px 8px',
+            font: 'var(--type-ui-sm)',
+            transition: 'all 0.15s ease'
           }}
         >
-          ➖
+          Minimize
         </button>
       </div>
 
       {/* Tab navigation */}
       <div style={{
         display: 'flex',
-        borderBottom: '1px solid #333'
+        borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
+        background: 'var(--sidebar, #0e0e0e)'
       }}>
         {tabs.map(tab => (
           <button
@@ -287,17 +319,19 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
             onClick={() => setActiveTab(tab.id as TabType)}
             style={{
               flex: 1,
-              padding: '8px 4px',
-              background: activeTab === tab.id ? 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.2)' : 'transparent',
+              padding: '10px 4px',
+              background: activeTab === tab.id ? 'var(--sidebar-accent, rgba(255,255,255,0.1))' : 'transparent',
               border: 'none',
-              color: activeTab === tab.id ? 'var(--vibes-primary, #00ff00)' : '#666',
+              color: activeTab === tab.id ? 'var(--text-hi, #fff)' : 'var(--text-muted, rgba(255,255,255,0.6))',
+              borderBottom: activeTab === tab.id ? '2px solid var(--signal-teal, #00d2aa)' : '2px solid transparent',
               cursor: 'pointer',
-              fontSize: '9px',
-              borderRight: '1px solid #333'
+              font: 'var(--type-ui-sm)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
             }}
           >
             <div>{tab.icon}</div>
-            <div style={{ fontSize: '8px' }}>{tab.label.split(' ')[1]}</div>
+            <div style={{ fontSize: '10px', marginTop: '2px' }}>{tab.label.split(' ')[1]}</div>
           </button>
         ))}
       </div>

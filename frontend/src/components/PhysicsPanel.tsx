@@ -120,27 +120,6 @@ export const PhysicsPanel: React.FC = () => {
           displayValue={damping.toFixed(3)}
         />
         <RangeSlider
-          label="Connection Lifetime"
-          value={connectionLifetime}
-          min="0"
-          max="5000"
-          step="50"
-          onChange={(v) => {
-            setConnectionLifetime(v);
-            if (v > nodeLifetime) setNodeLifetime(v);
-          }}
-          displayValue={`${connectionLifetime} ms`}
-        />
-        <RangeSlider
-          label="Node Lifetime"
-          value={nodeLifetime}
-          min={connectionLifetime}
-          max="120000"
-          step="1000"
-          onChange={(v) => setNodeLifetime(Math.max(v, connectionLifetime))}
-          displayValue={`${(nodeLifetime / 1000).toFixed(0)}s`}
-        />
-        <RangeSlider
           label="Center Pull"
           value={Math.round(centerPullStrength * 100000)}
           min="0"
@@ -165,11 +144,11 @@ export const PhysicsPanel: React.FC = () => {
         style={{
           marginTop: '28px',
           paddingTop: '16px',
-          borderTop: '1px solid rgba(0, 255, 0, 0.25)',
+          borderTop: 'var(--border-inset, 1px solid rgba(255, 255, 255, 0.15))',
         }}
       >
         <h3 style={{ marginBottom: '6px' }}>Experimental</h3>
-        <p style={{ fontSize: '11px', opacity: 0.65, marginBottom: '14px' }}>
+        <p style={{ fontSize: '11px', opacity: 0.65, marginBottom: '14px', color: 'var(--text-muted)' }}>
           Ball size = connections. Line width = throughput. 0% = off / regular.
         </p>
 

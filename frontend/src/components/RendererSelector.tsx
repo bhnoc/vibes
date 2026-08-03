@@ -114,23 +114,6 @@ export const RendererSelector: React.FC<RendererSelectorProps> = ({
       <div style={{ width: '100%', height: '100%' }}>
         {renderers[activeRenderer].component}
       </div>
-
-      {/* Performance indicator */}
-      <div style={{
-        position: 'fixed',
-        bottom: '10px',
-        right: '10px',
-        zIndex: 1001,
-        background: 'rgba(0, 0, 0, 0.8)',
-        border: '1px solid #00ff00',
-        borderRadius: '4px',
-        padding: '5px 10px',
-        fontFamily: 'monospace',
-        fontSize: '11px',
-        color: '#00ff00'
-      }}>
-        Active: {renderers[activeRenderer].name}
-      </div>
     </div>
   )
 } 
