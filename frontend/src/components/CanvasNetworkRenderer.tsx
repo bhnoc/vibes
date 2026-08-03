@@ -266,46 +266,63 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     let hoverId: string | null = null;
     const CLICK_DRAG_THRESHOLD = 4; // px of movement before a click becomes a pan
 
+    const setCursor = (cursor: string) => {
+      if (canvas.style.cursor !== cursor) {
+        canvas.style.cursor = cursor;
+      }
+    };
+
     // Screen (client) coords → nearest node under the cursor, or null.
+    // Optimized with squared distance comparison and direct iterator to avoid
+    // Math.hypot / square root overhead in the mousemove hot path.
     const hitTestNode = (clientX: number, clientY: number): string | null => {
       const rect = canvas.getBoundingClientRect();
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
       const vp = viewportRef.current;
       let bestId: string | null = null;
-      let bestDist = Infinity;
-      layoutNodes.current.forEach(node => {
-        if (node.alpha <= 0) return;
+      let bestDistSq = Infinity;
+      for (const node of layoutNodes.current.values()) {
+        if (node.alpha <= 0) continue;
         const nx = (node.x - vp.x) * vp.zoom;
         const ny = (node.y - vp.y) * vp.zoom;
         const hitR = Math.max(node.radius * vp.zoom, 9);
-        const d = Math.hypot(sx - nx, sy - ny);
-        if (d <= hitR && d < bestDist) { bestId = node.id; bestDist = d; }
-      });
+        const dx = sx - nx;
+        const dy = sy - ny;
+        const dSq = dx * dx + dy * dy;
+        if (dSq <= hitR * hitR && dSq < bestDistSq) {
+          bestId = node.id;
+          bestDistSq = dSq;
+        }
+      }
       return bestId;
     };
 
     const onDown  = (e: MouseEvent) => {
+      if (e.button !== 0) return; // Only left-click triggers pinning and drag selection
       dragging = true; moved = false;
       lastX = e.clientX; lastY = e.clientY;
       downX = e.clientX; downY = e.clientY;
       // Prefer a fresh hit (covers a click with no preceding hover event);
       // fall back to the last hovered node so a drifted target still counts.
       hitId = hitTestNode(e.clientX, e.clientY) ?? hoverId;
-      canvas.style.cursor = 'grabbing';
+      setCursor('grabbing');
     };
     const onMove  = (e: MouseEvent) => {
       if (!dragging) {
         hoverId = hitTestNode(e.clientX, e.clientY);
-        canvas.style.cursor = hoverId ? 'pointer' : 'grab';
+        setCursor(hoverId ? 'pointer' : 'grab');
         return;
       }
-      if (!moved && Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_DRAG_THRESHOLD) moved = true;
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (!moved && dx * dx + dy * dy > CLICK_DRAG_THRESHOLD * CLICK_DRAG_THRESHOLD) moved = true;
       viewportRef.current.x -= (e.clientX - lastX) / viewportRef.current.zoom;
       viewportRef.current.y -= (e.clientY - lastY) / viewportRef.current.zoom;
       lastX = e.clientX; lastY = e.clientY;
     };
     const onUp    = (e: MouseEvent) => {
+      if (e.button !== 0) return;
       dragging = false;
       // A plain click (no drag) landing on a node toggles its pin — the fast
       // path for pinning instead of typing /pin <ip> in the command bar.
@@ -315,9 +332,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
       hitId = null;
       hoverId = hitTestNode(e.clientX, e.clientY);
-      canvas.style.cursor = hoverId ? 'pointer' : 'grab';
+      setCursor(hoverId ? 'pointer' : 'grab');
     };
-    const onLeave = () => { dragging = false; hitId = null; hoverId = null; canvas.style.cursor = 'grab'; };
+    const onLeave = () => { dragging = false; hitId = null; hoverId = null; setCursor('grab'); };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * (e.deltaY > 0 ? 0.9 : 1.1)));
