@@ -1,0 +1,106 @@
+name: Test Coverage & CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  backend-test:
+    name: Backend Tests & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Download Go Modules
+        working-directory: ./backend
+        run: go mod download
+
+      - name: Run Go Vet
+        working-directory: ./backend
+        run: go vet ./...
+
+      - name: Run Go Unit Tests with Coverage
+        working-directory: ./backend
+        run: |
+          go test -v -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -func=coverage.out
+
+      - name: Generate Coverage Summary
+        working-directory: ./backend
+        run: |
+          echo "### 📊 Go Backend Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify Backend Build
+        working-directory: ./backend
+        run: go build -v -o vibes-backend ./cmd
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+          retention-days: 14
+
+  frontend-test:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run Eslint
+        run: npm run lint
+
+      - name: Build Frontend (TypeScript & Vite)
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Generate Frontend Build Summary
+        run: |
+          echo "### 🎨 Frontend Build Verification" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Eslint passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ TypeScript type-checking passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Vite production bundle built successfully" >> $GITHUB_STEP_SUMMARY
+
+  test-coverage:
+    name: Test Coverage Gate
+    needs: [backend-test, frontend-test]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify All CI Suites Passed
+        run: |
+          if [ "${{ needs.backend-test.result }}" != "success" ] || [ "${{ needs.frontend-test.result }}" != "success" ]; then
+            echo "❌ One or more required test suites failed."
+            exit 1
+          fi
+          echo "✅ All test suites and coverage checks passed!"
