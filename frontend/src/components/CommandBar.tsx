@@ -173,7 +173,7 @@ export const CommandBar = () => {
           highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
           padding={{ top: 10, right: 10, bottom: 10, left: showConsole ? 100 : 10 }}
           className="command-input-editor"
-          placeholder={showConsole ? '' : "Press '`' to open console"}
+          placeholder={showConsole ? '' : "CONSOLE ['`' to toggle] | /help"}
         />
       </div>
     </div>

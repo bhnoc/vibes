@@ -23,6 +23,7 @@ const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module =>
 
 import { CommandBar } from './components/CommandBar';
 import { NocHeader, NocStatusBar } from './components/noc';
+import { ThemeLegend } from './components/ThemeLegend';
 
 // Loading fallback
 const LoadingFallback = () => (
@@ -496,6 +497,7 @@ export const App = memo(() => {
                 }
               ]}
             />
+            <ThemeLegend />
           </>
         )}
         

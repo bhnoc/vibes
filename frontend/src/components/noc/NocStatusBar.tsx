@@ -10,11 +10,11 @@ export interface NocStatusBarProps {
 }
 
 const CAPTURE_SOURCE_LABELS: Record<string, { label: string; level: 'ok' | 'info' | 'waiting' | 'critical' }> = {
-  dumpcap: { label: '🚀 DUMPCAP', level: 'ok' },
-  real: { label: '📡 LIVE INTERFACE', level: 'ok' },
-  simulated: { label: '🎮 SIMULATION GENERATOR', level: 'info' },
-  zeek: { label: '🦅 ZEEK STREAM', level: 'info' },
-  pcap_replay: { label: '🎞️ PCAP REPLAY', level: 'info' },
+  dumpcap: { label: 'DUMPCAP CAPTURE', level: 'ok' },
+  real: { label: 'LIVE INTERFACE', level: 'ok' },
+  simulated: { label: 'SIMULATION GENERATOR', level: 'info' },
+  zeek: { label: 'ZEEK SENSOR STREAM', level: 'info' },
+  pcap_replay: { label: 'PCAP REPLAY', level: 'info' },
 };
 
 /**
@@ -50,7 +50,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
       }}
     >
       {/* Left side: Command bar console trigger */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 360px', minWidth: '260px', maxWidth: '480px', marginRight: '20px' }}>
         <CommandBar />
       </div>
 

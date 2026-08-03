@@ -45,6 +45,42 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   const [nodeCount, setNodeCount] = useState(2000);
   const [connectionCount, setConnectionCount] = useState(3000);
 
+  const [position, setPosition] = useState({ x: 18, y: 68 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+  };
+
   const { packets } = usePacketStore();
   const { nodes, connections } = useNetworkStore();
   const { verboseLogging, toggleVerboseLogging } = useSettingsStore();
@@ -214,21 +250,25 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
 
   if (isMinimized) {
     return (
-      <div style={{
-        position: 'fixed',
-        top: '68px',
-        left: '18px',
-        zIndex: 1001,
-        background: 'var(--surface-card, #141414)',
-        border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
-        borderRadius: 'var(--radius-md, 8px)',
-        padding: '8px 14px',
-        font: 'var(--type-ui-sm)',
-        color: 'var(--text-hi, #fff)',
-        cursor: 'pointer',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-      }} onClick={() => setIsMinimized(false)}>
-        TELEMETRY CONSOLE [CLICK TO EXPAND]
+      <div 
+        onMouseDown={handleHeaderMouseDown}
+        style={{
+          position: 'fixed',
+          top: `${position.y}px`,
+          left: `${position.x}px`,
+          zIndex: 1001,
+          background: 'var(--surface-card, #141414)',
+          border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
+          borderRadius: 'var(--radius-md, 8px)',
+          padding: '8px 14px',
+          font: 'var(--type-ui-sm)',
+          color: 'var(--text-hi, #fff)',
+          cursor: 'move',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+        }} 
+        onClick={() => setIsMinimized(false)}
+      >
+        TELEMETRY CONSOLE [DRAG / CLICK TO EXPAND]
       </div>
     );
   }
@@ -236,8 +276,8 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   return (
     <div style={{
       position: 'fixed',
-      top: '68px',
-      left: '18px',
+      top: `${position.y}px`,
+      left: `${position.x}px`,
       zIndex: 1001,
       background: 'var(--surface-card, #141414)',
       border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
@@ -252,14 +292,18 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
       backdropFilter: 'blur(8px)'
     }}>
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '10px 14px',
-        borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
-        background: 'var(--sidebar, #0e0e0e)'
-      }}>
+      <div 
+        onMouseDown={handleHeaderMouseDown}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 14px',
+          borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
+          background: 'var(--sidebar, #0e0e0e)',
+          cursor: 'move'
+        }}
+      >
         <span style={{ font: 'var(--type-label)', letterSpacing: '0.14em', color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
           System Telemetry &amp; Diagnostics
         </span>

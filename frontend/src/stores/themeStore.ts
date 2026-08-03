@@ -72,7 +72,49 @@ const retroBlue: Theme = {
   labelColor: '#7dd3fc',
 }
 
+const blackhatNoc: Theme = {
+  key: 'blackhat-noc',
+  label: 'Black Hat NOC',
+  primary: '#00d2aa',
+  primaryRgb: '0, 210, 170',
+  background: '#0e0e0e',
+  nodeHueMin: 160,
+  nodeHueMax: 200,
+  nodeSat: 85,
+  nodeLightMin: 45,
+  nodeLightMax: 65,
+  edgeTcp: '#00d2aa',
+  edgeUdp: '#a855f7',
+  edgeIcmp: '#ef4444',
+  edgeHttp: '#f59e0b',
+  edgeDefault: '#00b4d8',
+  groupHalo: '#f59e0b',
+  labelColor: '#00d2aa',
+}
+
+const customLegend: Theme = {
+  key: 'custom-legend',
+  label: 'Custom Spectrum (With Legend)',
+  primary: '#a855f7',
+  primaryRgb: '168, 85, 247',
+  background: '#090514',
+  nodeHueMin: 260,
+  nodeHueMax: 340,
+  nodeSat: 90,
+  nodeLightMin: 48,
+  nodeLightMax: 70,
+  edgeTcp: '#38bdf8',
+  edgeUdp: '#a855f7',
+  edgeIcmp: '#ef4444',
+  edgeHttp: '#22c55e',
+  edgeDefault: '#eab308',
+  groupHalo: '#f43f5e',
+  labelColor: '#e879f9',
+}
+
 export const THEMES: Record<string, Theme> = {
+  'blackhat-noc': blackhatNoc,
+  'custom-legend': customLegend,
   'retro-blue': retroBlue,
   classic,
 }

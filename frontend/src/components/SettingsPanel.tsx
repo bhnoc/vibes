@@ -82,12 +82,14 @@ export const SettingsPanel: React.FC<{
         {activeTab === 'network' && (
           <div style={{marginTop: '20px'}}>
             <h3>Theme</h3>
-            <div className="button-group">
+            <div className="button-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               {Object.values(THEMES).map(t => (
                 <button
                   key={t.key}
                   className={themeKey === t.key ? 'active' : ''}
                   onClick={() => setTheme(t.key)}
+                  style={{ fontSize: '11px', padding: '8px 4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                  title={t.label}
                 >
                   {t.label}
                 </button>
@@ -242,7 +244,9 @@ export const SettingsPanel: React.FC<{
         )}
 
         {activeTab === 'physics' && (
-          <PhysicsPanel />
+          <div style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto', paddingRight: '8px' }}>
+            <PhysicsPanel />
+          </div>
         )}
       </div>
     </div>

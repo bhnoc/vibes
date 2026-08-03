@@ -180,7 +180,6 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
             transition: 'all 0.15s ease',
           }}
         >
-          <span>⚙</span>
           <span>Operations Console</span>
         </button>
 
