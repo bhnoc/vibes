@@ -8,7 +8,7 @@ import { useWindowStore } from '../stores/windowStore';
 // --- Custom PrismJS Grammar for our commands ---
 Prism.languages.vibes = {
   'command': {
-    pattern: /^\/(pin|unpin|pinned|list|debug|legend|settings|help|whoami)\b/,
+    pattern: /^\/(pin|unpin|pinned|list|debug|legend|settings|physics|perf|load|tools|help|whoami)\b/,
     alias: 'keyword',
   },
   'subcommand': {
@@ -38,6 +38,24 @@ Prism.languages.vibes = {
 };
 
 
+/**
+ * Slash commands that open a floating tool.
+ *
+ * Kept as a table so the console, the icon rail and the command palette cannot
+ * drift apart: adding a tool here is what makes it typeable, and /tools prints
+ * this same list so nothing is discoverable only by having read the source.
+ */
+const TOOL_COMMANDS: Record<string, { target: 'debug' | 'legend' | 'settings' | 'perf'; label: string; note?: string }> = {
+  '/debug': { target: 'debug', label: 'Diagnostics' },
+  '/legend': { target: 'legend', label: 'Theme legend' },
+  '/settings': { target: 'settings', label: 'Capture settings' },
+  '/physics': { target: 'settings', label: 'Capture settings', note: ' Physics lives on its Physics tab.' },
+  '/perf': { target: 'perf', label: 'Load generator' },
+  '/load': { target: 'perf', label: 'Load generator' },
+};
+
+const TOOL_LIST = Object.keys(TOOL_COMMANDS).join(', ');
+
 export interface CommandBarProps {
   onConsoleToggle?: (isOpen: boolean) => void;
 }
@@ -47,7 +65,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
   const [history, setHistory] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const { addPinningRule, removePinningRule, pinningRules, clearAllPins } = usePinStore();
-  const { toggleSettings, toggleDebug, toggleLegend } = useWindowStore();
+  const { toggleSettings, toggleDebug, toggleLegend, togglePerfTest, closeAll } = useWindowStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const consoleOutputRef = useRef<HTMLDivElement>(null);
 
@@ -77,41 +95,34 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
       }
     } else if (action === '/pinned' || (action === '/list' && arg0 === 'pinned')) {
       output = `Active pinning rules: ${Array.from(pinningRules).join(', ')}`;
-    } else if (action === '/debug') {
+    } else if (TOOL_COMMANDS[action]) {
+      const tool = TOOL_COMMANDS[action];
+      const toggle = {
+        debug: toggleDebug,
+        legend: toggleLegend,
+        settings: toggleSettings,
+        perf: togglePerfTest,
+      }[tool.target];
+
       if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
-        toggleDebug(true);
-        output = 'Debug window opened.';
+        toggle(true);
+        output = `${tool.label} opened.${tool.note ?? ''}`;
       } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
-        toggleDebug(false);
-        output = 'Debug window closed.';
+        toggle(false);
+        output = `${tool.label} closed.`;
       } else {
-        toggleDebug();
-        output = 'Toggled debug window.';
+        toggle();
+        output = `Toggled ${tool.label.toLowerCase()}.${tool.note ?? ''}`;
       }
-    } else if (action === '/legend') {
-      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
-        toggleLegend(true);
-        output = 'Legend window opened.';
-      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
-        toggleLegend(false);
-        output = 'Legend window closed.';
+    } else if (action === '/tools') {
+      if (arg0 === 'close') {
+        closeAll();
+        output = 'Closed every floating tool.';
       } else {
-        toggleLegend();
-        output = 'Toggled legend window.';
-      }
-    } else if (action === '/settings') {
-      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
-        toggleSettings(true);
-        output = 'Settings panel opened.';
-      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
-        toggleSettings(false);
-        output = 'Settings panel closed.';
-      } else {
-        toggleSettings();
-        output = 'Toggled settings panel.';
+        output = `Tools: ${TOOL_LIST}. Each takes open/close, or toggles with no argument. /tools close hides them all.`;
       }
     } else if (action === '/help') {
-      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /debug, /legend, /settings, /help, /whoami`;
+      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /tools, ${TOOL_LIST}, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {

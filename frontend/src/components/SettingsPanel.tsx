@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useNetworkStore } from '../stores/networkStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useThemeStore, THEMES } from '../stores/themeStore';
+import { CaptureFailure } from '../hooks/useWebSocket';
 import { PhysicsPanel } from './PhysicsPanel';
-import { Button, Tabs, Input, Badge, Separator, FloatingPanel } from './noc/kit';
+import { Button, Tabs, Input, Badge, Separator, FloatingPanel, Icon } from './noc/kit';
 
 /**
  * Capture settings.
@@ -27,6 +28,10 @@ export interface SettingsPanelProps {
   onZeekTcpAddrChange: (addr: string) => void;
   /** Current frontend WebSocket URL, so the operator can see what will be dialled. */
   wsPreviewUrl: string | null;
+  /** Set when the backend substituted simulation for the requested capture. */
+  captureFailure?: CaptureFailure | null;
+  /** The interface the backend says it is actually reading, which can differ from the request. */
+  activeDevice?: string;
   onMinimize: () => void;
 }
 
@@ -36,6 +41,43 @@ const Section: React.FC<{ title: string; hint?: string; children: React.ReactNod
     {hint ? <p style={{ margin: 0, font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>{hint}</p> : null}
     {children}
   </section>
+);
+
+/**
+ * The backend accepted the connection but is feeding synthetic traffic because
+ * the requested capture would not open. That has to be stated outright: every
+ * other reading in the console looks perfectly healthy while it is true.
+ */
+const FailureNotice: React.FC<{ failure: CaptureFailure }> = ({ failure }) => (
+  <div
+    role="alert"
+    style={{
+      display: 'grid',
+      gridTemplateColumns: 'auto minmax(0,1fr)',
+      gap: 'var(--spacing-2-5)',
+      marginBottom: 'var(--spacing-5)',
+      padding: 'var(--spacing-3)',
+      background: 'var(--wash-critical)',
+      border: '1px solid color-mix(in oklab,var(--signal-red) 45%,transparent)',
+      borderRadius: 'var(--radius-md)',
+    }}
+  >
+    <Icon name="TriangleAlert" size={16} style={{ color: 'var(--signal-red)', marginTop: 2 }} />
+    <div style={{ display: 'grid', gap: 'var(--spacing-1-5)', minWidth: 0 }}>
+      <span style={{ font: 'var(--type-ui-sm)', color: 'var(--text-hi)' }}>
+        {failure.permissions ? 'Capture refused: privileges required' : 'Capture could not start'}
+      </span>
+      <span style={{ font: 'var(--type-data-sm)', color: 'var(--text-body)', wordBreak: 'break-word' }}>
+        {failure.device ? `Interface ${failure.device}: ` : ''}
+        {failure.message}
+      </span>
+      <span style={{ font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+        {failure.permissions
+          ? 'Restart the backend with administrator or root privileges, then choose the interface again.'
+          : 'The map is showing simulated traffic until the requested capture starts.'}
+      </span>
+    </div>
+  </div>
 );
 
 const Slider: React.FC<{ label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }> = ({
@@ -69,6 +111,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   zeekTcpAddr,
   onZeekTcpAddrChange,
   wsPreviewUrl,
+  captureFailure = null,
+  activeDevice = '',
   onMinimize,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('source');
@@ -114,6 +158,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </div>
             </Section>
 
+            {captureFailure ? <FailureNotice failure={captureFailure} /> : null}
+
             {captureMode === 'real' ? (
               <Section title="Network interface" hint="Live capture needs administrator privileges on the backend host.">
                 <select
@@ -132,6 +178,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 {interfaces.length === 0 ? (
                   <span style={{ font: 'var(--type-data-sm)', color: 'var(--signal-amber)' }}>
                     No interfaces returned. The backend may not be running, or it lacks capture privileges.
+                  </span>
+                ) : null}
+                {/* Live mode holds the socket closed until an interface is named:
+                    dialling without one makes the backend answer with simulated
+                    traffic, which is precisely the confusion being avoided. */}
+                {!selectedInterface ? (
+                  <span style={{ font: 'var(--type-data-sm)', color: 'var(--signal-amber)' }}>
+                    Pick an interface to start capturing. Nothing is dialled until you do.
+                  </span>
+                ) : activeDevice && activeDevice !== selectedInterface ? (
+                  <span style={{ font: 'var(--type-data-sm)', color: 'var(--signal-amber)' }}>
+                    The backend reports it is reading {activeDevice}, not {selectedInterface}.
                   </span>
                 ) : null}
               </Section>

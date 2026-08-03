@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -224,7 +223,7 @@ func (m *DumpcapManager) Preflight() error {
 	// prevent for the supervised launch. Without this, the "still running at
 	// the hard ceiling" pass branch below could leak such an orphan every
 	// time it's taken.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	cmd.Stdout = io.Discard
@@ -285,18 +284,9 @@ func (m *DumpcapManager) Preflight() error {
 	return fmt.Errorf("dumpcap preflight failed: %s. %s", detail, preflightAdvice(runtime.GOOS))
 }
 
-// killProcessGroup SIGKILLs an entire process group (negative pid signals
-// the group rather than a single process) — used by Preflight's timeout path
-// to guarantee no descendant of the probe process survives as an orphan. A
-// no-op if pgid is invalid or the group is already gone (ESRCH).
-func killProcessGroup(pgid int) {
-	if pgid <= 0 {
-		return
-	}
-	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
-		log.Printf("⚠️ preflight: failed to kill probe process group %d: %v", pgid, err)
-	}
-}
+// setProcessGroup, killProcessGroup and terminateProcess are platform-specific;
+// see procgroup_unix.go and procgroup_windows.go. Preflight's timeout path uses
+// them to guarantee no descendant of the probe process survives as an orphan.
 
 // preflightEnumerate is the fallback probe used only when no interface is
 // configured (so a real capture attempt isn't possible). It only confirms
@@ -474,7 +464,9 @@ func (m *DumpcapManager) Stop() {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
-	cmd.Process.Signal(syscall.SIGTERM)
+	if err := terminateProcess(cmd.Process); err != nil {
+		log.Printf("⚠️ dumpcap terminate signal failed (pid %d): %v", cmd.Process.Pid, err)
+	}
 	if waitDone != nil {
 		select {
 		case <-waitDone:

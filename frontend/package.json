@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:shots": "node scripts/smoke.mjs http://localhost:5173/ --shots"
+    "smoke:shots": "node scripts/smoke.mjs http://localhost:5173/ --shots",
+    "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
     "@pixi/react": "latest",

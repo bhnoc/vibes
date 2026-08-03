@@ -34,6 +34,8 @@ export interface NocTopBarProps {
   captureInterface?: string;
   status: string;
   error: string | null;
+  /** True when the backend substituted simulation for the capture that was asked for. */
+  captureDegraded?: boolean;
   onOpenPalette: () => void;
   onToggleSettings: () => void;
   settingsOpen: boolean;
@@ -42,7 +44,7 @@ export interface NocTopBarProps {
 }
 
 export const NocTopBar = memo(
-  ({ captureMode, captureInterface, status, error, onOpenPalette, onToggleSettings, settingsOpen, onToggleDock, dockOpen }: NocTopBarProps) => {
+  ({ captureMode, captureInterface, status, error, captureDegraded, onOpenPalette, onToggleSettings, settingsOpen, onToggleDock, dockOpen }: NocTopBarProps) => {
     const t = useTelemetry();
     const [now, setNow] = useState(() => new Date());
 
@@ -51,7 +53,13 @@ export const NocTopBar = memo(
       return () => clearInterval(id);
     }, []);
 
-    const mode = MODE[captureMode] ?? MODE.waiting;
+    // The socket is up and the operator asked for live capture, but what is
+    // arriving is the backend's simulator. Saying "Live capture" here would be
+    // the console's most damaging possible lie, so the badge states the truth and
+    // the requested interface is labelled as the thing that failed.
+    const mode = captureDegraded
+      ? ({ label: 'Simulated — capture failed', tone: 'warn' } as const)
+      : MODE[captureMode] ?? MODE.waiting;
     const link = LINK[status] ?? LINK.disconnected;
 
     const utc = now.toISOString().slice(11, 19);
@@ -87,7 +95,10 @@ export const NocTopBar = memo(
           {mode.label}
         </Badge>
         {captureMode === 'real' && captureInterface ? (
-          <span style={{ font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>{captureInterface}</span>
+          <span style={{ font: 'var(--type-data-sm)', color: captureDegraded ? 'var(--signal-amber)' : 'var(--text-faint)' }}>
+            {captureInterface}
+            {captureDegraded ? ' unavailable' : ''}
+          </span>
         ) : null}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)' }}>

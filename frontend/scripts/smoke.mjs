@@ -47,6 +47,39 @@ for (const [name, selector] of checks) {
   results.push([name, (await page.locator(selector).count()) > 0]);
 }
 
+// Regression: choosing Live capture must stay chosen. The backend answers a
+// bare /ws with simulated traffic, and the console used to accept that as the
+// operator's own choice — flipping out of Live mode and taking the interface
+// picker with it, so an interface could never be selected at all.
+{
+  const settings = page.locator('[aria-label="Capture settings"]').first();
+  if ((await settings.count()) > 0) {
+    await settings.click();
+    await page.waitForTimeout(300);
+  }
+
+  const live = page.getByRole('button', { name: 'Live', exact: true }).first();
+  if ((await live.count()) > 0) {
+    await live.click();
+    // Long enough for a socket round trip and the mode frame that used to
+    // clobber the selection.
+    await page.waitForTimeout(2500);
+
+    const picker = page.locator('select[aria-label="Network interface"]');
+    results.push(['live mode holds', (await picker.count()) > 0]);
+
+    if ((await picker.count()) > 0) {
+      const options = await picker.locator('option').count();
+      results.push(['interfaces offered', options > 1]);
+    } else {
+      results.push(['interfaces offered', false]);
+    }
+  }
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 if (wantShots) {
   mkdirSync(OUT, { recursive: true });
   await page.screenshot({ path: `${OUT}/01-console.png` });

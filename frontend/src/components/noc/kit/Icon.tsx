@@ -20,7 +20,9 @@ import {
   Siren,
   Terminal,
   Trash2,
+  TriangleAlert,
   Waypoints,
+  Wrench,
   X,
 } from 'lucide-react';
 
@@ -58,7 +60,9 @@ const REGISTRY = {
   Siren,
   Terminal,
   Trash2,
+  TriangleAlert,
   Waypoints,
+  Wrench,
   X,
 } as const;
 

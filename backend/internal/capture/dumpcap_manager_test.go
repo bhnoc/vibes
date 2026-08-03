@@ -1,4 +1,10 @@
 // backend/internal/capture/dumpcap_manager_test.go
+//
+// POSIX-only: these tests assert process-group semantics (signalling a whole
+// group, probing liveness with signal 0) that Windows does not have. The manager
+// itself builds and runs on Windows via procgroup_windows.go.
+//go:build !windows
+
 package capture
 
 import (

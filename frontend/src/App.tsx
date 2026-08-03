@@ -57,6 +57,21 @@ const CAPTURE_LABELS: Record<CaptureMode, string> = {
   waiting: 'No source selected',
 }
 
+const VALID_VIEWS: ConsoleView[] = ['map', 'flows', 'hosts', 'alerts', 'inspector']
+
+/**
+ * Resolve the URL hash to a surface.
+ *
+ * `#debug` is kept as an alias because it was the address of the packet
+ * inspector before the console gained named surfaces, and it is the link people
+ * already have in their notes and bookmarks.
+ */
+function viewFromHash(): ConsoleView {
+  const raw = window.location.hash.slice(1)
+  if (raw === 'debug') return 'inspector'
+  return VALID_VIEWS.includes(raw as ConsoleView) ? (raw as ConsoleView) : 'map'
+}
+
 const LoadingFallback = () => (
   <div style={{ display: 'grid', placeItems: 'center', height: '100%', font: 'var(--type-body)', color: 'var(--muted-foreground)' }}>
     Loading inspector.
@@ -79,17 +94,16 @@ export const App = memo(() => {
   const generatorOverride = useRef(false)
 
   // --- Console state ---
-  const [view, setView] = useState<ConsoleView>(() => (window.location.hash.slice(1) as ConsoleView) || 'map')
+  const [view, setView] = useState<ConsoleView>(viewFromHash)
   const [query, setQuery] = useState('')
   const [selectedHost, setSelectedHost] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [dockOpen, setDockOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Panel visibility lives in the window store rather than local state so the
-  // command bar's /settings, /debug and /legend slash commands drive the same
-  // switches as the rail buttons and the palette.
-  const { showSettings, showDebug, showLegend, toggleSettings, toggleDebug, toggleLegend } = useWindowStore()
-  const [showPerfTest, setShowPerfTest] = useState(false)
+  // Tool visibility lives in the window store rather than local state so the
+  // console's slash commands drive the same switches as the rail buttons and the
+  // command palette. Every tool is reachable all three ways.
+  const { showSettings, showDebug, showLegend, showPerfTest, toggleSettings, toggleDebug, toggleLegend, togglePerfTest } = useWindowStore()
 
   const { clearPackets } = usePacketStore()
   const { clearNetwork } = useNetworkStore()
@@ -117,8 +131,16 @@ export const App = memo(() => {
     // would send every remote viewer to their own machine.
     const wsBase = `${proto}://${window.location.host}`
 
+    // Live capture with no interface chosen yet must NOT dial the socket. A bare
+    // /ws makes the backend start its simulator and report "simulated", which
+    // used to flip the console straight back out of Live mode and take the
+    // interface picker with it — so the operator could never reach the list.
     if (captureMode === 'real') {
-      return selectedInterface ? `${wsBase}/ws?interface=${selectedInterface}` : `${wsBase}/ws`
+      if (!selectedInterface) {
+        logger.log('Live capture selected with no interface yet; waiting for a choice')
+        return null
+      }
+      return `${wsBase}/ws?interface=${encodeURIComponent(selectedInterface)}`
     }
     if (captureMode === 'zeek') {
       return `${wsBase}/ws?zeek_tcp=${encodeURIComponent(zeekTcpAddr.trim() || ':4777')}`
@@ -128,7 +150,7 @@ export const App = memo(() => {
 
   // --- Hash routing ---
   useEffect(() => {
-    const onHashChange = () => setView(((window.location.hash.slice(1) as ConsoleView) || 'map'))
+    const onHashChange = () => setView(viewFromHash())
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
@@ -208,8 +230,20 @@ export const App = memo(() => {
     fetchInterfaces()
   }, [captureMode])
 
-  const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl)
+  const { status, error, captureMode: actualCaptureMode, deviceName, captureFailure, sendMessage } = useWebSocket(wsUrl)
   useWebSocketPinning(sendMessage)
+
+  // A capture the backend refused is the one error an operator must not miss, so
+  // it opens the panel that can fix it rather than waiting to be noticed.
+  useEffect(() => {
+    if (captureFailure) toggleSettings(true)
+  }, [captureFailure, toggleSettings])
+
+  // No source selected means there is nothing to look at; open settings so the
+  // first thing on screen is the control that picks one.
+  useEffect(() => {
+    if (captureMode === 'waiting') toggleSettings(true)
+  }, [captureMode, toggleSettings])
 
   // Fall back to a browser-side generator when the socket is unavailable, so the
   // console is demonstrable on a laptop with no backend running. It yields to the
@@ -243,8 +277,12 @@ export const App = memo(() => {
           : (actualCaptureMode as 'simulated' | 'real')
 
     if (serverUiMode === null || serverUiMode === captureMode || userInitiatedChangeRef.current) return
-    // Don't let a reconnect's "simulated" stomp an explicit Zeek selection.
-    if (captureMode === 'zeek' && serverUiMode === 'simulated') return
+    // A server-reported "simulated" never overrides an explicit live or Zeek
+    // selection. The backend answers "simulated" both on a reconnect and when it
+    // silently substitutes its simulator for a capture it could not open, and in
+    // neither case did the operator change their mind. Rewriting the mode here
+    // is what used to hide the interface picker the moment Live was chosen.
+    if ((captureMode === 'zeek' || captureMode === 'real') && serverUiMode === 'simulated') return
 
     logger.log(`Server reported capture mode: ${actualCaptureMode}`)
     setCaptureMode(serverUiMode)
@@ -268,40 +306,42 @@ export const App = memo(() => {
     useTelemetryStore.getState().reset()
   }, [clearPackets, clearNetwork])
 
+  /**
+   * Suppress the server-mode sync for a moment after an operator acts.
+   *
+   * This only silences the effect above; it deliberately does not gate the
+   * handlers themselves. It used to, and the result was that choosing Live and
+   * then picking an interface — two clicks a second apart, the only sensible way
+   * to start a live capture — threw the interface away because the mode change
+   * had taken the lock.
+   */
+  const holdServerSync = useCallback(() => {
+    userInitiatedChangeRef.current = true
+    setTimeout(() => {
+      userInitiatedChangeRef.current = false
+    }, 2000)
+  }, [])
+
   const handleCaptureModeChange = useCallback(
     (mode: 'simulated' | 'real' | 'zeek') => {
-      if (userInitiatedChangeRef.current) return
-      userInitiatedChangeRef.current = true
+      logger.log(`Operator switching capture mode to ${mode}`)
+      holdServerSync()
       setCaptureMode(mode)
       resetStream()
-      setTimeout(() => {
-        userInitiatedChangeRef.current = false
-      }, 2000)
     },
-    [resetStream],
+    [holdServerSync, resetStream],
   )
 
   const handleInterfaceSelect = useCallback(
     (iface: string) => {
-      if (userInitiatedChangeRef.current) return
-      userInitiatedChangeRef.current = true
+      logger.log(`Operator selected interface ${iface || '(none)'}`)
+      holdServerSync()
       setSelectedInterface(iface)
-      if (iface && captureMode !== 'real') setCaptureMode('real')
+      if (iface) setCaptureMode('real')
       resetStream()
-      setTimeout(() => {
-        userInitiatedChangeRef.current = false
-      }, 2000)
     },
-    [captureMode, resetStream],
+    [holdServerSync, resetStream],
   )
-
-  useEffect(() => {
-    if (status === 'error' && (captureMode === 'real' || captureMode === 'zeek') && !userInitiatedChangeRef.current) {
-      logger.log('Capture failed, falling back to simulation')
-      setCaptureMode('simulated')
-      resetStream()
-    }
-  }, [status, captureMode, resetStream])
 
   // --- Keyboard ---
   useEffect(() => {
@@ -359,9 +399,11 @@ export const App = memo(() => {
       { id: 'act:settings', label: 'Open capture settings', icon: 'Settings', group: 'Layout', run: () => toggleSettings(true) },
       { id: 'act:legend', label: 'Open theme legend', icon: 'Palette', group: 'Layout', run: () => toggleLegend(true) },
       { id: 'act:debug', label: 'Open diagnostics', icon: 'Terminal', group: 'Layout', run: () => toggleDebug(true) },
-      { id: 'act:perf', label: 'Open performance test', icon: 'Activity', group: 'Layout', run: () => setShowPerfTest(true) },
+      { id: 'act:perf', label: 'Open load generator', icon: 'Activity', group: 'Layout', run: () => togglePerfTest(true) },
+      { id: 'act:physics', label: 'Open physics controls', hint: 'capture settings, physics tab', icon: 'Wrench', group: 'Layout', run: () => toggleSettings(true) },
+      { id: 'act:closeall', label: 'Close all floating tools', icon: 'X', group: 'Layout', run: () => useWindowStore.getState().closeAll() },
     ],
-    [goto, handleCaptureModeChange, resetStream, dockOpen, sidebarOpen],
+    [goto, handleCaptureModeChange, resetStream, dockOpen, sidebarOpen, toggleSettings, toggleLegend, toggleDebug, togglePerfTest],
   )
 
   const content = () => {
@@ -419,6 +461,7 @@ export const App = memo(() => {
           captureInterface={selectedInterface}
           status={status}
           error={error}
+          captureDegraded={!!captureFailure}
           onOpenPalette={() => setPaletteOpen(true)}
           onToggleSettings={() => toggleSettings()}
           settingsOpen={showSettings}
@@ -434,7 +477,7 @@ export const App = memo(() => {
           onUtility={(k) => {
             if (k === 'legend') toggleLegend()
             if (k === 'debug') toggleDebug()
-            if (k === 'perf') setShowPerfTest((v) => !v)
+            if (k === 'perf') togglePerfTest()
           }}
           legendOpen={showLegend}
           debugOpen={showDebug}
@@ -462,6 +505,8 @@ export const App = memo(() => {
           zeekTcpAddr={zeekTcpAddr}
           onZeekTcpAddrChange={setZeekTcpAddr}
           wsPreviewUrl={wsUrl}
+          captureFailure={captureFailure}
+          activeDevice={deviceName}
           onMinimize={() => toggleSettings(false)}
         />
 
@@ -469,7 +514,7 @@ export const App = memo(() => {
 
         <PerformanceTestWindow
           isOpen={showPerfTest}
-          onMinimize={() => setShowPerfTest(false)}
+          onMinimize={() => togglePerfTest(false)}
           enabled={generator.enabled}
           nodeCount={generator.nodeCount}
           connectionCount={generator.connectionCount}
