@@ -58,7 +58,6 @@ export const App = memo(() => {
   const { clearNetwork } = useNetworkStore()
   const { setSize } = useSizeStore()
 
-
   // WebSocket connection
   const wsUrl = useMemo(() => {
     // Only create a WebSocket URL if we're not in waiting mode
@@ -279,6 +278,16 @@ export const App = memo(() => {
 
   const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl);
   useWebSocketPinning(sendMessage);
+
+  // Auto-enable fallback simulation if WebSocket is unavailable / blocked while in simulated mode
+  useEffect(() => {
+    if (captureMode === 'simulated' && (status === 'error' || status === 'disconnected' || status === 'waiting') && !performanceTestData.enabled) {
+      logger.log('🎮 Enabling automatic browser simulation fallback for Black Hat NOC Console');
+      setPerformanceTestData({ enabled: true, nodeCount: 150, connectionCount: 250 });
+    } else if (status === 'connected' && performanceTestData.enabled) {
+      setPerformanceTestData({ enabled: false, nodeCount: 0, connectionCount: 0 });
+    }
+  }, [captureMode, status, performanceTestData.enabled]);
   
   // Update local state if the server reports a different mode
   // Add a ref to track user-initiated changes to prevent conflicts
