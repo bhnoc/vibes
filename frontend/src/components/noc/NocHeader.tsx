@@ -251,41 +251,12 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
           <span>Settings</span>
         </button>
 
-        {/* Connection status dot */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '5px 12px',
-            border: `1px solid ${status === 'connected' ? 'var(--signal-teal)' : status === 'connecting' ? 'var(--signal-amber)' : 'var(--signal-red)'}`,
-            borderRadius: '999px',
-            background: status === 'connected' ? 'var(--wash-ok)' : status === 'connecting' ? 'var(--wash-medium)' : 'var(--wash-critical)',
-          }}
-          title={error || undefined}
-        >
-          <StatusDot
-            status={
-              status === 'connected'
-                ? 'ok'
-                : status === 'connecting'
-                ? 'warning'
-                : 'critical'
-            }
-            size={7}
-            pulse={status === 'connected'}
-          />
-          <span
-            style={{
-              font: 'var(--type-data-sm)',
-              color: status === 'connected' ? 'var(--signal-teal)' : status === 'connecting' ? 'var(--signal-amber)' : 'var(--signal-red)',
-              textTransform: 'uppercase',
-              letterSpacing: 'var(--tracking-label, 0.08em)',
-            }}
-          >
-            {status}
-          </span>
-        </div>
+        {/* Connection status badge */}
+        <SeverityBadge
+          level={status === 'connected' ? 'ok' : status === 'connecting' ? 'medium' : 'critical'}
+          label={status}
+          showDot={true}
+        />
 
         {/* Local/UTC timestamp in monospace tabular numerals */}
         <span

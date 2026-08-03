@@ -196,7 +196,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
             highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
             padding={{ top: 8, right: 10, bottom: 8, left: 2 }}
             className="command-input-editor"
-            placeholder={showConsole ? "Enter command... (/help)" : "CONSOLE ['~' to toggle] | /help"}
+            placeholder={showConsole ? "command (/help)" : "CONSOLE (~ or /help)"}
           />
         </div>
       </div>

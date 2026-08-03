@@ -329,9 +329,7 @@ export const SettingsPanel: React.FC<{
         )}
 
         {activeTab === 'physics' && (
-          <div style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto', paddingRight: '8px' }}>
-            <PhysicsPanel />
-          </div>
+          <PhysicsPanel />
         )}
       </div>
     </div>
