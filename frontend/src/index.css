@@ -411,22 +411,6 @@ body {
   position: relative;
 }
 
-.editor-container::before {
-  content: 'u@vibes$#';
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  color: var(--vibes-primary, #00ff00);
-  pointer-events: none;
-  font-size: 16px;
-  font-family: 'VT323', monospace;
-  display: none; /* Hidden by default */
-}
-
-.editor-container.console-active::before {
-  display: block; /* Show only when console is active */
-}
-
 .command-input-editor {
   background: transparent;
   border: none;

@@ -164,9 +164,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
 
       {showConsole && (
         <div className="console-output" ref={consoleOutputRef}>
-          <div style={{ color: 'var(--text-muted, rgba(255,255,255,0.4))', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
-            VIBES INTERACTIVE CONSOLE — TYPE /help FOR COMMANDS ['~' OR ESC TO HIDE]
-          </div>
           {history.map((line, index) => {
             if (line.startsWith(PROMPT)) {
               const cmd = line.replace(`${PROMPT} `, '');
@@ -185,16 +182,23 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
       <div 
         className={`editor-container ${showConsole ? 'console-active' : ''}`}
         onKeyDown={handleKeyDown} 
-        style={{ flex: 1 }}
+        style={{ flex: 1, display: 'flex', alignItems: 'center' }}
       >
-        <Editor
-          value={command}
-          onValueChange={code => setCommand(code)}
-          highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
-          padding={{ top: 8, right: 10, bottom: 8, left: showConsole ? 90 : 10 }}
-          className="command-input-editor"
-          placeholder="CONSOLE ['~' to toggle] | /help"
-        />
+        {showConsole && (
+          <span style={{ color: 'var(--signal-teal, #00d2aa)', font: 'var(--type-mono)', marginRight: '6px', userSelect: 'none', flexShrink: 0 }}>
+            {PROMPT}
+          </span>
+        )}
+        <div style={{ flex: 1 }}>
+          <Editor
+            value={command}
+            onValueChange={code => setCommand(code)}
+            highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
+            padding={{ top: 8, right: 10, bottom: 8, left: 2 }}
+            className="command-input-editor"
+            placeholder="CONSOLE ['~' to toggle] | /help"
+          />
+        </div>
       </div>
     </div>
   );

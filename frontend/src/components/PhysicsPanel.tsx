@@ -120,27 +120,6 @@ export const PhysicsPanel: React.FC = () => {
           displayValue={damping.toFixed(3)}
         />
         <RangeSlider
-          label="Connection Lifetime"
-          value={connectionLifetime}
-          min="0"
-          max="5000"
-          step="50"
-          onChange={(v) => {
-            setConnectionLifetime(v);
-            if (v > nodeLifetime) setNodeLifetime(v);
-          }}
-          displayValue={`${connectionLifetime} ms`}
-        />
-        <RangeSlider
-          label="Node Lifetime"
-          value={nodeLifetime}
-          min={connectionLifetime}
-          max="120000"
-          step="1000"
-          onChange={(v) => setNodeLifetime(Math.max(v, connectionLifetime))}
-          displayValue={`${(nodeLifetime / 1000).toFixed(0)}s`}
-        />
-        <RangeSlider
           label="Center Pull"
           value={Math.round(centerPullStrength * 100000)}
           min="0"
@@ -158,6 +137,43 @@ export const PhysicsPanel: React.FC = () => {
           onChange={setSpringRestLength}
           displayValue={`${springRestLength} px`}
         />
+      </div>
+
+      {/* ── Experimental ─────────────────────────────────────────────────── */}
+      <div
+        style={{
+          marginTop: '28px',
+          paddingTop: '16px',
+          borderTop: 'var(--border-inset, 1px solid rgba(255, 255, 255, 0.15))',
+        }}
+      >
+        <h3 style={{ marginBottom: '6px' }}>Experimental</h3>
+        <p style={{ fontSize: '11px', opacity: 0.65, marginBottom: '14px', color: 'var(--text-muted)' }}>
+          Ball size = connections. Line width = throughput. 0% = off / regular.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <RangeSlider
+            label="Connection-count sizing"
+            hint="Ball size grows with number of connections"
+            value={Math.round(nodeSizingIntensity * 100)}
+            min="0"
+            max="100"
+            step="1"
+            onChange={(v) => setNodeSizingIntensity(v / 100)}
+            displayValue={`${Math.round(nodeSizingIntensity * 100)}%`}
+          />
+          <RangeSlider
+            label="Throughput line width"
+            hint="Line thickness follows sustained throughput"
+            value={Math.round(edgeWidthIntensity * 100)}
+            min="0"
+            max="100"
+            step="1"
+            onChange={(v) => setEdgeWidthIntensity(v / 100)}
+            displayValue={`${Math.round(edgeWidthIntensity * 100)}%`}
+          />
+        </div>
       </div>
     </div>
   );
