@@ -17,6 +17,43 @@ body {
   overflow: hidden;
 }
 
+/* Retro Blue Neon Theme Overrides — disregards standard UI Kit when selected */
+[data-theme="retro-blue"] {
+  --card: rgba(4, 16, 40, 0.92);
+  --surface-card: rgba(4, 16, 40, 0.95);
+  --surface-chrome: #030a18;
+  --border-card: 1px solid #00ffff;
+  --border-control: 1px solid #00ffff;
+  --text-hi: #00ffff;
+  --signal-teal: #ff00ff;
+  --wash-ok: rgba(255, 0, 255, 0.25);
+  --vibes-primary: #00ffff;
+  --border-inset: 1px solid rgba(0, 255, 255, 0.4);
+  --text-muted: rgba(0, 255, 255, 0.7);
+  --type-ui: 'VT323', monospace;
+  --type-ui-sm: 'VT323', monospace;
+  --type-label: 'VT323', monospace;
+  --type-h2: 'VT323', monospace;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-xl: 6px;
+}
+
+[data-theme="retro-blue"] .settings-panel,
+[data-theme="retro-blue"] .noc-header,
+[data-theme="retro-blue"] .noc-status-bar,
+[data-theme="retro-blue"] .console-output {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.35), inset 0 0 10px rgba(255, 0, 255, 0.15);
+  border-color: #00ffff !important;
+}
+
+[data-theme="retro-blue"] button:hover {
+  background: rgba(0, 255, 255, 0.25) !important;
+  color: #ff00ff !important;
+  border-color: #ff00ff !important;
+  box-shadow: 0 0 12px rgba(255, 0, 255, 0.6);
+}
+
 /* Critical UI Component Styles */
 /* Settings Panel */
 .settings-panel {

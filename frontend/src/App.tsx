@@ -8,6 +8,7 @@ import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 import { logger } from './utils/logger'
 import { useWebSocketPinning } from './hooks/useWebSocketPinning'
+import { useThemeStore } from './stores/themeStore'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -60,6 +61,11 @@ export const App = memo(() => {
   const { packets, clearPackets } = usePacketStore()
   const { clearNetwork } = useNetworkStore()
   const { setSize } = useSizeStore()
+  const { themeKey } = useThemeStore()
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', themeKey);
+  }, [themeKey]);
 
   // WebSocket connection
   const wsUrl = useMemo(() => {

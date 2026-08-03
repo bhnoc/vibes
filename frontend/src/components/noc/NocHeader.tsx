@@ -168,7 +168,7 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
               }}
             />
           )}
-          IP Inspector
+          Inspector
         </a>
       </nav>
 
