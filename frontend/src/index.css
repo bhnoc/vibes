@@ -523,5 +523,15 @@ body {
   color: #ff0000; /* Red for operators like '/' and '-' */
 }
 
+/* --- Responsive NOC Header & Footer --- */
+@media (max-width: 1024px) {
+  .noc-header-subtitle {
+    max-width: 140px;
+  }
+}
 
- 
+@media (max-width: 860px) {
+  .noc-header-subtitle {
+    display: none;
+  }
+}

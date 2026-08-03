@@ -44,7 +44,10 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 18px',
+        flexWrap: 'nowrap',
+        overflowX: 'auto',
+        gap: '12px',
+        padding: '0 14px',
         background: 'var(--surface-chrome, #0e0e0e)',
         borderTop: 'var(--border-inset, 1px solid rgba(255, 255, 255, 0.1))',
         borderBottom: isConsoleOpen ? 'none' : undefined,
@@ -53,7 +56,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
       }}
     >
       {/* Left side: Command bar console trigger */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 360px', minWidth: '260px', maxWidth: '480px', marginRight: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 auto', minWidth: '140px', maxWidth: '360px' }}>
         <CommandBar onConsoleToggle={setIsConsoleOpen} />
       </div>
 
@@ -62,14 +65,16 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '20px',
-          fontSize: '12px',
+          gap: '14px',
+          fontSize: '11px',
           fontFamily: 'var(--font-mono)',
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
         }}
       >
         <SeverityBadge level={sourceInfo.level} label={sourceInfo.label} />
 
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px', color: 'var(--text-muted)' }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: '5px', color: 'var(--text-muted)' }}>
           PACKETS:
           <strong
             style={{
@@ -83,7 +88,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
           </strong>
         </span>
 
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px', color: 'var(--text-muted)' }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: '5px', color: 'var(--text-muted)' }}>
           NODES:
           <strong
             style={{
@@ -97,7 +102,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
           </strong>
         </span>
 
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: '6px', color: 'var(--text-muted)' }}>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: '5px', color: 'var(--text-muted)' }}>
           CONNECTIONS:
           <strong
             style={{
