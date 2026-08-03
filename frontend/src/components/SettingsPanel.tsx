@@ -1,16 +1,23 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNetworkStore } from '../stores/networkStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useThemeStore, THEMES } from '../stores/themeStore';
-import { FiWifi, FiSliders } from 'react-icons/fi';
 import { PhysicsPanel } from './PhysicsPanel';
+import { Button, Tabs, Input, Badge, Separator, FloatingPanel } from './noc/kit';
 
-type Tab = 'network' | 'physics';
+/**
+ * Capture settings.
+ *
+ * A floating layer over live content, so it carries a shadow and a blur and no
+ * competing chrome. Every control is a kit control: the panel exists to change
+ * what the capture is doing, and inventing bespoke widgets here is how a design
+ * system quietly stops being one.
+ */
 
-const WifiIcon = FiWifi as React.ElementType;
-const SlidersIcon = FiSliders as React.ElementType;
+type Tab = 'source' | 'display' | 'physics';
 
-export const SettingsPanel: React.FC<{
+export interface SettingsPanelProps {
+  open: boolean;
   captureMode: 'simulated' | 'real' | 'zeek' | 'waiting';
   onCaptureModeChange: (mode: 'simulated' | 'real' | 'zeek') => void;
   interfaces: Array<{ name: string; description: string }>;
@@ -18,322 +25,200 @@ export const SettingsPanel: React.FC<{
   onInterfaceSelect: (iface: string) => void;
   zeekTcpAddr: string;
   onZeekTcpAddrChange: (addr: string) => void;
-  /** Current frontend WebSocket URL (updates when mode / Zeek address changes). */
+  /** Current frontend WebSocket URL, so the operator can see what will be dialled. */
   wsPreviewUrl: string | null;
   onMinimize: () => void;
-}> = ({ 
-  captureMode, 
-  onCaptureModeChange, 
-  interfaces, 
-  selectedInterface, 
+}
+
+const Section: React.FC<{ title: string; hint?: string; children: React.ReactNode }> = ({ title, hint, children }) => (
+  <section style={{ display: 'grid', gap: 'var(--spacing-2)', marginBottom: 'var(--spacing-5)' }}>
+    <h3 style={{ margin: 0 }}>{title}</h3>
+    {hint ? <p style={{ margin: 0, font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>{hint}</p> : null}
+    {children}
+  </section>
+);
+
+const Slider: React.FC<{ label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }> = ({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}) => (
+  <div style={{ display: 'grid', gap: 'var(--spacing-1-5)' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-2)' }}>
+      <span style={{ font: 'var(--type-ui-sm)', color: 'var(--text-body)' }}>{label}</span>
+      <span style={{ marginLeft: 'auto', font: 'var(--type-data)', color: 'var(--signal-teal)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+    </div>
+    <input className="noc-range" type="range" min={min} max={max} step={step} value={value} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} />
+    <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+      <span>{min}</span>
+      <span>{max}</span>
+    </div>
+  </div>
+);
+
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({
+  open,
+  captureMode,
+  onCaptureModeChange,
+  interfaces,
+  selectedInterface,
   onInterfaceSelect,
   zeekTcpAddr,
   onZeekTcpAddrChange,
   wsPreviewUrl,
-  onMinimize
+  onMinimize,
 }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('network');
-  const [ifaceOpen, setIfaceOpen] = useState(false);
-  const ifaceRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('source');
   const { clearNetwork } = useNetworkStore();
   const { maxNodes, setMaxNodes, maxConnectionsPerNode, setMaxConnectionsPerNode } = useSettingsStore();
   const { themeKey, setTheme } = useThemeStore();
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ifaceRef.current && !ifaceRef.current.contains(e.target as Node)) setIfaceOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const [position, setPosition] = useState({ x: typeof window !== 'undefined' ? window.innerWidth - 380 : 800, y: 68 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
-        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
-      });
-    };
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  const handleHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
-    setIsDragging(true);
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialX: position.x,
-      initialY: position.y,
-    };
-  };
-
-  const handlePanelMouseDown = (e: React.MouseEvent) => {
-    e.stopPropagation();
-  };
-
-  const handlePanelWheel = (e: React.WheelEvent) => {
-    // Keep scroll inside the panel; don't zoom/pan the canvas underneath.
-    e.stopPropagation();
-  };
-
   return (
-    <div
-      className="settings-panel"
-      onMouseDown={handlePanelMouseDown}
-      onWheel={handlePanelWheel}
-      style={{ top: `${position.y}px`, left: `${position.x}px`, right: 'auto' }}
+    <FloatingPanel
+      open={open}
+      title="Capture settings"
+      icon="Settings"
+      onClose={onMinimize}
+      initial={{ x: typeof window !== 'undefined' ? Math.max(0, window.innerWidth - 420) : 800, y: 76 }}
+      width={380}
+      padded={false}
     >
-      <div
-        onMouseDown={handleHeaderMouseDown}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          cursor: 'move',
-          paddingBottom: '12px',
-          marginBottom: '12px',
-          borderBottom: 'var(--border-inset, 1px solid rgba(255,255,255,0.1))',
-        }}
-      >
-        <span
-          style={{
-            font: 'var(--type-label)',
-            letterSpacing: '0.14em',
-            color: 'var(--text-hi, #fff)',
-            textTransform: 'uppercase',
-          }}
-        >
-          SETTINGS
-        </span>
-        <button onClick={onMinimize} className="minimize-btn">Minimize</button>
-      </div>
-      
-      {/* Tab Navigation */}
-      <div className="button-group">
-        <button 
-          className={activeTab === 'network' ? 'active' : ''}
-          onClick={() => setActiveTab('network')}
-        >
-          <WifiIcon style={{display: 'inline-block', marginRight: '5px', verticalAlign: 'middle'}} />
-          Network
-        </button>
-        <button 
-          className={activeTab === 'physics' ? 'active' : ''}
-          onClick={() => setActiveTab('physics')}
-        >
-          <SlidersIcon style={{display: 'inline-block', marginRight: '5px', verticalAlign: 'middle'}} />
-          Physics
-        </button>
-      </div>
+      <Tabs
+        style={{ margin: 'var(--spacing-3) var(--spacing-4) var(--spacing-4)' }}
+        value={activeTab}
+        onChange={(v) => setActiveTab(v as Tab)}
+        items={[
+          { value: 'source', label: 'Source' },
+          { value: 'display', label: 'Display' },
+          { value: 'physics', label: 'Physics' },
+        ]}
+      />
 
-      {/* Tab Content */}
-      <div className="tab-content">
-        {activeTab === 'network' && (
-          <div style={{marginTop: '20px'}}>
-            <h3>Theme</h3>
-            <div className="button-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              {Object.values(THEMES).map(t => (
-                <button
-                  key={t.key}
-                  className={themeKey === t.key ? 'active' : ''}
-                  onClick={() => setTheme(t.key)}
-                  style={{ fontSize: '11px', padding: '8px 4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}
-                  title={t.label}
-                >
-                  {t.label}
+      <div className="tab-content" style={{ padding: '0 var(--spacing-4) var(--spacing-4)' }}>
+        {activeTab === 'source' ? (
+          <>
+            <Section title="Capture mode" hint="Switching modes clears the current stream.">
+              <div className="button-group" style={{ marginBottom: 0 }}>
+                <button className={captureMode === 'simulated' ? 'active' : ''} onClick={() => onCaptureModeChange('simulated')}>
+                  Simulated
                 </button>
-              ))}
-            </div>
-
-            <h3>Capture Mode</h3>
-            <div className="button-group">
-              <button
-                className={captureMode === 'simulated' ? 'active' : ''}
-                onClick={() => onCaptureModeChange('simulated')}
-              >
-                Simulated
-              </button>
-              <button
-                className={captureMode === 'real' ? 'active' : ''}
-                onClick={() => onCaptureModeChange('real')}
-              >
-                Real
-              </button>
-              <button
-                className={captureMode === 'zeek' ? 'active' : ''}
-                onClick={() => onCaptureModeChange('zeek')}
-                title="Zeek conn.log as NDJSON over TCP"
-              >
-                Zeek (TCP)
-              </button>
-            </div>
-
-            {captureMode === 'zeek' && (
-              <div style={{ marginTop: '16px' }}>
-                <h3>Zeek ingest address</h3>
-                <p style={{ fontSize: '11px', opacity: 0.8, marginBottom: '8px', color: 'var(--text-muted)' }}>
-                  Backend listens here; stream conn JSON lines (e.g. from zeek-cut | your forwarder).
-                </p>
-                <input
-                  type="text"
-                  value={zeekTcpAddr}
-                  onChange={(e) => onZeekTcpAddrChange(e.target.value)}
-                  placeholder=":4777"
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    background: 'var(--card, #141414)',
-                    border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
-                    borderRadius: 'var(--radius-sm, 6px)',
-                    color: 'var(--text-hi, #fff)',
-                    font: 'var(--type-mono)',
-                  }}
-                />
+                <button className={captureMode === 'real' ? 'active' : ''} onClick={() => onCaptureModeChange('real')}>
+                  Live
+                </button>
+                <button className={captureMode === 'zeek' ? 'active' : ''} onClick={() => onCaptureModeChange('zeek')} title="Zeek conn.log as NDJSON over TCP">
+                  Zeek
+                </button>
               </div>
-            )}
+            </Section>
 
-            {captureMode === 'real' && (
-              <div className="interface-select" style={{ marginTop: '16px' }}>
-                <h3>Network Interface</h3>
-                <div ref={ifaceRef} style={{ position: 'relative' }}>
+            {captureMode === 'real' ? (
+              <Section title="Network interface" hint="Live capture needs administrator privileges on the backend host.">
+                <select
+                  className="noc-select"
+                  aria-label="Network interface"
+                  value={selectedInterface}
+                  onChange={(e) => onInterfaceSelect(e.target.value)}
+                >
+                  <option value="">Select an interface</option>
+                  {interfaces.map((iface) => (
+                    <option key={iface.name} value={iface.name}>
+                      {iface.description || iface.name}
+                    </option>
+                  ))}
+                </select>
+                {interfaces.length === 0 ? (
+                  <span style={{ font: 'var(--type-data-sm)', color: 'var(--signal-amber)' }}>
+                    No interfaces returned. The backend may not be running, or it lacks capture privileges.
+                  </span>
+                ) : null}
+              </Section>
+            ) : null}
+
+            {captureMode === 'zeek' ? (
+              <Section title="Zeek ingest address" hint="The backend listens here for conn.log JSON lines, one per line.">
+                <Input mono value={zeekTcpAddr} placeholder=":4777" ariaLabel="Zeek ingest address" onChange={onZeekTcpAddrChange} />
+              </Section>
+            ) : null}
+
+            <Section title="Socket">
+              <div
+                style={{
+                  padding: 'var(--spacing-2) var(--spacing-3)',
+                  background: 'var(--background)',
+                  border: 'var(--border-inset)',
+                  borderRadius: 'var(--radius-md)',
+                  font: 'var(--type-data-sm)',
+                  color: 'var(--text-body)',
+                  wordBreak: 'break-all',
+                }}
+              >
+                {wsPreviewUrl || 'No socket: no source is selected.'}
+              </div>
+            </Section>
+
+            <Separator style={{ margin: 'var(--spacing-2) 0 var(--spacing-4)' }} />
+
+            <Button variant="destructive" full icon="Trash2" onClick={clearNetwork}>
+              Clear network data
+            </Button>
+          </>
+        ) : null}
+
+        {activeTab === 'display' ? (
+          <>
+            <Section title="Skin" hint="The NOC skin is the show-floor default. The retro skins rebind the same tokens.">
+              <div style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+                {Object.values(THEMES).map((t) => (
                   <button
-                    onClick={() => setIfaceOpen(v => !v)}
+                    key={t.key}
+                    onClick={() => setTheme(t.key)}
+                    aria-pressed={themeKey === t.key}
                     style={{
-                      width: '100%',
-                      background: 'var(--card, #141414)',
-                      border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
-                      borderRadius: 'var(--radius-md, 8px)',
-                      color: 'var(--text-hi, #fff)',
-                      padding: '8px 12px',
-                      font: 'var(--type-ui)',
-                      textAlign: 'left',
-                      cursor: 'pointer',
+                      all: 'unset',
+                      boxSizing: 'border-box',
                       display: 'flex',
-                      justifyContent: 'space-between',
                       alignItems: 'center',
+                      gap: 'var(--spacing-3)',
+                      height: 'var(--control-h-lg)',
+                      padding: '0 var(--spacing-3)',
+                      cursor: 'pointer',
+                      borderRadius: 'var(--radius-md)',
+                      border: `1px solid ${themeKey === t.key ? 'color-mix(in oklab,var(--signal-teal) 45%,transparent)' : 'var(--input)'}`,
+                      background: themeKey === t.key ? 'var(--wash-ok)' : 'color-mix(in oklab,var(--input) 20%,transparent)',
+                      color: 'var(--foreground)',
+                      font: 'var(--type-ui)',
+                      transition: 'var(--transition-control)',
                     }}
                   >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedInterface
-                        ? (interfaces.find(i => i.name === selectedInterface)?.description || selectedInterface)
-                        : 'Select Interface'}
-                    </span>
-                    <span style={{ marginLeft: '8px', flexShrink: 0, color: 'var(--text-muted)' }}>{ifaceOpen ? '▲' : '▼'}</span>
-                  </button>
-                  {ifaceOpen && (
-                    <div style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 4px)',
-                      left: 0,
-                      right: 0,
-                      background: 'var(--surface-card, #141414)',
-                      border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.15))',
-                      borderRadius: 'var(--radius-md, 8px)',
-                      zIndex: 1100,
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.65)',
-                    }}>
-                      {interfaces.length === 0 && (
-                        <div style={{ padding: '8px 12px', color: 'var(--text-muted)', font: 'var(--type-ui-sm)' }}>
-                          No interfaces found
-                        </div>
-                      )}
-                      {interfaces.map(iface => (
-                        <div
-                          key={iface.name}
-                          onClick={() => { onInterfaceSelect(iface.name); setIfaceOpen(false); }}
-                          style={{
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                            color: iface.name === selectedInterface ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
-                            background: iface.name === selectedInterface ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'transparent',
-                            font: 'var(--type-ui-sm)',
-                            borderBottom: '1px solid rgba(255,255,255,0.05)',
-                          }}
-                          onMouseEnter={e => { if (iface.name !== selectedInterface) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)'; }}
-                          onMouseLeave={e => { if (iface.name !== selectedInterface) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-                        >
-                          {iface.description || iface.name}
-                        </div>
+                    <span style={{ display: 'flex', gap: 3 }}>
+                      {[t.edgeTcp, t.edgeUdp, t.edgeIcmp, t.edgeHttp].map((c) => (
+                        <span key={c} style={{ width: 8, height: 16, borderRadius: 2, background: c }} />
                       ))}
-                    </div>
-                  )}
-                </div>
+                    </span>
+                    {t.label}
+                    {themeKey === t.key ? (
+                      <Badge tone="ok" mono style={{ marginLeft: 'auto' }}>
+                        Active
+                      </Badge>
+                    ) : null}
+                  </button>
+                ))}
               </div>
-            )}
+            </Section>
 
-            <div style={{ marginTop: '20px' }}>
-              <h3>Display</h3>
-              <label>Max Nodes on Screen: {maxNodes}</label>
-              <input
-                type="range"
-                min="50"
-                max="1000"
-                step="50"
-                value={maxNodes}
-                onChange={(e) => setMaxNodes(Number(e.target.value))}
-                style={{ width: '100%', marginTop: '6px' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', opacity: 0.85 }}>
-                <span>50</span><span>1000</span>
-              </div>
-            </div>
+            <Section title="Map limits" hint="Caps keep the map readable and the frame rate flat as the network grows.">
+              <Slider label="Max hosts on screen" value={maxNodes} min={50} max={1000} step={50} onChange={setMaxNodes} />
+              <div style={{ height: 'var(--spacing-4)' }} />
+              <Slider label="Max flows per host" value={maxConnectionsPerNode} min={1} max={150} step={1} onChange={setMaxConnectionsPerNode} />
+            </Section>
+          </>
+        ) : null}
 
-            <div style={{ marginTop: '16px' }}>
-              <label>Max Connections per Node: {maxConnectionsPerNode}</label>
-              <input
-                type="range"
-                min="1"
-                max="150"
-                step="1"
-                value={maxConnectionsPerNode}
-                onChange={(e) => setMaxConnectionsPerNode(Number(e.target.value))}
-                style={{ width: '100%', marginTop: '6px' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', opacity: 0.85 }}>
-                <span>1</span><span>150</span>
-              </div>
-            </div>
-
-            <button
-              onClick={clearNetwork}
-              style={{
-                background: 'rgba(255, 0, 0, 0.7)',
-                border: '1px solid #ff0000',
-                color: 'white',
-                width: '100%',
-                marginTop: '20px'
-              }}
-            >
-              Clear Network Data
-            </button>
-          </div>
-        )}
-
-        {activeTab === 'physics' && (
-          <div style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto', paddingRight: '8px' }}>
-            <PhysicsPanel />
-          </div>
-        )}
+        {activeTab === 'physics' ? <PhysicsPanel /> : null}
       </div>
-    </div>
+    </FloatingPanel>
   );
-}; 
+};

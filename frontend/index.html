@@ -4,9 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VIBES - Network Visualizer</title>
-    <meta name="description" content="Real-time network visualization with retro aesthetics" />
+    <title>VIBES — Network Operations Console</title>
+    <meta name="description" content="Live network capture, telemetry and detection for the Black Hat NOC" />
+    <meta name="color-scheme" content="dark" />
+    <!-- The console typefaces are fetched by design-system/tokens/fonts.css; opening
+         the connection here means that import is not also paying for DNS and TLS. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Retro skins only. The default NOC theme never asks for these. -->
     <link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- First paint happens before the stylesheet lands. Without this the console
+         flashes white, which in a dark room is genuinely painful. -->
+    <style>
+      html, body { margin: 0; background: oklch(0.145 0 0); }
+    </style>
   </head>
   <body>
     <div id="root"></div>

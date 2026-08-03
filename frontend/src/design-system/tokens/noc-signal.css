@@ -1,0 +1,36 @@
+/* ---------------------------------------------------------------------------
+   NOC extension layer: everything a security operations surface needs that the
+   shadcn contract doesn't name — severity, health, category hues, and the
+   translucent washes used behind rows and chips. Values match --chart-1..5.
+   --------------------------------------------------------------------------- */
+:root{
+  --signal-teal:oklch(0.82 0.16 168);      /* healthy · live · focus */
+  --signal-red:oklch(0.65 0.23 24);        /* critical */
+  --signal-orange:oklch(0.72 0.19 42);     /* high */
+  --signal-amber:oklch(0.81 0.16 78);      /* warning · degraded */
+  --signal-cyan:oklch(0.78 0.13 233);      /* informational · wired */
+  --signal-violet:oklch(0.72 0.15 285);    /* wireless · RF */
+
+  /* Severity ladder — fixed vocabulary, do not extend. */
+  --status-critical:var(--signal-red);
+  --status-high:var(--signal-orange);
+  --status-medium:var(--signal-amber);
+  --status-low:var(--signal-cyan);
+  --status-ok:var(--signal-teal);
+  --status-idle:oklch(0.52 0 0);
+
+  /* Washes: ~14% tints for row backgrounds and chips. Solid hue is for the
+     8px dot, the 3px status edge, the sparkline stroke and the metric numeral. */
+  --wash-critical:color-mix(in oklab,var(--signal-red) 15%,transparent);
+  --wash-high:color-mix(in oklab,var(--signal-orange) 15%,transparent);
+  --wash-medium:color-mix(in oklab,var(--signal-amber) 15%,transparent);
+  --wash-ok:color-mix(in oklab,var(--signal-teal) 14%,transparent);
+  --wash-info:color-mix(in oklab,var(--signal-cyan) 14%,transparent);
+  --wash-violet:color-mix(in oklab,var(--signal-violet) 15%,transparent);
+  --wash-neutral:color-mix(in oklab,var(--foreground) 7%,transparent);
+
+  /* Brand constants — the lockup only ever appears in these two values. */
+  --bh-black:#000000;
+  --bh-white:#ffffff;
+  --bh-ink:#231f20;
+}

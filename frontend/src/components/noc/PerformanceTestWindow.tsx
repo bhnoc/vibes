@@ -1,211 +1,146 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { usePacketStore } from '../../stores/packetStore';
-import { useNetworkStore } from '../../stores/networkStore';
+import React from 'react';
+import { FloatingPanel, Switch, Badge, Separator } from './kit';
+
+/**
+ * Synthetic load generator.
+ *
+ * Two things put fabricated traffic on the map: an operator turning this on to
+ * prove the renderer holds 60fps at conference scale, and the console falling
+ * back to it when no capture backend answers. Both look identical on the canvas,
+ * so this panel is fully controlled by the app's real state rather than a local
+ * copy of it — a switch that says "off" while the map is full of generated hosts
+ * is worse than no switch. When the fallback is what turned it on, the panel says
+ * so and explains that connecting a backend will end it.
+ */
 
 export interface PerformanceTestWindowProps {
   isOpen: boolean;
   onMinimize: () => void;
-  onTestModeChange?: (enabled: boolean, nodeCount: number, connectionCount: number) => void;
+  enabled: boolean;
+  nodeCount: number;
+  connectionCount: number;
+  /** True when the generator is running because the capture socket is unreachable. */
+  fallback?: boolean;
+  onTestModeChange: (enabled: boolean, nodeCount: number, connectionCount: number) => void;
 }
 
-/**
- * Draggable Performance Test Mode window following Black Hat NOC Design System.
- */
+const DEFAULT_NODES = 150;
+const DEFAULT_CONNECTIONS = 250;
+
+const Slider: React.FC<{
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  accent: string;
+  disabled?: boolean;
+  onChange: (v: number) => void;
+}> = ({ label, value, min, max, step, accent, disabled, onChange }) => (
+  <div style={{ display: 'grid', gap: 'var(--spacing-1-5)', opacity: disabled ? 0.5 : 1 }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-2)' }}>
+      <span style={{ font: 'var(--type-label)', letterSpacing: 'var(--tracking-label)', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+        {label}
+      </span>
+      <span style={{ marginLeft: 'auto', font: 'var(--type-data)', color: accent, fontVariantNumeric: 'tabular-nums' }}>
+        {value.toLocaleString()}
+      </span>
+    </div>
+    <input
+      className="noc-range"
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      disabled={disabled}
+      aria-label={label}
+      onChange={(e) => onChange(Number(e.target.value))}
+    />
+    <div style={{ display: 'flex', justifyContent: 'space-between', font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+      <span>{min.toLocaleString()}</span>
+      <span>{max.toLocaleString()}</span>
+    </div>
+  </div>
+);
+
 export const PerformanceTestWindow: React.FC<PerformanceTestWindowProps> = ({
   isOpen,
   onMinimize,
+  enabled,
+  nodeCount,
+  connectionCount,
+  fallback,
   onTestModeChange,
 }) => {
-  const [testEnabled, setTestEnabled] = useState(false);
-  const [nodeCount, setNodeCount] = useState(150);
-  const [connectionCount, setConnectionCount] = useState(250);
-
-  const [position, setPosition] = useState({ x: 460, y: 68 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
-        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
-      });
-    };
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  const handleHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).tagName === 'BUTTON' || (e.target as HTMLElement).tagName === 'INPUT') return;
-    setIsDragging(true);
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialX: position.x,
-      initialY: position.y,
-    };
-  };
-
-  const handleToggle = (checked: boolean) => {
-    setTestEnabled(checked);
-    onTestModeChange?.(checked, nodeCount, connectionCount);
-  };
-
-  const handleNodeChange = (val: number) => {
-    setNodeCount(val);
-    if (testEnabled) {
-      onTestModeChange?.(true, val, connectionCount);
-    }
-  };
-
-  const handleConnectionChange = (val: number) => {
-    setConnectionCount(val);
-    if (testEnabled) {
-      onTestModeChange?.(true, nodeCount, val);
-    }
-  };
-
-  if (!isOpen) {
-    return null;
-  }
+  // The app zeroes the counts when it stops the generator, so the sliders fall
+  // back to sensible values rather than pinning to their minimum.
+  const nodes = nodeCount || DEFAULT_NODES;
+  const conns = connectionCount || DEFAULT_CONNECTIONS;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: `${position.y}px`,
-        left: `${position.x}px`,
-        zIndex: 1001,
-        background: 'var(--surface-card, #141414)',
-        border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
-        borderRadius: 'var(--radius-xl, 14px)',
-        fontFamily: 'var(--font-sans)',
-        fontSize: '12px',
-        color: 'var(--text-hi, #fff)',
-        width: '360px',
-        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
-        backdropFilter: 'blur(8px)',
-      }}
+    <FloatingPanel
+      open={isOpen}
+      title="Load generator"
+      icon="Activity"
+      onClose={onMinimize}
+      initial={{ x: 460, y: 76 }}
+      width={340}
+      actions={enabled ? <Badge tone="warn">{fallback ? 'Fallback' : 'Running'}</Badge> : null}
     >
-      {/* Draggable Header */}
-      <div
-        onMouseDown={handleHeaderMouseDown}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '10px 14px',
-          borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
-          background: 'var(--sidebar, #0e0e0e)',
-          cursor: 'move',
-          borderTopLeftRadius: 'var(--radius-xl, 14px)',
-          borderTopRightRadius: 'var(--radius-xl, 14px)',
-        }}
-      >
-        <span
-          style={{
-            font: 'var(--type-label)',
-            letterSpacing: '0.14em',
-            color: 'var(--text-hi, #fff)',
-            textTransform: 'uppercase',
-          }}
-        >
-          PERFORMANCE TEST
-        </span>
-        <button
-          onClick={onMinimize}
-          style={{
-            background: 'transparent',
-            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            borderRadius: 'var(--radius-sm, 6px)',
-            padding: '2px 8px',
-            font: 'var(--type-ui-sm)',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          Minimize
-        </button>
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        <Switch
+          checked={enabled}
+          onChange={(v) => onTestModeChange(v, nodes, conns)}
+          label="Generate synthetic load"
+          hint="Draws fabricated hosts and flows to stress the renderer"
+        />
+
+        <Separator />
+
+        <Slider
+          label="Nodes"
+          value={nodes}
+          min={50}
+          max={3000}
+          step={50}
+          accent="var(--signal-teal)"
+          disabled={!enabled}
+          onChange={(v) => onTestModeChange(true, v, conns)}
+        />
+        <Slider
+          label="Connections"
+          value={conns}
+          min={50}
+          max={5000}
+          step={50}
+          accent="var(--signal-violet)"
+          disabled={!enabled}
+          onChange={(v) => onTestModeChange(true, nodes, v)}
+        />
+
+        {enabled ? (
+          <p
+            style={{
+              margin: 0,
+              padding: 'var(--spacing-2-5) var(--spacing-3)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid color-mix(in oklab, var(--signal-amber) 40%, transparent)',
+              background: 'color-mix(in oklab, var(--signal-amber) 10%, transparent)',
+              font: 'var(--type-data-sm)',
+              color: 'var(--signal-amber)',
+            }}
+          >
+            {fallback
+              ? `No capture backend answered, so the map is showing ${nodes.toLocaleString()} fabricated hosts and ${conns.toLocaleString()} fabricated flows. Connect a sensor and this stops on its own.`
+              : `The map is showing ${nodes.toLocaleString()} fabricated hosts and ${conns.toLocaleString()} fabricated flows. Nothing on screen is live traffic while this is on.`}
+          </p>
+        ) : (
+          <p style={{ margin: 0, font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+            Off. The map is showing captured traffic only.
+          </p>
+        )}
       </div>
-
-      {/* Content */}
-      <div style={{ padding: '16px 16px 20px 16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            cursor: 'pointer',
-            font: 'var(--type-ui)',
-            color: 'var(--text-hi)',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={testEnabled}
-            onChange={(e) => handleToggle(e.target.checked)}
-            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-          />
-          Enable Simulation Generator
-        </label>
-
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', font: 'var(--type-ui-sm)' }}>
-            <span style={{ color: 'var(--text-muted)' }}>NODES</span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--signal-teal)' }}>{nodeCount}</span>
-          </div>
-          <input
-            type="range"
-            min="50"
-            max="3000"
-            step="50"
-            value={nodeCount}
-            onChange={(e) => handleNodeChange(Number(e.target.value))}
-            style={{ width: '100%', cursor: 'pointer' }}
-          />
-        </div>
-
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', font: 'var(--type-ui-sm)' }}>
-            <span style={{ color: 'var(--text-muted)' }}>CONNECTIONS</span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--signal-violet)' }}>{connectionCount}</span>
-          </div>
-          <input
-            type="range"
-            min="50"
-            max="5000"
-            step="50"
-            value={connectionCount}
-            onChange={(e) => handleConnectionChange(Number(e.target.value))}
-            style={{ width: '100%', cursor: 'pointer' }}
-          />
-        </div>
-
-        <div
-          style={{
-            padding: '10px',
-            background: 'var(--sidebar, rgba(255,255,255,0.03))',
-            borderRadius: 'var(--radius-md, 8px)',
-            border: 'var(--border-inset, 1px solid rgba(255,255,255,0.08))',
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-            lineHeight: '1.4',
-          }}
-        >
-          Generates live synthetic network nodes and protocol connections at 60 FPS in-browser for stress testing graphics pipelines.
-        </div>
-      </div>
-    </div>
+    </FloatingPanel>
   );
 };

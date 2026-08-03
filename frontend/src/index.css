@@ -1,462 +1,399 @@
-@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-@import url('../../../noc-ui-kit/styles.css');
-@import url('./styles/components.css');
+/* VIBES global stylesheet.
 
-/* Base styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+   Order matters. The Black Hat NOC design system is vendored at
+   src/design-system/ and loaded first so every token exists before anything
+   below can reference it. Component-level CSS then only fills gaps the token
+   contract deliberately leaves open: the capture canvas, the floating operator
+   panels, and the two legacy retro skins.
+
+   Rules inherited from the NOC contract and enforced here:
+   - dark ships on <html class="dark">; the light scope is print only
+   - an element gets an edge or an elevation, never both
+   - JetBrains Mono with tabular numerals for every machine value
+   - motion only where data is changing, 80-280ms, no bounce */
+
+/* No Tailwind directives: nothing in the app uses a utility class, and
+   preflight would land after the token layer and undo its element defaults. */
+@import url('./design-system/styles.css');
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+/* ==========================================================================
+   Shell
+   ========================================================================== */
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  background: var(--vibes-bg, #000);
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-display: swap; /* Prevent FOIT */
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font: var(--type-body);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Retro Blue Neon Theme Overrides — disregards standard UI Kit when selected */
-[data-theme="retro-blue"] {
-  --card: rgba(4, 16, 31, 0.95);
-  --surface-card: rgba(4, 16, 31, 0.95);
-  --surface-chrome: #030b17;
-  --border-card: 1px solid rgba(51, 204, 255, 0.4);
-  --border-control: 1px solid rgba(56, 189, 248, 0.5);
-  --text-hi: #7dd3fc;
-  --signal-teal: #33ccff;
-  --wash-ok: rgba(51, 204, 255, 0.18);
-  --vibes-primary: #33ccff;
-  --border-inset: 1px solid rgba(51, 204, 255, 0.2);
-  --text-muted: rgba(125, 211, 252, 0.7);
-  --type-ui: 'VT323', monospace;
-  --type-ui-sm: 'VT323', monospace;
-  --type-label: 'VT323', monospace;
-  --type-h2: 'VT323', monospace;
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-xl: 6px;
-}
-
-[data-theme="retro-blue"] .settings-panel,
-[data-theme="retro-blue"] .noc-header,
-[data-theme="retro-blue"] .noc-status-bar,
-[data-theme="retro-blue"] .console-output {
-  box-shadow: 0 0 20px rgba(51, 204, 255, 0.25), inset 0 0 10px rgba(56, 189, 248, 0.1);
-  border-color: #33ccff !important;
-}
-
-[data-theme="retro-blue"] button:hover {
-  background: rgba(251, 191, 36, 0.2) !important;
-  color: #fbbf24 !important;
-  border-color: #fbbf24 !important;
-  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
-}
-
-/* Critical UI Component Styles */
-/* Settings Panel */
-.settings-panel {
-  position: fixed;
-  top: 68px;
-  right: 18px;
-  background: var(--surface-card, #141414);
-  border: var(--border-card, 1px solid rgba(255, 255, 255, 0.1));
-  border-radius: var(--radius-xl, 14px);
-  padding: 18px;
-  color: var(--text-hi, #fff);
-  font-family: var(--font-sans);
-  z-index: 1000;
-  width: 360px;
-  min-width: 280px;
-  min-height: 220px;
-  max-width: calc(100vw - 40px);
-  max-height: calc(100vh - 100px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  resize: both;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-}
-
-.settings-panel > div:first-child,
-.settings-panel > .button-group {
-  flex-shrink: 0;
-}
-
-.settings-panel .tab-content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-right: 6px;
-  margin-right: -2px;
-}
-
-/* Subtle scrollbar so long Physics / Experimental lists stay usable */
-.settings-panel .tab-content::-webkit-scrollbar {
-  width: 8px;
-}
-.settings-panel .tab-content::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.35);
-}
-.settings-panel .tab-content::-webkit-scrollbar-thumb {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.45);
-  border-radius: 4px;
-}
-.settings-panel .tab-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.75);
-}
-
-.settings-panel h2 {
-  margin: 0 0 16px 0;
-  font: var(--type-h2);
-  letter-spacing: -0.01em;
-  color: var(--text-hi, #fff);
-  text-transform: uppercase;
-}
-
-.minimize-btn {
-  background: transparent;
-  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
-  border-radius: var(--radius-sm, 6px);
-  color: var(--text-muted, rgba(255, 255, 255, 0.65));
-  font: var(--type-ui-sm);
-  cursor: pointer;
-  padding: 4px 10px;
-  line-height: 1;
-  transition: all 0.15s ease;
-}
-
-.minimize-btn:hover {
-  background: var(--sidebar-accent, rgba(255, 255, 255, 0.1));
-  color: var(--text-hi, #fff);
-}
-
-.settings-panel h3 {
-  margin: 0 0 10px 0;
-  font: var(--type-label);
-  letter-spacing: var(--tracking-wide, 0.14em);
-  text-transform: uppercase;
-  color: var(--text-faint, rgba(255, 255, 255, 0.5));
-}
-
-.button-group {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.button-group button {
-  background: var(--card, #141414);
-  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
-  color: var(--text-muted, rgba(255, 255, 255, 0.65));
-  padding: 8px 12px;
-  font: var(--type-ui-sm);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border-radius: var(--radius-md, 8px);
-  flex: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  position: relative;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.button-group button:hover {
-  background: var(--sidebar-accent, rgba(255, 255, 255, 0.1));
-  color: var(--text-hi, #fff);
-}
-
-.button-group button.active {
-  background: var(--sidebar-accent, rgba(255, 255, 255, 0.15));
-  color: var(--text-hi, #fff);
-  border-color: var(--signal-teal, #00d2aa);
-}
-
-.interface-select {
-  margin-top: 16px;
-  border: var(--border-card, 1px solid rgba(255, 255, 255, 0.1));
-  padding: 14px;
-  background: var(--sidebar, #0e0e0e);
-  border-radius: var(--radius-lg, 10px);
-}
-
-.interface-select h3 {
-  margin: 0 0 10px 0;
-  font: var(--type-label);
-  color: var(--text-muted, rgba(255, 255, 255, 0.7));
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide, 0.14em);
-}
-
-.interface-select select {
-  width: 100%;
-  background: var(--card, #141414);
-  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
-  color: var(--text-hi, #fff);
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  height: 38px;
-  outline: none;
-  border-radius: var(--radius-md, 8px);
-  cursor: pointer;
-}
-
-.interface-select select:focus {
-  border-color: var(--signal-teal, #00d2aa);
-  box-shadow: var(--focus-ring);
-}
-
-.interface-select select option {
-  background: #141414;
-  color: #fff;
-  padding: 8px;
-}
-
-/* Stats Panel */
-.stats-panel {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  border-radius: 4px;
-  padding: 20px;
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  z-index: 1000;
-  width: 300px; /* Fixed width */
-}
-
-.stats-panel h2 {
-  margin: 0 0 20px 0;
-  font-size: 24px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-}
-
-/* Status Bar */
-.status-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.9);
-  border-top: 1px solid var(--vibes-primary, #00ff00);
-  padding: 8px 20px;
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  z-index: 999;
-  height: 36px;
-  backdrop-filter: blur(4px);
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status.connecting::before {
-  background: #ffff00;
-  animation: pulse 1s infinite;
-}
-
-.status.connected::before {
-  background: var(--vibes-primary, #00ff00);
-}
-
-.status.disconnected::before {
-  background: #ff0000;
-}
-
-.status.error::before {
-  background: #ff0000;
-  animation: pulse 1s infinite;
-}
-
-.error {
-  color: #ff0000;
-}
-
-/* App container */
 .app {
   position: relative;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background: var(--background);
 }
 
-/* Canvas container */
+/* The capture canvas is the one surface in the product that is not a card. It
+   is a map: full-bleed, flat ground, no border, no radius. Overlay text on top
+   of it is protected by scrims rather than by a panel. */
 .canvas-container {
-  position: fixed;
-  top: 56px;
-  left: 0;
-  right: 0;
-  bottom: 36px; /* stop above the status bar */
+  position: absolute;
+  inset: 0;
   z-index: 0;
   overflow: hidden;
+  background: var(--canvas-ground);
+  contain: strict;
 }
 
-/* CRT effect */
-.crt-effect {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    rgba(18, 16, 16, 0) 50%,
-    rgba(0, 0, 0, 0.25) 50%
-  );
-  background-size: 100% 4px;
-  z-index: 2;
-  pointer-events: none;
-  animation: flicker 0.15s infinite;
-  will-change: opacity; /* Performance optimization */
-}
-
-@keyframes flicker {
-  0% { opacity: 0.97; }
-  50% { opacity: 1; }
-  100% { opacity: 0.98; }
-}
-
-@tailwind base;
-.crt::before {
-  content: "";
+.canvas-scrim-top,
+.canvas-scrim-bottom,
+.canvas-vignette {
   position: absolute;
-  top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 0%,
-    rgba(0, 0, 0, 0.2) 100%
-  );
   pointer-events: none;
-  z-index: 99;
+  z-index: 1;
 }
 
-/* Custom scrollbar */
+.canvas-scrim-top {
+  top: 0;
+  height: 140px;
+  background: var(--canvas-scrim-top);
+}
+
+.canvas-scrim-bottom {
+  bottom: 0;
+  height: 120px;
+  background: var(--canvas-scrim-bottom);
+}
+
+.canvas-vignette {
+  inset: 0;
+  background: var(--canvas-vignette);
+}
+
+/* ==========================================================================
+   Scrollbars
+   ========================================================================== */
+
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-bg);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-primary);
-  border-radius: 0;
+  background: var(--secondary);
+  border: 2px solid var(--background);
+  border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-secondary);
+  background: var(--accent);
 }
 
-/* Animation keyframes */
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
-}
+/* ==========================================================================
+   Floating operator panels
 
-.flicker {
-  animation: flicker 2s linear infinite;
-}
+   Settings, debug and legend are dialogs in spirit: they float over live
+   content, so per the elevation ladder they carry a shadow and no border, and
+   they blur what is behind them because that content is still moving.
+   ========================================================================== */
 
-/* Scanline effect */
-.scanline {
+.noc-floating {
   position: fixed;
-  top: 0;
-  left: 0;
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  -webkit-backdrop-filter: var(--blur-overlay);
+  border: var(--border-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  color: var(--card-foreground);
+  font: var(--type-body);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1200;
+}
+
+/* Header is the drag handle and stays put; only the body scrolls, so a long
+   diagnostics tab never hides its own close button. */
+.noc-floating__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex: 0 0 auto;
+  padding: var(--spacing-2-5) var(--spacing-3);
+  background: var(--sidebar);
+  border-bottom: var(--border-inset);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.noc-floating__bar:active {
+  cursor: grabbing;
+}
+
+.noc-floating__title {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noc-floating__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin-left: auto;
+}
+
+.noc-floating__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.noc-floating h3 {
+  margin: 0 0 var(--spacing-2-5) 0;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.minimize-btn {
+  height: var(--control-h-sm);
+  padding: 0 var(--spacing-3);
+  background: color-mix(in oklab, var(--input) 30%, transparent);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  font: var(--type-ui-sm);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+
+.minimize-btn:hover {
+  background: color-mix(in oklab, var(--input) 50%, transparent);
+}
+
+.minimize-btn:focus-visible {
+  border-color: var(--ring);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* Segmented control. shadcn tabs geometry: 36px track, 8px radius, the active
+   segment lifts to the input surface rather than changing hue. */
+.button-group {
+  display: flex;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-4);
+  padding: 3px;
+  background: var(--muted);
+  border-radius: var(--radius-lg);
+}
+
+.button-group button {
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--control-h) - 6px);
+  padding: 0 var(--spacing-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  font: var(--type-ui-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+
+.button-group button:hover {
+  color: var(--foreground);
+}
+
+.button-group button.active {
+  background: color-mix(in oklab, var(--input) 30%, transparent);
+  border-color: var(--input);
+  color: var(--foreground);
+}
+
+.button-group button:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: var(--focus-ring);
+}
+
+/* The physics tab is still built from bare elements. It inherits the type
+   contract here rather than restating it inline on every control. Kit controls
+   render their own labels as spans, so this only reaches the unstyled ones. */
+.noc-floating .physics-panel label {
+  display: block;
+  font: var(--type-ui-sm);
+  color: var(--text-body);
+}
+
+.noc-floating .physics-panel > * + * {
+  margin-top: var(--spacing-4);
+}
+
+.interface-select {
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-3);
+  background: var(--background);
+  border: var(--border-inset);
+  border-radius: var(--radius-lg);
+}
+
+.interface-select h3 {
+  margin: 0 0 var(--spacing-2) 0;
+}
+
+.interface-select select,
+select.noc-select,
+input.noc-input {
   width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    to bottom,
-    transparent 50%,
-    rgba(0, 0, 0, 0.05) 50%
-  );
-  background-size: 100% 4px;
-  z-index: 10;
-  pointer-events: none;
-  animation: scanline 8s linear infinite;
-  will-change: transform; /* Performance optimization */
+  height: var(--control-h);
+  padding: 0 var(--spacing-3);
+  background: color-mix(in oklab, var(--input) 30%, transparent);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  font: var(--type-data);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition-control);
 }
 
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
+.interface-select select:focus-visible,
+select.noc-select:focus-visible,
+input.noc-input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: var(--focus-ring);
 }
 
-
-/* Error bar */
-.error-bar {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.9);
-  border: 2px solid #ff0000;
-  padding: 20px;
-  color: #ff0000;
-  font-family: 'VT323', monospace;
-  font-size: 18px;
-  z-index: 2000;
-  max-width: 80%;
-  text-align: center;
-  box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
-  animation: pulse-red 2s infinite;
+.interface-select select option,
+select.noc-select option {
+  background: var(--popover);
+  color: var(--popover-foreground);
 }
 
-@keyframes pulse-red {
-  0% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
-  50% { box-shadow: 0 0 30px rgba(255, 0, 0, 0.8); }
-  100% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
+/* Range inputs are the one native control the kit does not wrap. Styling them
+   here keeps every slider in the product identical without a JS component:
+   an 8px pill track, the teal thumb, and the same 3px focus ring as shadcn. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
+  border-radius: var(--radius-full);
+  outline: none;
+  cursor: pointer;
 }
 
-/* Command Bar */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--signal-teal);
+  border: none;
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--signal-teal);
+  border: none;
+  cursor: pointer;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+input[type='range']:focus-visible::-moz-range-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+/* Native colour swatches in the legend, sized to sit on a 20px row. */
+input[type='color'] {
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 1px;
+}
+
+input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+/* ==========================================================================
+   Command bar and console
+   ========================================================================== */
+
 .command-bar-container {
   position: relative;
   display: flex;
   align-items: center;
   flex-grow: 1;
-  margin-left: 20px;
-  max-width: 800px;
+  min-width: 0;
 }
 
 .editor-container {
   flex-grow: 1;
   position: relative;
+  min-width: 0;
 }
 
 .command-input-editor {
+  width: 100%;
+  min-height: 20px;
   background: transparent;
   border: none;
-  color: var(--text-hi, #fff);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  width: 100%;
   outline: none;
-  min-height: 28px;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .editor-container.console-active .command-input-editor {
@@ -464,64 +401,222 @@ body {
 }
 
 .command-input::placeholder {
-  color: var(--text-muted, rgba(255,255,255,0.4));
+  color: var(--text-faint);
 }
 
+/* The console is a floating layer over the canvas: shadow, no top border. It
+   docks above the status bar rather than covering it, so the machine register
+   stays readable while someone is typing a filter. */
 .console-output {
   position: fixed;
-  bottom: 0;
+  bottom: var(--vibes-statusbar-h);
   left: 0;
   right: 0;
-  width: 100vw;
-  height: 150px;
-  background: var(--surface-chrome, #0e0e0e);
-  border-top: none;
-  padding: 10px 20px 20px 20px;
+  height: 180px;
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-5);
   overflow-y: auto;
-  color: var(--text-hi, #fff);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.4;
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  -webkit-backdrop-filter: var(--blur-overlay);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-body);
+  font: var(--type-data-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.65;
   z-index: 999;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
 }
 
 .console-output div {
-  margin-bottom: 6px;
+  margin-bottom: var(--spacing-1);
 }
 
 .console-output .prompt {
-  color: var(--signal-teal, #00d2aa);
-  margin-right: 8px;
+  color: var(--signal-teal);
+  margin-right: var(--spacing-2);
 }
 
-
-/* --- Syntax Highlighting Editor --- */
-
+/* Command syntax highlighting reads from the signal palette so the console
+   agrees with the rest of the console about what each hue means. */
 .command-input-editor textarea:focus {
   outline: none;
   box-shadow: none;
 }
 
-.command-input-editor .token.keyword {
-  color: #ff00ff; /* Magenta for commands */
+.command-input-editor .token.keyword { color: var(--signal-violet); }
+.command-input-editor .token.function { color: var(--signal-cyan); }
+.command-input-editor .token.builtin { color: var(--signal-amber); }
+.command-input-editor .token.number { color: var(--signal-teal); }
+.command-input-editor .token.operator { color: var(--signal-red); }
+
+/* ==========================================================================
+   Legacy stats panel
+   ========================================================================== */
+
+.stats-panel {
+  position: fixed;
+  top: calc(var(--vibes-topbar-h) + var(--spacing-3));
+  right: var(--spacing-4);
+  width: 320px;
+  padding: var(--spacing-4);
+  background: var(--card);
+  border: var(--border-card);
+  border-radius: var(--radius-xl);
+  color: var(--card-foreground);
+  z-index: 1000;
 }
 
-.command-input-editor .token.function {
-  color: #00ffff; /* Cyan for subcommands */
+.stats-panel h2 {
+  margin: 0 0 var(--spacing-4);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 
-.command-input-editor .token.builtin {
-  color: #ffff00; /* Yellow for keywords like 'port' or 'clear' */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-4);
 }
 
-.command-input-editor .token.number {
-  color: var(--vibes-primary, #00ff00); /* Green for numbers/IPs */
+.stat-item h3 {
+  margin: 0 0 var(--spacing-1);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 
-.command-input-editor .token.operator {
-  color: #ff0000; /* Red for operators like '/' and '-' */
+.stat-value {
+  font: var(--font-weight-bold) var(--text-xl) / 1 var(--font-display);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
 }
 
+.protocol-stats {
+  padding-top: var(--spacing-4);
+  border-top: var(--border-inset);
+}
 
- 
+.protocol-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.protocol-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--row-h);
+  border-bottom: var(--border-inset);
+}
+
+.protocol-name {
+  font: var(--type-data-sm);
+  color: var(--text-body);
+}
+
+.protocol-count {
+  font: var(--type-data);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Retro skins
+
+   VIBES predates the NOC system and its two original looks are part of the
+   product's identity, so they survive as explicit skins rather than being
+   deleted. Selecting one rebinds the token layer: everything downstream —
+   kit components included — recolours without a single per-element override.
+   The NOC skin is the default and the only one that ships to the show floor.
+   ========================================================================== */
+
+[data-theme='retro-blue'] {
+  --background: #04101f;
+  --card: #071a30;
+  --sidebar: #030b17;
+  --popover: #071a30;
+  --secondary: #0d2942;
+  --muted: #0d2942;
+  --accent: #14395c;
+  --border: rgba(51, 204, 255, 0.22);
+  --input: rgba(51, 204, 255, 0.32);
+  --foreground: #e0f2fe;
+  --muted-foreground: rgba(125, 211, 252, 0.72);
+  --ring: #33ccff;
+  --signal-teal: #33ccff;
+  --signal-cyan: #22d3ee;
+  --signal-violet: #c084fc;
+  --signal-amber: #fbbf24;
+  --signal-red: #fb7185;
+  --radius: 0.25rem;
+}
+
+[data-theme='classic'] {
+  --background: #000000;
+  --card: #050b05;
+  --sidebar: #030603;
+  --popover: #050b05;
+  --secondary: #0c1a0c;
+  --muted: #0c1a0c;
+  --accent: #123512;
+  --border: rgba(0, 255, 0, 0.22);
+  --input: rgba(0, 255, 0, 0.34);
+  --foreground: #d6ffd6;
+  --muted-foreground: rgba(0, 255, 0, 0.7);
+  --ring: #00ff00;
+  --signal-teal: #00ff00;
+  --signal-cyan: #00ffff;
+  --signal-violet: #ff00ff;
+  --signal-amber: #ffff00;
+  --signal-red: #ff3b30;
+  --radius: 0.125rem;
+}
+
+/* Both retro skins swap the UI face for the terminal one. Machine values stay
+   in JetBrains Mono: a jittering digit is a bug, not a vibe. */
+[data-theme='retro-blue'],
+[data-theme='classic'] {
+  --font-sans: 'VT323', ui-monospace, monospace;
+  --font-display: 'VT323', ui-monospace, monospace;
+  --text-sm: 1.05rem;
+  --text-xs: 0.95rem;
+}
+
+/* Scanlines belong to the retro skins only. The NOC contract forbids a
+   decorative field on an operator surface, so the default skin has none. */
+.scanline,
+.crt {
+  display: none;
+}
+
+[data-theme='retro-blue'] .scanline,
+[data-theme='classic'] .scanline {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.16) 50%);
+  background-size: 100% 3px;
+}
+
+[data-theme='retro-blue'] .crt,
+[data-theme='classic'] .crt {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanline,
+  .crt {
+    animation: none !important;
+  }
+}

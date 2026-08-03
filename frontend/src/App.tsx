@@ -1,529 +1,492 @@
-import { useEffect, useState, memo, Suspense, lazy, useMemo, useRef } from 'react'
+import { useEffect, useState, memo, Suspense, lazy, useMemo, useRef, useCallback } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { usePacketProcessor } from './hooks/usePacketProcessor'
 import { usePacketStore } from './stores/packetStore'
 import { useNetworkStore } from './stores/networkStore'
-import { useSizeStore } from './stores/sizeStore'
 import { getApiBaseUrl } from './utils/websocketUtils'
 import './index.css'
 import { logger } from './utils/logger'
 import { useWebSocketPinning } from './hooks/useWebSocketPinning'
 import { useThemeStore } from './stores/themeStore'
+import { startTelemetry, useTelemetryStore } from './telemetry/nocTelemetry'
 
-// Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
 import { CaptureContext } from './components/MinimalGraph'
-import { SettingsPanel } from './components/SettingsPanel' // Direct import
+import { SettingsPanel } from './components/SettingsPanel'
 import { UnifiedDebugPanel } from './components/UnifiedDebugPanel'
 import { PerformanceTestData } from './components/PerformanceTestData'
-// import { IPDebugPage } from './components/IPDebugPage'  // Using lazy loading instead
+import { ThemeLegend } from './components/ThemeLegend'
 
-// Only lazy load non-critical components
-const StatsPanel = lazy(() => import('./components/StatsPanel').then(module => ({ default: module.StatsPanel })))
-const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module => ({ default: module.IPDebugPage })))
+import {
+  NocTopBar,
+  NocRail,
+  NocSidebar,
+  NocStatusBar,
+  TelemetryDock,
+  CanvasStage,
+  FlowsView,
+  HostsView,
+  AlertsView,
+  CommandPalette,
+  PerformanceTestWindow,
+  ConsoleView,
+  Command,
+  CaptureMode,
+} from './components/noc'
 
-import { CommandBar } from './components/CommandBar';
-import { NocHeader, NocStatusBar, PerformanceTestWindow } from './components/noc';
-import { ThemeLegend } from './components/ThemeLegend';
+const IPDebugPage = lazy(() => import('./components/IPDebugPage').then((m) => ({ default: m.IPDebugPage })))
 
-// Loading fallback
+/**
+ * The VIBES console shell.
+ *
+ * Layout is the Black Hat NOC console shell — 56px icon rail, 240px sidebar,
+ * 56px top bar, 28px status bar — with one addition the design system never had
+ * to describe: a full-bleed capture map as the content column, and a telemetry
+ * dock on the right that reads the same stream as numbers.
+ *
+ * The shell is a grid rather than a stack of fixed-position panels. That matters
+ * for the map: it needs to know its own size to draw at the right scale, and a
+ * grid cell can tell it, where a viewport-sized absolute layer cannot.
+ */
+
+const CAPTURE_LABELS: Record<CaptureMode, string> = {
+  real: 'Live interface',
+  simulated: 'Simulation generator',
+  zeek: 'Zeek sensor stream',
+  waiting: 'No source selected',
+}
+
 const LoadingFallback = () => (
-  <div style={{ 
-    position: 'fixed', 
-    top: '20px', 
-    right: '20px', 
-    background: 'rgba(0,0,0,0.8)',
-    border: '1px solid #00ff00',
-    padding: '10px',
-    color: '#00ff00',
-    zIndex: 1000
-  }}>
-    Loading stats...
+  <div style={{ display: 'grid', placeItems: 'center', height: '100%', font: 'var(--type-body)', color: 'var(--muted-foreground)' }}>
+    Loading inspector.
   </div>
 )
 
 export const App = memo(() => {
-  // --- State Declarations ---
-  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'zeek' | 'waiting'>('simulated');
-  const [zeekTcpAddr, setZeekTcpAddr] = useState<string>(':4777');
-  const [interfaces, setInterfaces] = useState<{ name: string; description: string }[]>([]);
-  const [selectedInterface, setSelectedInterface] = useState<string>('');
-  const [currentRenderer, setCurrentRenderer] = useState('canvas');
-  const [currentRoute, setCurrentRoute] = useState(window.location.hash.slice(1) || 'main');
-  const [initialLoad, setInitialLoad] = useState(true);
-  const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
-  const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
-  const [showDebug, setShowDebug] = useState(false);
-  const [showLegend, setShowLegend] = useState(true);
-  const [showPerfTest, setShowPerfTest] = useState(false);
+  // --- Capture state ---
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('simulated')
+  const [zeekTcpAddr, setZeekTcpAddr] = useState<string>(':4777')
+  const [interfaces, setInterfaces] = useState<{ name: string; description: string }[]>([])
+  const [selectedInterface, setSelectedInterface] = useState<string>('')
+  const [currentRenderer, setCurrentRenderer] = useState('canvas')
+  const [initialLoad, setInitialLoad] = useState(true)
+  // `fallback` records that the console started the generator itself because no
+  // sensor answered, which is a different claim from an operator running a load
+  // test and is surfaced as such.
+  const [generator, setGenerator] = useState({ enabled: false, nodeCount: 0, connectionCount: 0, fallback: false })
+  /** Set once the operator touches the generator, so the fallback stops overriding them. */
+  const generatorOverride = useRef(false)
 
-  // --- Store Hooks ---
-  const { packets, clearPackets } = usePacketStore()
+  // --- Console state ---
+  const [view, setView] = useState<ConsoleView>(() => (window.location.hash.slice(1) as ConsoleView) || 'map')
+  const [query, setQuery] = useState('')
+  const [selectedHost, setSelectedHost] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [dockOpen, setDockOpen] = useState(true)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
+  const [showLegend, setShowLegend] = useState(false)
+  const [showPerfTest, setShowPerfTest] = useState(false)
+
+  const { clearPackets } = usePacketStore()
   const { clearNetwork } = useNetworkStore()
-  const { setSize } = useSizeStore()
   const { themeKey } = useThemeStore()
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', themeKey);
-  }, [themeKey]);
+    document.documentElement.setAttribute('data-theme', themeKey)
+  }, [themeKey])
 
-  // WebSocket connection
+  // The telemetry engine folds the packet stream into a 1 Hz snapshot outside
+  // React, so the dock's repaint rate is independent of the capture rate.
+  useEffect(() => startTelemetry(), [])
+
+  // --- WebSocket ---
   const wsUrl = useMemo(() => {
-    // Only create a WebSocket URL if we're not in waiting mode
     if (captureMode === 'waiting') {
-      logger.log('In waiting mode, not connecting to any WebSocket');
-      return null;
+      logger.log('In waiting mode, not connecting to any WebSocket')
+      return null
     }
 
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    // ALWAYS connect the WebSocket back to whichever host:port served this page.
-    // This is correct behind the Vite dev proxy (localhost:5173 → /ws proxied to
-    // :8080) AND when the Go backend serves the built app in production (a remote
-    // client hitting 10.220.199.71:8080). We deliberately do NOT honor
-    // VITE_BACKEND_HOST here: frontend/.env pins it to "localhost", which would
-    // make every remote viewer try their OWN machine — the exact bug we hit.
-    const wsBase = `${proto}://${window.location.host}`;
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    // Always connect back to whichever host:port served this page. Correct behind
+    // the Vite dev proxy and when the Go backend serves the built app to a remote
+    // client. Deliberately not VITE_BACKEND_HOST: that pins to localhost, which
+    // would send every remote viewer to their own machine.
+    const wsBase = `${proto}://${window.location.host}`
 
     if (captureMode === 'real') {
-      if (selectedInterface) {
-        return `${wsBase}/ws?interface=${selectedInterface}`;
-      }
-      return `${wsBase}/ws`;
+      return selectedInterface ? `${wsBase}/ws?interface=${selectedInterface}` : `${wsBase}/ws`
     }
     if (captureMode === 'zeek') {
-      const addr = zeekTcpAddr.trim() || ':4777';
-      return `${wsBase}/ws?zeek_tcp=${encodeURIComponent(addr)}`;
+      return `${wsBase}/ws?zeek_tcp=${encodeURIComponent(zeekTcpAddr.trim() || ':4777')}`
     }
-    if (captureMode === 'simulated') {
-      return `${wsBase}/ws`;
-    }
-    return null;
-  }, [captureMode, selectedInterface, zeekTcpAddr]);
+    return `${wsBase}/ws`
+  }, [captureMode, selectedInterface, zeekTcpAddr])
 
-  // Handle hash-based routing
+  // --- Hash routing ---
   useEffect(() => {
-    const handleHashChange = () => {
-      setCurrentRoute(window.location.hash.slice(1) || 'main')
-    }
-    
-    window.addEventListener('hashchange', handleHashChange)
-    return () => window.removeEventListener('hashchange', handleHashChange)
+    const onHashChange = () => setView(((window.location.hash.slice(1) as ConsoleView) || 'map'))
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
-  
-  // Set initial size and update on resize
-  useEffect(() => {
-    // Set initial size
-    setSize(window.innerWidth, window.innerHeight)
-    
-    // Update size on window resize
-    const handleResize = () => {
-      setSize(window.innerWidth, window.innerHeight)
-    }
-    
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [setSize])
-  
-  // Process packets into nodes and connections
+
+  const goto = useCallback((next: ConsoleView) => {
+    setView(next)
+    window.location.hash = next
+  }, [])
+
   usePacketProcessor()
 
-  // Periodically remove expired nodes and connections from the store
   useEffect(() => {
-    const { removeInactiveElements } = useNetworkStore.getState();
-    const id = setInterval(removeInactiveElements, 5000);
-    return () => clearInterval(id);
+    const { removeInactiveElements } = useNetworkStore.getState()
+    const id = setInterval(removeInactiveElements, 5000)
+    return () => clearInterval(id)
   }, [])
-  
-  // Check URL on initial load to see if real capture was requested
+
+  // Honour an interface requested in the URL on first load.
   useEffect(() => {
-    if (initialLoad) {
-      const url = new URL(window.location.href);
-      const wsParam = url.searchParams.get('ws');
-      
-      if (wsParam && wsParam.includes('interface=')) {
-        const interfacePart = wsParam.split('interface=')[1];
-        const interfaceName = interfacePart.split('&')[0]; // Handle any additional params
-        
-        logger.log(`🔍 Initial load detected interface request: ${interfaceName}`);
-        setCaptureMode('real');
-        setSelectedInterface(interfaceName);
-      }
-      
-      setInitialLoad(false);
+    if (!initialLoad) return
+    const wsParam = new URL(window.location.href).searchParams.get('ws')
+    if (wsParam && wsParam.includes('interface=')) {
+      const interfaceName = wsParam.split('interface=')[1].split('&')[0]
+      logger.log(`Initial load detected interface request: ${interfaceName}`)
+      setCaptureMode('real')
+      setSelectedInterface(interfaceName)
     }
-  }, [initialLoad]);
-  
-  // Fetch available network interfaces
+    setInitialLoad(false)
+  }, [initialLoad])
+
+  // --- Interface discovery ---
   useEffect(() => {
-    // Only fetch interfaces if we're in real mode
-    if (captureMode !== 'real') return;
-    
-    const fetchInterfaces = async () => {
-      try {
-        logger.log("Fetching interfaces...");
-        
-        // Add timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        try {
-          // First try with regular CORS mode
-          // Use dynamic API base URL
-          const apiBaseUrl = getApiBaseUrl();
-          const response = await fetch(`${apiBaseUrl}/api/interfaces`, {
-            headers: {
-              'Accept': 'application/json'
-            },
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          logger.log("API Response status:", response.status);
-          
-          if (!response.ok) {
-            throw new Error(`API returned status ${response.status}`);
-          }
-          
-          const rawData = await response.json();
-          logger.log("Received interfaces (raw):", rawData);
-          
-          if (!Array.isArray(rawData) || rawData.length === 0) {
-            logger.warn("API returned empty or invalid interface list, using fallback interfaces");
-            setFallbackInterfaces();
-            return;
-          }
-          
-          // Process the data from a successful response
-          processInterfaceData(rawData);
-          
-        } catch (fetchError) {
-          logger.error('Fetch operation failed:', fetchError);
-          
-          // Check if this is a CORS error specifically
-          if (fetchError instanceof TypeError && fetchError.message.includes('Failed to fetch')) {
-            logger.warn("CORS error detected - attempting fallback method");
-            
-            // Create a hidden div to show CORS error
-            const corsError = document.createElement('div');
-            corsError.style.display = 'none';
-            corsError.id = 'cors-error';
-            corsError.textContent = 'CORS error: Backend server needs Access-Control-Allow-Origin headers';
-            document.body.appendChild(corsError);
-            
-            // Use fallback interfaces for now
-            setFallbackInterfaces();
-            
-            // Display a more helpful error message for developers
-            const backendUrl = getApiBaseUrl();
-            logger.error(`
-              ⚠️ CORS CONFIGURATION REQUIRED:
-              The backend server at ${backendUrl} needs to be configured to allow requests
-              from the frontend origin (${window.location.origin}).
-              
-              Backend needs to add these headers to API responses:
-              Access-Control-Allow-Origin: ${window.location.origin}
-              Access-Control-Allow-Methods: GET, POST
-              Access-Control-Allow-Headers: Content-Type
-            `);
-          } else {
-            // Other fetch error
-            setFallbackInterfaces();
-          }
-        }
-      } catch (error) {
-        logger.error('Failed to fetch interfaces:', error);
-        setFallbackInterfaces();
-      }
-    };
-    
-    // Helper to process interface data
-    const processInterfaceData = (rawData: any[]) => {
-      try {
-        // Map API response (uppercase fields) to the format our component expects (lowercase fields)
-        const formattedData = rawData.map((iface: any) => ({
-          name: iface.Name,
-          description: iface.Description || iface.Name // Use Name as fallback if Description is empty
-        }));
-        
-        logger.log("Formatted interfaces:", formattedData);
-        
-        // Always include "any" interfaces option if not present
-        if (!formattedData.some(iface => iface.name === 'any')) {
-          formattedData.unshift({ 
-            name: 'any', 
-            description: 'All Interfaces (Recommended)'
-          });
-        }
-        
-        if (formattedData.length === 0) {
-          logger.warn("No interfaces after formatting, using fallback interfaces");
-          setFallbackInterfaces();
-          return;
-        }
-        
-        setInterfaces(formattedData);
-      } catch (err) {
-        logger.error("Error processing interface data:", err);
-        setFallbackInterfaces();
-      }
-    };
-    
-    // Provide fallback interfaces if API fails
+    if (captureMode !== 'real') return
+
     const setFallbackInterfaces = () => {
-      const fallbackList = [
-        { name: "any", description: "All Interfaces (Recommended)" },
-        { name: "eth0", description: "Ethernet Adapter (Fallback)" },
-        { name: "wlan0", description: "Wireless Adapter (Fallback)" },
-        { name: "lo", description: "Loopback Interface (Fallback)" }
-      ];
-      logger.log("Setting fallback interfaces:", fallbackList);
-      setInterfaces(fallbackList);
-    };
-    
-    fetchInterfaces();
-  }, [captureMode]);
-  
-  logger.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
-
-  const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl);
-  useWebSocketPinning(sendMessage);
-
-  // Auto-enable fallback simulation if WebSocket is unavailable / blocked while in simulated mode
-  useEffect(() => {
-    if (captureMode === 'simulated' && (status === 'error' || status === 'disconnected' || status === 'waiting') && !performanceTestData.enabled) {
-      logger.log('🎮 Enabling automatic browser simulation fallback for Black Hat NOC Console');
-      setPerformanceTestData({ enabled: true, nodeCount: 150, connectionCount: 250 });
-    } else if (status === 'connected' && performanceTestData.enabled) {
-      setPerformanceTestData({ enabled: false, nodeCount: 0, connectionCount: 0 });
+      setInterfaces([
+        { name: 'any', description: 'All interfaces (recommended)' },
+        { name: 'eth0', description: 'Ethernet adapter (fallback)' },
+        { name: 'wlan0', description: 'Wireless adapter (fallback)' },
+        { name: 'lo', description: 'Loopback interface (fallback)' },
+      ])
     }
-  }, [captureMode, status, performanceTestData.enabled]);
-  
-  // Update local state if the server reports a different mode
-  // Add a ref to track user-initiated changes to prevent conflicts
-  const userInitiatedChangeRef = useRef(false);
-  
+
+    const fetchInterfaces = async () => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/api/interfaces`, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+        if (!response.ok) throw new Error(`API returned status ${response.status}`)
+
+        const rawData = await response.json()
+        if (!Array.isArray(rawData) || rawData.length === 0) {
+          logger.warn('API returned an empty interface list, using fallbacks')
+          setFallbackInterfaces()
+          return
+        }
+
+        const formatted = rawData.map((iface: any) => ({
+          name: iface.Name,
+          description: iface.Description || iface.Name,
+        }))
+        if (!formatted.some((i) => i.name === 'any')) {
+          formatted.unshift({ name: 'any', description: 'All interfaces (recommended)' })
+        }
+        setInterfaces(formatted)
+      } catch (error) {
+        clearTimeout(timeoutId)
+        logger.error('Failed to fetch interfaces:', error)
+        setFallbackInterfaces()
+      }
+    }
+
+    fetchInterfaces()
+  }, [captureMode])
+
+  const { status, error, captureMode: actualCaptureMode, sendMessage } = useWebSocket(wsUrl)
+  useWebSocketPinning(sendMessage)
+
+  // Fall back to a browser-side generator when the socket is unavailable, so the
+  // console is demonstrable on a laptop with no backend running. It yields to the
+  // operator in both directions: it will not restart a generator they switched
+  // off, and a connecting sensor will not stop a load test they started.
+  useEffect(() => {
+    const socketDown = status === 'error' || status === 'disconnected' || status === 'waiting'
+
+    if (captureMode === 'simulated' && socketDown && !generator.enabled && !generatorOverride.current) {
+      logger.log('No capture backend answered; starting the browser simulation fallback')
+      setGenerator({ enabled: true, nodeCount: 150, connectionCount: 250, fallback: true })
+    } else if (status === 'connected' && generator.enabled && generator.fallback) {
+      logger.log('Capture backend connected; stopping the simulation fallback')
+      setGenerator({ enabled: false, nodeCount: 0, connectionCount: 0, fallback: false })
+    }
+  }, [captureMode, status, generator.enabled, generator.fallback])
+
+  const handleGeneratorChange = useCallback((enabled: boolean, nodeCount: number, connectionCount: number) => {
+    generatorOverride.current = true
+    setGenerator({ enabled, nodeCount, connectionCount, fallback: false })
+  }, [])
+
+  const userInitiatedChangeRef = useRef(false)
+
   useEffect(() => {
     const serverUiMode =
       actualCaptureMode === 'zeek_conn'
         ? 'zeek'
         : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
           ? null
-          : (actualCaptureMode as 'simulated' | 'real');
-    // Only update if this is not a user-initiated change and there's a meaningful difference
-    if (
-      serverUiMode !== null &&
-      serverUiMode !== captureMode &&
-      !userInitiatedChangeRef.current
-    ) {
-      // Don't let hook "simulated" (reconnect/error) stomp an explicit Zeek selection before server mode arrives
-      if (captureMode === 'zeek' && serverUiMode === 'simulated') {
-        return;
+          : (actualCaptureMode as 'simulated' | 'real')
+
+    if (serverUiMode === null || serverUiMode === captureMode || userInitiatedChangeRef.current) return
+    // Don't let a reconnect's "simulated" stomp an explicit Zeek selection.
+    if (captureMode === 'zeek' && serverUiMode === 'simulated') return
+
+    logger.log(`Server reported capture mode: ${actualCaptureMode}`)
+    setCaptureMode(serverUiMode)
+  }, [actualCaptureMode, captureMode])
+
+  useEffect(() => {
+    const title =
+      actualCaptureMode === 'real'
+        ? 'VIBES NOC — live capture'
+        : actualCaptureMode === 'simulated'
+          ? 'VIBES NOC — simulation'
+          : actualCaptureMode === 'zeek_conn'
+            ? 'VIBES NOC — Zeek conn'
+            : 'VIBES NOC'
+    document.title = title
+  }, [actualCaptureMode])
+
+  const resetStream = useCallback(() => {
+    clearPackets()
+    clearNetwork()
+    useTelemetryStore.getState().reset()
+  }, [clearPackets, clearNetwork])
+
+  const handleCaptureModeChange = useCallback(
+    (mode: 'simulated' | 'real' | 'zeek') => {
+      if (userInitiatedChangeRef.current) return
+      userInitiatedChangeRef.current = true
+      setCaptureMode(mode)
+      resetStream()
+      setTimeout(() => {
+        userInitiatedChangeRef.current = false
+      }, 2000)
+    },
+    [resetStream],
+  )
+
+  const handleInterfaceSelect = useCallback(
+    (iface: string) => {
+      if (userInitiatedChangeRef.current) return
+      userInitiatedChangeRef.current = true
+      setSelectedInterface(iface)
+      if (iface && captureMode !== 'real') setCaptureMode('real')
+      resetStream()
+      setTimeout(() => {
+        userInitiatedChangeRef.current = false
+      }, 2000)
+    },
+    [captureMode, resetStream],
+  )
+
+  useEffect(() => {
+    if (status === 'error' && (captureMode === 'real' || captureMode === 'zeek') && !userInitiatedChangeRef.current) {
+      logger.log('Capture failed, falling back to simulation')
+      setCaptureMode('simulated')
+      resetStream()
+    }
+  }, [status, captureMode, resetStream])
+
+  // --- Keyboard ---
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const typing = !!target?.closest('input, textarea, [contenteditable="true"]')
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+        return
       }
-      logger.log(`📡 Server reported capture mode: ${actualCaptureMode}, updating local state`);
-      setCaptureMode(serverUiMode === 'zeek' ? 'zeek' : serverUiMode);
+      if (typing) return
+      // Acknowledge is advertised in the status bar only while Alerts is active,
+      // so it only fires there.
+      if (view === 'alerts' && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        useTelemetryStore.getState().acknowledgeAll()
+      }
     }
-  }, [actualCaptureMode, captureMode]);
-  
-  // Store error in hidden div for reference by other components
-  useEffect(() => {
-    const errorDiv = document.getElementById('ws-error');
-    if (errorDiv && error) {
-      errorDiv.textContent = error;
-    }
-  }, [error]);
-  
-  // Display permission error alert
-  useEffect(() => {
-    if (error && error.includes('Permission denied')) {
-      // Show a more visible error message for permission issues
-      alert(`🔒 Administrator Privileges Required\n\nTo capture real network traffic, this application needs to be run with administrator/root privileges.\n\nPlease restart the backend server with the appropriate permissions.`);
-    }
-  }, [error]);
-  
-  // Update title to show capture mode
-  useEffect(() => {
-    if (actualCaptureMode === 'real') {
-      document.title = 'Network Visualizer - REAL CAPTURE';
-    } else if (actualCaptureMode === 'simulated') {
-      document.title = 'Network Visualizer - SIMULATION';
-    } else if (actualCaptureMode === 'zeek_conn') {
-      document.title = 'Network Visualizer - ZEEK CONN';
-    } else {
-      document.title = 'Network Visualizer';
-    }
-  }, [actualCaptureMode]);
-  
-  const handleCaptureModeChange = (mode: 'simulated' | 'real' | 'zeek') => {
-    logger.log("🔄 User switching mode to:", mode);
-    
-    // Prevent multiple rapid calls
-    if (userInitiatedChangeRef.current) {
-      logger.log("⏳ Mode change already in progress, ignoring duplicate call");
-      return;
-    }
-    
-    // Set flag to prevent server state from overriding user choice
-    userInitiatedChangeRef.current = true;
-    
-    // Batch all state updates together
-    setCaptureMode(mode);
-    clearPackets();
-    clearNetwork();
-    
-    // Reset the flag after state has had time to propagate
-    setTimeout(() => {
-      userInitiatedChangeRef.current = false;
-    }, 2000);
-  }
-  
-  const handleInterfaceSelect = (iface: string) => {
-    logger.log("🔌 Interface selected:", iface);
-    
-    // Prevent multiple rapid calls
-    if (userInitiatedChangeRef.current) {
-      logger.log("⏳ Interface change already in progress, ignoring duplicate call");
-      return;
-    }
-    
-    // Set flag to prevent server state from overriding user choice
-    userInitiatedChangeRef.current = true;
-    
-    // Batch all state updates together
-    setSelectedInterface(iface);
-    
-    // If user selects an interface, automatically switch to real mode
-    if (iface && captureMode !== 'real') {
-      logger.log("Switching to real mode because interface was selected");
-      setCaptureMode('real');
-    }
-    
-    clearPackets();
-    clearNetwork();
-    
-    // Reset the flag after state has had time to propagate
-    setTimeout(() => {
-      userInitiatedChangeRef.current = false;
-    }, 2000);
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view])
 
-  // Handler for unified debug panel test mode changes
-  const handleTestModeChange = (enabled: boolean, nodeCount: number, connectionCount: number) => {
-    setPerformanceTestData({ enabled, nodeCount, connectionCount });
-  }
+  const memoizedRenderer = useMemo(
+    () => <RendererSelector defaultRenderer={currentRenderer as 'canvas' | 'minimal'} onChange={setCurrentRenderer} hideUI />,
+    [currentRenderer],
+  )
 
-  // Handler for renderer changes
-  const handleRendererChange = (renderer: string) => {
-    setCurrentRenderer(renderer);
-  }
-  
-  // Simplified error handling - fall back to simulation only if not user-initiated
-  useEffect(() => {
-    if (status === 'error' && 
-        (captureMode === 'real' || captureMode === 'zeek') && 
-        !userInitiatedChangeRef.current) {
-      logger.log('🔄 Capture failed, falling back to simulation mode');
-      setCaptureMode('simulated');
-      clearPackets();
-      clearNetwork();
+  const captureLabel = CAPTURE_LABELS[captureMode]
+  const captureStatus: 'ok' | 'warning' | 'critical' = error ? 'critical' : status === 'connected' ? 'ok' : 'warning'
+
+  const commands = useMemo<Command[]>(
+    () => [
+      ...([
+        ['map', 'Go to live map', 'Radar'],
+        ['flows', 'Go to flows', 'Waypoints'],
+        ['hosts', 'Go to hosts', 'Server'],
+        ['alerts', 'Go to detections', 'Siren'],
+        ['inspector', 'Go to inspector', 'Bug'],
+      ] as const).map(([key, label, icon]) => ({
+        id: `nav:${key}`,
+        label,
+        icon,
+        group: 'Navigate',
+        run: () => goto(key as ConsoleView),
+      })),
+      { id: 'cap:real', label: 'Switch to live capture', icon: 'Radio', group: 'Capture', run: () => handleCaptureModeChange('real') },
+      { id: 'cap:sim', label: 'Switch to simulated traffic', icon: 'FlaskConical', group: 'Capture', run: () => handleCaptureModeChange('simulated') },
+      { id: 'cap:zeek', label: 'Switch to Zeek sensor', icon: 'Network', group: 'Capture', run: () => handleCaptureModeChange('zeek') },
+      { id: 'cap:clear', label: 'Clear the current stream', hint: 'drops hosts, flows and detections', icon: 'Eraser', group: 'Capture', run: resetStream },
+      { id: 'act:ack', label: 'Acknowledge all detections', icon: 'Check', group: 'Actions', run: () => useTelemetryStore.getState().acknowledgeAll() },
+      { id: 'act:dock', label: dockOpen ? 'Hide telemetry dock' : 'Show telemetry dock', icon: 'PanelRight', group: 'Layout', run: () => setDockOpen((v) => !v) },
+      { id: 'act:sidebar', label: sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar', icon: 'PanelLeft', group: 'Layout', run: () => setSidebarOpen((v) => !v) },
+      { id: 'act:settings', label: 'Open capture settings', icon: 'Settings', group: 'Layout', run: () => setShowSettings(true) },
+      { id: 'act:legend', label: 'Open theme legend', icon: 'Palette', group: 'Layout', run: () => setShowLegend(true) },
+      { id: 'act:debug', label: 'Open diagnostics', icon: 'Terminal', group: 'Layout', run: () => setShowDebug(true) },
+      { id: 'act:perf', label: 'Open performance test', icon: 'Activity', group: 'Layout', run: () => setShowPerfTest(true) },
+    ],
+    [goto, handleCaptureModeChange, resetStream, dockOpen, sidebarOpen],
+  )
+
+  const content = () => {
+    switch (view) {
+      case 'flows':
+        return <FlowsView query={query} selectedHost={selectedHost} onSelectHost={(h) => setSelectedHost(h || null)} />
+      case 'hosts':
+        return <HostsView query={query} selectedHost={selectedHost} onSelectHost={(h) => setSelectedHost(h || null)} />
+      case 'alerts':
+        return <AlertsView query={query} selectedHost={selectedHost} onSelectHost={(h) => setSelectedHost(h || null)} />
+      case 'inspector':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <div style={{ height: '100%', overflowY: 'auto' }}>
+              <IPDebugPage />
+            </div>
+          </Suspense>
+        )
+      default:
+        return (
+          <CanvasStage captureLabel={captureLabel} paused={status !== 'connected' && !generator.enabled}>
+            {memoizedRenderer}
+          </CanvasStage>
+        )
     }
-  }, [status, captureMode]);
-
-  // Memory optimization - use memo for expensive renders
-  const memoizedRenderer = useMemo(() => (
-    <RendererSelector 
-      defaultRenderer={currentRenderer as 'canvas' | 'minimal'} 
-      onChange={handleRendererChange}
-      hideUI={true} // Hide built-in UI since we use the unified debug panel
-    />
-  ), [currentRenderer, actualCaptureMode, captureMode]); // Include capture modes to ensure re-render when mode changes
+  }
 
   return (
-    <div className="app">
-      <CaptureContext.Provider value={{ 
-        captureMode:
-          actualCaptureMode === 'zeek_conn'
-            ? 'zeek'
-            : actualCaptureMode === 'real' || actualCaptureMode === 'simulated'
-              ? actualCaptureMode
-              : captureMode,
-        captureInterface: selectedInterface 
-      }}>
-        {/* Black Hat NOC Header */}
-        <NocHeader
-          currentRoute={currentRoute}
+    <div
+      className="app"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `var(--vibes-rail-w) ${sidebarOpen ? 'var(--vibes-sidebar-w)' : '0px'} minmax(0,1fr) ${dockOpen ? 'var(--vibes-dock-w)' : '0px'}`,
+        gridTemplateRows: 'var(--vibes-topbar-h) minmax(0,1fr) var(--vibes-statusbar-h)',
+        gridTemplateAreas: `
+          "topbar topbar topbar topbar"
+          "rail sidebar content dock"
+          "statusbar statusbar statusbar statusbar"
+        `,
+      }}
+    >
+      <CaptureContext.Provider
+        value={{
+          captureMode:
+            actualCaptureMode === 'zeek_conn'
+              ? 'zeek'
+              : actualCaptureMode === 'real' || actualCaptureMode === 'simulated'
+                ? actualCaptureMode
+                : captureMode,
+          captureInterface: selectedInterface,
+        }}
+      >
+        <NocTopBar
+          captureMode={captureMode}
+          captureInterface={selectedInterface}
           status={status}
           error={error}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onToggleSettings={() => setShowSettings((v) => !v)}
+          settingsOpen={showSettings}
+          onToggleDock={() => setDockOpen((v) => !v)}
+          dockOpen={dockOpen}
+        />
+
+        <NocRail
+          view={view}
+          onView={goto}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          onUtility={(k) => {
+            if (k === 'legend') setShowLegend((v) => !v)
+            if (k === 'debug') setShowDebug((v) => !v)
+            if (k === 'perf') setShowPerfTest((v) => !v)
+          }}
+          legendOpen={showLegend}
+          debugOpen={showDebug}
+          perfOpen={showPerfTest}
+        />
+
+        {sidebarOpen ? (
+          <NocSidebar view={view} onView={goto} query={query} onQuery={setQuery} captureLabel={captureLabel} captureStatus={captureStatus} />
+        ) : null}
+
+        <main style={{ gridArea: 'content', position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>{content()}</main>
+
+        {dockOpen ? <TelemetryDock onSelectHost={(h) => setSelectedHost(h || null)} selectedHost={selectedHost} /> : null}
+
+        <NocStatusBar error={error} sourceLabel={captureLabel} view={view} />
+
+        {/* Floating operator layers */}
+        <SettingsPanel
+          open={showSettings}
           captureMode={captureMode}
-          showSettings={showSettings}
-          onToggleSettings={() => setShowSettings(!showSettings)}
-          showDebug={showDebug}
-          onToggleDebug={() => setShowDebug(!showDebug)}
-          showLegend={showLegend}
-          onToggleLegend={() => setShowLegend(!showLegend)}
-        />
-        
-        {/* Conditionally render content based on route */}
-        {currentRoute === 'debug' ? (
-          <IPDebugPage />
-        ) : (
-          <div className="canvas-container">
-            {/* Use the fully memoized renderer component for maximum stability */}
-            {memoizedRenderer}
-          </div>
-        )}
-
-        {showSettings && (
-          <div className="sidebar">
-            <div className="sidebar-section">
-              <SettingsPanel 
-                captureMode={captureMode}
-                onCaptureModeChange={handleCaptureModeChange} 
-                interfaces={interfaces}
-                selectedInterface={selectedInterface}
-                onInterfaceSelect={handleInterfaceSelect}
-                zeekTcpAddr={zeekTcpAddr}
-                onZeekTcpAddrChange={setZeekTcpAddr}
-                wsPreviewUrl={wsUrl}
-                onMinimize={() => setShowSettings(false)}
-              />
-            </div>
-          </div>
-        )}
-        
-        {/* Performance Test Data Generator */}
-        <PerformanceTestData 
-          enabled={performanceTestData.enabled}
-          nodeCount={performanceTestData.nodeCount}
-          connectionCount={performanceTestData.connectionCount}
+          onCaptureModeChange={handleCaptureModeChange}
+          interfaces={interfaces}
+          selectedInterface={selectedInterface}
+          onInterfaceSelect={handleInterfaceSelect}
+          zeekTcpAddr={zeekTcpAddr}
+          onZeekTcpAddrChange={setZeekTcpAddr}
+          wsPreviewUrl={wsUrl}
+          onMinimize={() => setShowSettings(false)}
         />
 
-        {/* Unified Debug Panel */}
-        <UnifiedDebugPanel 
+        <PerformanceTestData enabled={generator.enabled} nodeCount={generator.nodeCount} connectionCount={generator.connectionCount} />
+
+        <PerformanceTestWindow
+          isOpen={showPerfTest}
+          onMinimize={() => setShowPerfTest(false)}
+          enabled={generator.enabled}
+          nodeCount={generator.nodeCount}
+          connectionCount={generator.connectionCount}
+          fallback={generator.fallback}
+          onTestModeChange={handleGeneratorChange}
+        />
+
+        {/* Load generation lives in the load generator panel only, so there is one
+            switch that can put fabricated traffic on the map. */}
+        <UnifiedDebugPanel
           isOpen={showDebug}
           onMinimize={() => setShowDebug(false)}
-          onTestModeChange={handleTestModeChange}
-          onRendererChange={handleRendererChange}
+          onRendererChange={setCurrentRenderer}
           currentRenderer={currentRenderer}
-          rendererOptions={[
-            {
-              key: 'canvas',
-              name: '🎨 Canvas (High Performance)',
-              description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
-              performance: '⭐⭐⭐⭐⭐',
-              status: '✅ Recommended'
-            },
-            {
-              key: 'minimal',
-              name: '⚡ Minimal DOM',
-              description: 'Lightweight DOM renderer - good for < 100 objects',
-              performance: '⭐⭐⭐',
-              status: '⚠️ Limited scale'
-            }
-          ]}
         />
+
         <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
-        
-        <NocStatusBar status={status} error={error} />
+
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       </CaptureContext.Provider>
     </div>
   )

@@ -48,9 +48,23 @@ export interface LayoutEdge {
   lastActive: number;
 }
 
+/**
+ * A subnet's home territory: the hex cell it was assigned plus the radius its
+ * population fans out over. The layout already computes this every tick to
+ * anchor nodes; it is exposed so the renderer can draw the territory itself —
+ * a labelled plate under each subnet — instead of leaving the grouping implicit.
+ */
+export interface ClusterMeta {
+  x: number;
+  y: number;
+  r: number;
+  count: number;
+}
+
 export interface GraphLayoutResult {
   layoutNodes: MutableRefObject<Map<string, LayoutNode>>;
   layoutEdges: MutableRefObject<LayoutEdge[]>;
+  clusterMeta: MutableRefObject<Map<string, ClusterMeta>>;
   tick: (now: number) => void;
 }
 
@@ -199,6 +213,7 @@ function getHomeAnchor(id: string, width: number, height: number): { x: number; 
 export function useGraphLayout(): GraphLayoutResult {
   const layoutNodes = useRef<Map<string, LayoutNode>>(new Map());
   const layoutEdges = useRef<LayoutEdge[]>([]);
+  const clusterMeta = useRef<Map<string, ClusterMeta>>(new Map());
   const lastTickTime = useRef<number>(0);
   const accumulator = useRef<number>(0);
   const syncCountdown = useRef<number>(0);
@@ -688,6 +703,14 @@ export function useGraphLayout(): GraphLayoutResult {
     // ones carrying most of the nodes, spread wide instead of clumping.
     const territoryRadius = (key: string) =>
       Math.max(hexSize * 0.3, minPairDist * Math.sqrt(subnetPop.get(key) ?? 1) * 0.55);
+
+    // Publish the territory geometry for the renderer's plates. Rebuilt in
+    // place each tick: cluster count is small and the map identity is stable,
+    // so this stays out of React entirely, like the rest of the layout.
+    clusterMeta.current.clear();
+    clusterHome.forEach((h, key) => {
+      clusterMeta.current.set(key, { x: h.x, y: h.y, r: territoryRadius(key), count: subnetPop.get(key) ?? 0 });
+    });
     layoutNodes.current.forEach(node => {
       node.focus = focusSet.has(node.id);
       const h = clusterHome.get(node.clusterKey);
@@ -961,5 +984,5 @@ export function useGraphLayout(): GraphLayoutResult {
     }
   }, [deltaSync, tickLayout]);
 
-  return { layoutNodes, layoutEdges, tick };
+  return { layoutNodes, layoutEdges, clusterMeta, tick };
 }

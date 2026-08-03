@@ -261,6 +261,9 @@ docs/generated/
 # Local testing harness (headless-browser layout verification, not committed)
 testing/
 
+# Screenshots written by frontend/scripts/smoke.mjs --shots
+smoke-shots/
+
 # Apex Storage Design brag sheet + hardware snapshots (out of scope for vibes)
 apex-storage-design/
 

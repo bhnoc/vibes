@@ -147,19 +147,24 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
     <div className="command-bar-container" ref={containerRef} style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px' }}>
       <button
         onClick={toggleConsole}
+        aria-pressed={showConsole}
         style={{
-          background: showConsole ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'transparent',
-          border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
-          color: showConsole ? 'var(--signal-teal, #00d2aa)' : 'var(--text-muted)',
-          borderRadius: 'var(--radius-sm, 6px)',
-          padding: '2px 8px',
-          font: 'var(--type-mono)',
-          cursor: 'pointer',
+          height: 20,
           flexShrink: 0,
+          padding: '0 var(--spacing-2)',
+          background: showConsole ? 'var(--wash-ok)' : 'transparent',
+          border: `1px solid ${showConsole ? 'color-mix(in oklab,var(--signal-teal) 35%,transparent)' : 'var(--input)'}`,
+          borderRadius: 'var(--radius-sm)',
+          color: showConsole ? 'var(--signal-teal)' : 'var(--muted-foreground)',
+          font: 'var(--type-data-sm)',
+          letterSpacing: 'var(--tracking-label)',
+          textTransform: 'uppercase',
+          cursor: 'pointer',
+          transition: 'var(--transition-control)',
         }}
-        title="Toggle Command Console (~)"
+        title="Toggle the pin console (~)"
       >
-        {showConsole ? '[-] CONSOLE' : '[~] CONSOLE'}
+        Console
       </button>
 
       {showConsole && (
@@ -185,18 +190,20 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
         style={{ flex: 1, display: 'flex', alignItems: 'center' }}
       >
         {showConsole && (
-          <span style={{ color: 'var(--signal-teal, #00d2aa)', font: 'var(--type-mono)', marginRight: '6px', userSelect: 'none', flexShrink: 0 }}>
+          <span style={{ color: 'var(--signal-teal)', font: 'var(--type-data-sm)', marginRight: 'var(--spacing-1-5)', userSelect: 'none', flexShrink: 0 }}>
             {PROMPT}
           </span>
         )}
-        <div style={{ flex: 1 }}>
+        {/* Padding is kept tight because this editor lives inside the 28px
+            status bar, where the shadcn control ladder has no rung. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <Editor
             value={command}
             onValueChange={code => setCommand(code)}
             highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
-            padding={{ top: 8, right: 10, bottom: 8, left: 2 }}
+            padding={{ top: 3, right: 6, bottom: 3, left: 2 }}
             className="command-input-editor"
-            placeholder="CONSOLE ['~' to toggle] | /help"
+            placeholder="/help for pin commands"
           />
         </div>
       </div>

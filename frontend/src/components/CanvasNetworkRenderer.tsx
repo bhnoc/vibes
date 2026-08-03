@@ -9,6 +9,62 @@ import { usePhysicsStore } from '../stores/physicsStore';
 // room to zoom in. zoom = 1/WORLD_SCALE with pan (0,0) maps world → viewport 1:1.
 const FIT_ZOOM = 1 / WORLD_SCALE;
 
+// Pulses and ripples are decoration on top of the data; when the OS asks for
+// reduced motion the map keeps every fact and drops the travel animation.
+const reducedMotion =
+  typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Same algorithm as themeStore's hash, so a territory plate lands on exactly
+ *  the hue its member nodes drew from the theme band. */
+function hashStr(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Soft-glow sprites, cached per colour.
+ *
+ * A per-node radial gradient is the single most expensive thing a 2D canvas can
+ * do in a loop; a cached sprite blitted with drawImage is nearly free. Hue and
+ * lightness are quantised by the callers, which keeps the cache to a few dozen
+ * entries per theme instead of one per node.
+ */
+const glowSprites = new Map<string, HTMLCanvasElement>();
+const SPRITE = 64;
+
+function glowSprite(h: number, s: number, l: number): HTMLCanvasElement {
+  const key = `${h}|${s}|${l}`;
+  let sprite = glowSprites.get(key);
+  if (!sprite) {
+    sprite = document.createElement('canvas');
+    sprite.width = SPRITE;
+    sprite.height = SPRITE;
+    const g = sprite.getContext('2d')!;
+    const grad = g.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2);
+    grad.addColorStop(0, `hsla(${h},${s}%,${l}%,0.9)`);
+    grad.addColorStop(0.35, `hsla(${h},${s}%,${l}%,0.35)`);
+    grad.addColorStop(1, `hsla(${h},${s}%,${l}%,0)`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, SPRITE, SPRITE);
+    glowSprites.set(key, sprite);
+  }
+  return sprite;
+}
+
+/** Rounded rect that tolerates older canvas implementations. */
+function chipPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  if (typeof (ctx as any).roundRect === 'function') {
+    (ctx as any).roundRect(x, y, w, h, r);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+}
+
 export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>();
@@ -20,7 +76,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   const fpsRef       = useRef(0);
 
   const { width, height } = useSizeStore();
-  const { layoutNodes, layoutEdges, tick } = useGraphLayout();
+  const { layoutNodes, layoutEdges, clusterMeta, tick } = useGraphLayout();
 
   // Active theme read per-frame via a ref so switching recolors instantly
   // with zero React re-renders in the render loop.
@@ -75,6 +131,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     }
 
     const theme = themeRef.current;
+    const wall = Date.now();
 
     // Clear to the theme background
     ctx.fillStyle = theme.background;
@@ -83,9 +140,64 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     ctx.save();
     ctx.translate(-vp.x * vp.zoom, -vp.y * vp.zoom);
     ctx.scale(vp.zoom, vp.zoom);
+    ctx.lineCap = 'round';
 
     const nodes = layoutNodes.current;
     const edges = layoutEdges.current;
+
+    // World-space measurements: a hairline is one SCREEN pixel whatever the
+    // zoom, and the visible world rect bounds everything the frame can touch.
+    const px = 1 / vp.zoom;
+    const wx0 = vp.x;
+    const wy0 = vp.y;
+    const wx1 = vp.x + vp.width / vp.zoom;
+    const wy1 = vp.y + vp.height / vp.zoom;
+
+    // ── Grid ────────────────────────────────────────────────────────────────
+    // A faint world-anchored lattice. Its real job is kinetic: it makes pan and
+    // zoom read as moving over a surface instead of the nodes sliding on glass.
+    const GRID = 160;
+    ctx.strokeStyle = `rgba(${theme.primaryRgb}, 0.05)`;
+    ctx.lineWidth = px;
+    ctx.beginPath();
+    for (let gx = Math.floor(wx0 / GRID) * GRID; gx <= wx1; gx += GRID) {
+      ctx.moveTo(gx, wy0);
+      ctx.lineTo(gx, wy1);
+    }
+    for (let gy = Math.floor(wy0 / GRID) * GRID; gy <= wy1; gy += GRID) {
+      ctx.moveTo(wx0, gy);
+      ctx.lineTo(wx1, gy);
+    }
+    ctx.stroke();
+
+    // ── Territory plates ────────────────────────────────────────────────────
+    // Each subnet's home, drawn as ground truth under the traffic: a barely-there
+    // wash in the subnet's own hue, a dashed survey line, and the subnet name.
+    // Nodes wander out of their territory toward live conversations by design;
+    // the plate is what tells the operator where they wandered FROM.
+    const hueSpan = theme.nodeHueMax - theme.nodeHueMin;
+    const plateFont = `${Math.round(10 * px * 100) / 100}px "JetBrains Mono", ui-monospace, monospace`;
+    ctx.setLineDash([5 * px, 7 * px]);
+    clusterMeta.current.forEach((m, key) => {
+      if (m.count < 3) return;
+      if (m.x + m.r < wx0 || m.x - m.r > wx1 || m.y + m.r < wy0 || m.y - m.r > wy1) return;
+      const hue = Math.round(theme.nodeHueMin + ((hashStr(key) % 1000) / 1000) * hueSpan);
+
+      ctx.fillStyle = `hsla(${hue},${theme.nodeSat}%,55%,0.035)`;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `hsla(${hue},${theme.nodeSat}%,60%,0.14)`;
+      ctx.lineWidth = px;
+      ctx.stroke();
+
+      ctx.font = plateFont;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `hsla(${hue},${Math.round(theme.nodeSat * 0.6)}%,72%,0.55)`;
+      ctx.fillText(key, m.x, m.y - m.r - 8 * px);
+    });
+    ctx.setLineDash([]);
 
     const edgeDegree = new Map<string, number>();
     const connectedIds = new Set<string>();
@@ -125,11 +237,18 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const weightedWidth = edge.thickness ?? Math.max(1, Math.min(4, 1 + Math.log1p(edge.weight)));
       const lineWidth = proto === 'icmp' ? Math.max(1, weightedWidth * 0.7) : weightedWidth;
 
-      ctx.strokeStyle = edgeColor(proto, edgeAlpha, theme);
-      ctx.lineWidth   = lineWidth;
       ctx.beginPath();
       ctx.moveTo(src.x, src.y);
       ctx.lineTo(tgt.x, tgt.y);
+      // Heavy pipes get a wide, faint halo under the core stroke, so throughput
+      // reads as brightness bleeding off the line — not just thickness.
+      if (weightedWidth >= 2) {
+        ctx.strokeStyle = edgeColor(proto, edgeAlpha * 0.16, theme);
+        ctx.lineWidth = lineWidth * 3.2;
+        ctx.stroke();
+      }
+      ctx.strokeStyle = edgeColor(proto, edgeAlpha, theme);
+      ctx.lineWidth   = lineWidth;
       ctx.stroke();
 
       // Port/protocol label. Show ALL of them when zoomed in; at the overview,
@@ -147,7 +266,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         const fontSize = 11 / vp.zoom;                 // constant screen px
         const mx = (src.x + tgt.x) / 2;
         const my = (src.y + tgt.y) / 2;
-        ctx.font = `${fontSize}px monospace`;
+        ctx.font = `${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
         ctx.textAlign = 'center';
         // Overview labels cull overlaps so the watch zone stays legible.
         if (vp.zoom <= 1.5) {
@@ -167,6 +286,38 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       }
     });
 
+    // ── Packet pulses ───────────────────────────────────────────────────────
+    // A bright mote travels each live flow from source to destination, its pace
+    // set by flow weight. This is what makes the map read as traffic moving
+    // rather than as a diagram of where traffic once was. drawEdges is sorted
+    // quiet→hot when width intensity is on, so slicing from the end budgets the
+    // effect to the heaviest flows at firehose edge counts.
+    if (!reducedMotion) {
+      const PULSE_EDGE_CAP = 320;
+      const pulseEdges = drawEdges.length > PULSE_EDGE_CAP ? drawEdges.slice(-PULSE_EDGE_CAP) : drawEdges;
+      for (const edge of pulseEdges) {
+        if (edge.alpha <= 0.25) continue;
+        const src = nodes.get(edge.sourceId);
+        const tgt = nodes.get(edge.targetId);
+        if (!src || !tgt) continue;
+
+        const seed = hashStr(edge.id);
+        // Heavier flows pulse faster and carry more motes.
+        const period = Math.max(650, 1600 - edge.weight * 90);
+        const motes = 1 + Math.min(2, Math.floor(edge.weight / 4));
+        const r = Math.max(1.6, (edge.thickness ?? 1.5) * 0.9);
+        ctx.fillStyle = edgeColor(edge.protocol, Math.min(1, edge.alpha + 0.3), theme);
+        for (let k = 0; k < motes; k += 1) {
+          const t = ((now / period) + (seed % 997) / 997 + k / motes) % 1;
+          const mx = src.x + (tgt.x - src.x) * t;
+          const my = src.y + (tgt.y - src.y) * t;
+          ctx.beginPath();
+          ctx.arc(mx, my, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
     // ── Draw nodes ──────────────────────────────────────────────────────────
     // Labels are readable even at the zoomed-out fit level: font is sized in
     // constant SCREEN pixels (world font = screenPx / zoom), and overlapping
@@ -181,6 +332,13 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     nodes.forEach(n => { if (n.focus) anyFocus = true; });
 
     const drawNodes = Array.from(nodes.values()).filter(n => n.alpha > 0);
+
+    // Label chips sit on a wash of the theme background so text stays legible
+    // over grid, plates and edges without resorting to an opaque black box.
+    const bgR = parseInt(theme.background.slice(1, 3), 16) || 0;
+    const bgG = parseInt(theme.background.slice(3, 5), 16) || 0;
+    const bgB = parseInt(theme.background.slice(5, 7), 16) || 0;
+    const chipFill = `rgba(${bgR},${bgG},${bgB},0.72)`;
 
     for (const node of drawNodes) {
       const hr = parseInt(node.highlightColor.slice(1, 3), 16);
@@ -198,23 +356,58 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const talkBright = isConnected ? 1 : 0.35;
       const bodyColor = subnetNodeColor(node.clusterKey, isFocus ? 1 : talkBright, theme);
 
-      const showGlow = isFocus || (node.radius > 7 && isConnected && !dimBulk);
-      if (showGlow) {
-        const glowAlpha = isFocus ? 0.45 : visualAlpha * 0.3;
-        const glowScale = isFocus ? 2.2 : 1.5;
-        ctx.fillStyle = `rgba(${hr},${hg},${hb},${glowAlpha})`;
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius * glowScale, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      // The glow sprite is keyed on quantised hue/lightness so the whole field
+      // shares a few dozen cached gradients instead of paying for one per node.
+      const hue = Math.round(theme.nodeHueMin + ((hashStr(node.clusterKey) % 1000) / 1000) * hueSpan);
+      const brightQ = Math.round((isFocus ? 1 : talkBright) * 4) / 4;
+      const lightQ = Math.round(theme.nodeLightMin + (theme.nodeLightMax - theme.nodeLightMin) * brightQ);
 
       const bodyR = isFocus ? node.radius * 1.5 : isConnected ? node.radius : node.radius * 0.7;
+
+      const showGlow = isFocus || (isConnected && !dimBulk);
+      if (showGlow) {
+        const R = bodyR * (isFocus ? 3.4 : 2.3);
+        ctx.globalAlpha = (isFocus ? 0.85 : 0.45) * visualAlpha;
+        ctx.drawImage(glowSprite(hue, theme.nodeSat, lightQ), node.x - R, node.y - R, R * 2, R * 2);
+      }
+
+      // Body with a lighter core: reads as a lit orb rather than a flat disc.
       ctx.globalAlpha = visualAlpha;
       ctx.fillStyle   = bodyColor;
       ctx.beginPath();
       ctx.arc(node.x, node.y, bodyR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = `hsla(${hue},${theme.nodeSat}%,${Math.min(92, lightQ + 24)}%,0.5)`;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, bodyR * 0.45, 0, Math.PI * 2);
+      ctx.fill();
       ctx.globalAlpha = 1;
+
+      // Hosts that carried a packet in the last couple of seconds emit a slow
+      // expanding ripple — recency made visible at a glance, phase-offset per
+      // host so the field shimmers instead of strobing in unison.
+      if (!reducedMotion && isConnected && !dimBulk && wall - node.lastActive < 2500) {
+        const phase = ((wall + (hashStr(node.id) % 1400)) % 1400) / 1400;
+        ctx.globalAlpha = (1 - phase) * 0.35 * visualAlpha;
+        ctx.strokeStyle = bodyColor;
+        ctx.lineWidth = 1.5 * px;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, bodyR + phase * bodyR * 2.4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Pinned hosts wear a dashed accent ring: the one persistent, operator-made
+      // mark on the map deserves the theme's own colour.
+      if (node.pinned) {
+        ctx.strokeStyle = `rgba(${theme.primaryRgb}, ${0.85 * node.alpha})`;
+        ctx.lineWidth = 1.5 * px;
+        ctx.setLineDash([3 * px, 3 * px]);
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, bodyR + 4 * px, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       if (
         (isFocus || labelBoxes.length < 140) &&
@@ -223,7 +416,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         vp.zoom >= labelZoomThreshold
       ) {
         const fontSize = labelScreenPx / vp.zoom; // constant screen px
-        ctx.font      = `${fontSize}px monospace`;
+        ctx.font      = `${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
         ctx.textAlign = 'center';
         const pad = 3 / vp.zoom;
         const textY = node.y + node.radius + fontSize + pad;
@@ -242,8 +435,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
         );
         if (overlapsLabel) continue; // always cull overlaps → clean at every zoom
         labelBoxes.push(labelBox);
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.fillRect(labelBox.x1, labelBox.y1, tw + pad * 2, fontSize + pad * 2);
+        ctx.fillStyle = chipFill;
+        chipPath(ctx, labelBox.x1, labelBox.y1, tw + pad * 2, fontSize + pad * 2, 3 * px);
+        ctx.fill();
         ctx.fillStyle = `rgba(${hr},${hg},${hb},${node.alpha})`;
         ctx.fillText(node.id, node.x, textY);
       }
@@ -252,17 +446,11 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     ctx.textAlign = 'left';
     ctx.restore();
 
-    // No-data overlay
-    if (nodes.size === 0) {
-      ctx.fillStyle = '#444';
-      ctx.font      = '16px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('Waiting for network activity...', vp.width / 2, vp.height / 2);
-      ctx.textAlign = 'left';
-    }
+    // The empty state lives in the DOM (see CanvasStage), where it can use the
+    // real type scale and say why the map is blank rather than just that it is.
 
     animationRef.current = requestAnimationFrame(render);
-  }, [tick, layoutNodes, layoutEdges]);
+  }, [tick, layoutNodes, layoutEdges, clusterMeta]);
 
   // Start/stop render loop
   useEffect(() => {
@@ -391,7 +579,9 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block', background: 'black' }}
+      // The clear pass already paints the theme background; letting the element
+      // stay transparent keeps a single source of truth for the map's ground.
+      style={{ width: '100%', height: '100%', display: 'block', background: 'transparent' }}
     />
   );
 });

@@ -1,0 +1,15 @@
+/* Black Hat NOC — global entry, vendored into VIBES. Consumers link this one file.
+   Foundation: shadcn/ui (new-york, Tailwind v4 token contract).
+   Kept byte-identical to noc-ui-kit/ except for the trailing vibes.css layer,
+   so the upstream kit can be re-copied over tokens/ without a merge. */
+@import url("tokens/fonts.css");
+@import url("tokens/shadcn-theme.css");
+@import url("tokens/noc-signal.css");
+@import url("tokens/aliases.css");
+@import url("tokens/typography.css");
+@import url("tokens/spacing.css");
+@import url("tokens/radius-borders.css");
+@import url("tokens/elevation.css");
+@import url("tokens/motion.css");
+@import url("tokens/base.css");
+@import url("tokens/vibes.css");

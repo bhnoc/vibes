@@ -1,685 +1,384 @@
-import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePacketStore } from '../stores/packetStore';
 import { useNetworkStore } from '../stores/networkStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useTelemetry, formatBitrate, formatBytes, formatCount, formatRelative } from '../telemetry/nocTelemetry';
+import { FloatingPanel, Tabs, Switch, Progress, Sparkline, Badge, Separator, StatusDot, DataTable, Column } from './noc/kit';
 
-type TabType = 'websocket' | 'performance' | 'system' | 'renderer' | 'stats';
+/**
+ * Diagnostics.
+ *
+ * This panel answers one question: is the console telling the truth? It reports
+ * on the pipeline itself — what the socket delivered, how much of it is real
+ * capture versus generated load, what the renderer is doing and what the browser
+ * has left. Everything is measured, and where a number cannot be measured in this
+ * browser it says so rather than showing a plausible zero.
+ */
+
+type TabType = 'stream' | 'system' | 'renderer' | 'protocols';
+
+export interface RendererOption {
+  key: string;
+  name: string;
+  description: string;
+  /** Rough capacity, phrased as the scale it holds rather than a star rating. */
+  scale: string;
+  recommended?: boolean;
+}
 
 interface UnifiedDebugPanelProps {
-  onTestModeChange?: (enabled: boolean, nodeCount: number, connectionCount: number) => void;
   onRendererChange?: (renderer: string) => void;
   currentRenderer?: string;
-  rendererOptions?: Array<{
-    key: string;
-    name: string;
-    description: string;
-    performance: string;
-    status: string;
-  }>;
+  rendererOptions?: RendererOption[];
   isOpen?: boolean;
   onMinimize?: () => void;
 }
 
+const DEFAULT_RENDERERS: RendererOption[] = [
+  {
+    key: 'canvas',
+    name: 'Canvas 2D',
+    description: 'Immediate-mode drawing with object pooling and viewport culling.',
+    scale: 'thousands of objects at 60fps',
+    recommended: true,
+  },
+  {
+    key: 'minimal',
+    name: 'Minimal DOM',
+    description: 'One element per object. Inspectable in devtools, but the browser lays out every node.',
+    scale: 'under ~100 objects',
+  },
+];
+
+const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-3)', padding: '3px 0' }}>
+    <span style={{ font: 'var(--type-ui-sm)', color: 'var(--text-muted)' }}>{label}</span>
+    <span
+      style={{
+        marginLeft: 'auto',
+        font: 'var(--type-data)',
+        color: 'var(--text-hi)',
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {children}
+    </span>
+  </div>
+);
+
+const Group: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <section style={{ display: 'grid', gap: 'var(--spacing-1)' }}>
+    <h4
+      style={{
+        margin: '0 0 var(--spacing-1) 0',
+        font: 'var(--type-label)',
+        letterSpacing: 'var(--tracking-label)',
+        textTransform: 'uppercase',
+        color: 'var(--text-faint)',
+      }}
+    >
+      {title}
+    </h4>
+    {children}
+  </section>
+);
+
+/** `performance.memory` is Chromium-only and unavailable under cross-origin isolation. */
+function useHeap() {
+  const [heap, setHeap] = useState<{ used: number; limit: number } | null>(null);
+
+  useEffect(() => {
+    const read = () => {
+      const m = (performance as any).memory;
+      if (!m?.jsHeapSizeLimit) return setHeap(null);
+      setHeap({ used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit });
+    };
+    read();
+    const id = setInterval(read, 2000);
+    return () => clearInterval(id);
+  }, []);
+
+  return heap;
+}
+
+/** Frame timing measured off rAF, so it reflects what the renderer actually achieved. */
+function useFrameRate() {
+  const [fps, setFps] = useState(0);
+  const [worst, setWorst] = useState(0);
+  const state = useRef({ frames: 0, since: performance.now(), last: performance.now(), worst: 0 });
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = (t: number) => {
+      const s = state.current;
+      s.worst = Math.max(s.worst, t - s.last);
+      s.last = t;
+      s.frames += 1;
+      if (t - s.since >= 1000) {
+        setFps(Math.round((s.frames * 1000) / (t - s.since)));
+        setWorst(Math.round(s.worst));
+        s.frames = 0;
+        s.since = t;
+        s.worst = 0;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return { fps, worst };
+}
+
 export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
-  onTestModeChange,
   onRendererChange,
   currentRenderer = 'canvas',
   isOpen = false,
   onMinimize,
-  rendererOptions = [
-    {
-      key: 'canvas',
-      name: '🎨 Canvas (High Performance)',
-      description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
-      performance: '⭐⭐⭐⭐⭐',
-      status: '✅ Recommended'
-    },
-    {
-      key: 'minimal',
-      name: '⚡ Minimal DOM',
-      description: 'Lightweight DOM renderer - good for < 100 objects',
-      performance: '⭐⭐⭐',
-      status: '⚠️ Limited scale'
-    }
-  ]
+  rendererOptions = DEFAULT_RENDERERS,
 }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('websocket');
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [testEnabled, setTestEnabled] = useState(false);
-  const [nodeCount, setNodeCount] = useState(2000);
-  const [connectionCount, setConnectionCount] = useState(3000);
+  const [activeTab, setActiveTab] = useState<TabType>('stream');
 
-  const [position, setPosition] = useState({ x: 18, y: 68 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      const dx = e.clientX - dragRef.current.startX;
-      const dy = e.clientY - dragRef.current.startY;
-      setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
-        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
-      });
-    };
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  const handleHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
-    setIsDragging(true);
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialX: position.x,
-      initialY: position.y,
-    };
-  };
-
-  const { packets } = usePacketStore();
-  const { nodes, connections } = useNetworkStore();
+  const packets = usePacketStore((s) => s.packets);
+  const nodes = useNetworkStore((s) => s.nodes);
+  const connections = useNetworkStore((s) => s.connections);
   const { verboseLogging, toggleVerboseLogging } = useSettingsStore();
 
-  // WebSocket stats
-  const [wsStats, setWsStats] = useState({
-    totalPackets: 0,
-    recentPackets: 0,
-    packetRate: 0,
-    lastPacketTime: 0,
-    samplePackets: [] as any[]
-  });
+  const t = useTelemetry();
+  const heap = useHeap();
+  const { fps, worst } = useFrameRate();
 
-  // System stats
-  const [memory, setMemory] = useState({
-    used: 0,
-    total: 0,
-    limit: 0
-  });
-
-  const [packetStats, setPacketStats] = useState({
-    real: 0,
-    simulated: 0,
-    unknown: 0
-  });
-
-  // Track render frequency
-  const renderCount = useRef(0);
-  const lastRenderTime = useRef(Date.now());
-  const [renderWarning, setRenderWarning] = useState<string>('');
-  const [stickyRenderWarning, setStickyRenderWarning] = useState<string>('');
-
-  useEffect(() => {
-    if (renderWarning) {
-      setStickyRenderWarning(renderWarning);
-      const timer = setTimeout(() => {
-        setStickyRenderWarning('');
-      }, 3000);
-      return () => clearTimeout(timer);
+  // The buffer is capped, so these describe what is retained rather than what
+  // has ever arrived. The telemetry engine holds the session totals.
+  const provenance = useMemo(() => {
+    let real = 0;
+    let simulated = 0;
+    for (const p of packets) {
+      if (p.source === 'real') real += 1;
+      else if (p.source === 'simulated') simulated += 1;
     }
-  }, [renderWarning]);
-
-
-  // Update WebSocket stats
-  useEffect(() => {
-    const now = Date.now();
-    const recentPackets = packets.filter(p => (now - p.timestamp) < 5000);
-    const packetRate = recentPackets.length / 5;
-    
-    const samplePackets = packets.slice(-3).map(p => ({
-      src: p.src,
-      dst: p.dst,
-      protocol: p.protocol,
-      timestamp: p.timestamp,
-      age: Math.round((now - p.timestamp) / 1000)
-    }));
-
-    setWsStats({
-      totalPackets: packets.length,
-      recentPackets: recentPackets.length,
-      packetRate: Math.round(packetRate * 10) / 10,
-      lastPacketTime: packets.length > 0 ? packets[packets.length - 1].timestamp : 0,
-      samplePackets
-    });
+    return { real, simulated, unknown: packets.length - real - simulated, buffered: packets.length };
   }, [packets]);
 
-  // Update memory stats
-  useEffect(() => {
-    const updateMemory = () => {
-      if (window.performance && (window.performance as any).memory) {
-        const memInfo = (window.performance as any).memory;
-        setMemory({
-          used: Math.round(memInfo.usedJSHeapSize / 1024 / 1024),
-          total: Math.round(memInfo.totalJSHeapSize / 1024 / 1024),
-          limit: Math.round(memInfo.jsHeapSizeLimit / 1024 / 1024)
-        });
-      }
-    };
-    
-    updateMemory();
-    const intervalId = setInterval(updateMemory, 2000);
-    return () => clearInterval(intervalId);
-  }, []);
+  const recent = useMemo(
+    () =>
+      packets
+        .slice(-6)
+        .reverse()
+        .map((p, i) => ({
+          id: p.id ?? String(i),
+          flow: `${p.src ?? '—'} → ${p.dst ?? '—'}`,
+          protocol: (p.protocol || 'other').toUpperCase(),
+          size: formatBytes(p.size || 0),
+        })),
+    [packets],
+  );
 
-  // Update packet analysis
-  useEffect(() => {
-    const realCount = packets.filter(p => p.source === 'real').length;
-    const simulatedCount = packets.filter(p => p.source === 'simulated').length;
-    const unknownCount = packets.length - realCount - simulatedCount;
-    
-    setPacketStats({
-      real: realCount,
-      simulated: simulatedCount,
-      unknown: unknownCount
-    });
-  }, [packets]);
-
-  // Track render frequency
-  useEffect(() => {
-    renderCount.current++;
-    const now = Date.now();
-    
-    if (now - lastRenderTime.current < 100) {
-      if (renderCount.current > 10) {
-        setRenderWarning(`⚠️ High render frequency detected! ${renderCount.current} renders in ${now - lastRenderTime.current}ms`);
-      }
-    } else {
-      renderCount.current = 0;
-      lastRenderTime.current = now;
-      setRenderWarning('');
-    }
-  });
-
-  // Network statistics
-  const networkStats = useMemo(() => {
-    const protocolStats = packets.reduce((acc, packet) => {
-      acc[packet.protocol] = (acc[packet.protocol] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return {
-      totalPackets: packets.length,
-      uniqueNodes: nodes.length,
-      uniqueConnections: connections.length,
-      protocolStats
-    };
-  }, [packets, nodes, connections]);
-
-  // Handle test mode changes
-  const handleTestModeChange = (enabled: boolean) => {
-    setTestEnabled(enabled);
-    onTestModeChange?.(enabled, nodeCount, connectionCount);
-  };
-
-  const handleNodeCountChange = (count: number) => {
-    setNodeCount(count);
-    if (testEnabled) {
-      onTestModeChange?.(true, count, connectionCount);
-    }
-  };
-
-  const handleConnectionCountChange = (count: number) => {
-    setConnectionCount(count);
-    if (testEnabled) {
-      onTestModeChange?.(true, nodeCount, count);
-    }
-  };
-
-  const tabs = [
-    { id: 'websocket', label: '🔌 WebSocket', icon: '📡' },
-    { id: 'performance', label: '🧪 Performance', icon: '⚡' },
-    { id: 'system', label: '💻 System', icon: '📊' },
-    { id: 'renderer', label: '🖥️ Renderer', icon: '🎨' },
-    { id: 'stats', label: '📈 Stats', icon: '📋' }
+  const recentColumns: Column<(typeof recent)[number]>[] = [
+    { key: 'flow', label: 'Flow', mono: true },
+    { key: 'protocol', label: 'Proto', width: '68px' },
+    { key: 'size', label: 'Size', width: '72px', align: 'right', mono: true },
   ];
 
-  const getMemoryColor = () => {
-    if (!memory.limit) return '#00ff41';
-    const percentage = (memory.used / memory.limit) * 100;
-    if (percentage > 85) return '#ff0000';
-    if (percentage > 70) return '#ff8800';
-    return '#00ff41';
-  };
-
-  const lastPacketAge = wsStats.lastPacketTime > 0 ? 
-    Math.round((Date.now() - wsStats.lastPacketTime) / 1000) : 0;
-
-  if (!isOpen) {
-    return null;
-  }
+  const heapPct = heap ? (heap.used / heap.limit) * 100 : 0;
+  const heapTone = heapPct > 85 ? 'critical' : heapPct > 70 ? 'warn' : 'ok';
+  const fpsTone = fps >= 55 ? 'ok' : fps >= 30 ? 'warn' : 'critical';
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: `${position.y}px`,
-      left: `${position.x}px`,
-      zIndex: 1001,
-      background: 'var(--surface-card, #141414)',
-      border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
-      borderRadius: 'var(--radius-xl, 14px)',
-      fontFamily: 'var(--font-sans)',
-      fontSize: '12px',
-      color: 'var(--text-hi, #fff)',
-      width: '420px',
-      maxHeight: '80vh',
-      overflow: 'hidden',
-      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
-      backdropFilter: 'blur(8px)'
-    }}>
-      {/* Header */}
-      <div 
-        onMouseDown={handleHeaderMouseDown}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '10px 14px',
-          borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
-          background: 'var(--sidebar, #0e0e0e)',
-          cursor: 'move'
-        }}
-      >
-        <span style={{ font: 'var(--type-label)', letterSpacing: '0.14em', color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
-          DEBUG
-        </span>
-        <button
-          onClick={onMinimize || (() => setIsMinimized(true))}
-          style={{
-            background: 'transparent',
-            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            borderRadius: 'var(--radius-sm, 6px)',
-            padding: '2px 8px',
-            font: 'var(--type-ui-sm)',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          Minimize
-        </button>
-      </div>
+    <FloatingPanel
+      open={isOpen}
+      title="Diagnostics"
+      icon="Terminal"
+      onClose={onMinimize ?? (() => undefined)}
+      initial={{ x: 24, y: 76 }}
+      width={420}
+      padded={false}
+      actions={<StatusDot status={t.live ? 'ok' : 'idle'} pulse={t.live} label={t.live ? 'streaming' : 'idle'} />}
+    >
+      <Tabs
+        style={{ margin: 'var(--spacing-3) var(--spacing-4) 0' }}
+        value={activeTab}
+        onChange={(v) => setActiveTab(v as TabType)}
+        items={[
+          { value: 'stream', label: 'Stream' },
+          { value: 'system', label: 'System' },
+          { value: 'renderer', label: 'Renderer' },
+          { value: 'protocols', label: 'Protocols' },
+        ]}
+      />
 
-      {/* Tab navigation */}
-      <div style={{
-        display: 'flex',
-        borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
-        background: 'var(--sidebar, #0e0e0e)'
-      }}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as TabType)}
-            style={{
-              flex: 1,
-              padding: '10px 4px',
-              background: activeTab === tab.id ? 'var(--sidebar-accent, rgba(255,255,255,0.1))' : 'transparent',
-              border: 'none',
-              color: activeTab === tab.id ? 'var(--text-hi, #fff)' : 'var(--text-muted, rgba(255,255,255,0.6))',
-              borderBottom: activeTab === tab.id ? '2px solid var(--signal-teal, #00d2aa)' : '2px solid transparent',
-              cursor: 'pointer',
-              font: 'var(--type-ui-sm)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em'
-            }}
-          >
-            <div>{tab.icon}</div>
-            <div style={{ fontSize: '10px', marginTop: '2px' }}>{tab.label.split(' ')[1]}</div>
-          </button>
-        ))}
-      </div>
+      <div style={{ display: 'grid', gap: 'var(--spacing-4)', padding: 'var(--spacing-4)' }}>
+        {activeTab === 'stream' ? (
+          <>
+            <Group title="Throughput">
+              <Row label="Rate">{Math.round(t.packetsPerSecond).toLocaleString()} pps</Row>
+              <Row label="Bandwidth">{formatBitrate(t.bytesPerSecond)}</Row>
+              <Row label="Peak rate">{Math.round(t.peakPps).toLocaleString()} pps</Row>
+              <Row label="Last packet">{formatRelative(t.secondsSincePacket)}</Row>
+              <Sparkline data={t.ppsSeries} height={28} tone="ok" style={{ marginTop: 'var(--spacing-2)' }} />
+            </Group>
 
-      {/* Tab content */}
-      <div style={{
-        padding: '12px',
-        maxHeight: '60vh',
-        overflowY: 'auto'
-      }}>
-        {activeTab === 'websocket' && (
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#ffaa00' }}>
-              📡 WebSocket Data Flow
-            </div>
-            
-            {stickyRenderWarning && (
-              <div style={{ 
-                color: '#ff4444', 
-                marginBottom: '8px', 
-                border: '1px solid #ff4444', 
-                padding: '4px', 
-                borderRadius: '2px',
-                fontSize: '10px'
-              }}>
-                {stickyRenderWarning}
-              </div>
-            )}
-            
-            <div style={{ marginBottom: '4px' }}>
-              📦 Total Packets: <span style={{ color: '#fff' }}>{wsStats.totalPackets}</span>
-            </div>
-            <div style={{ marginBottom: '4px' }}>
-              ⚡ Recent (5s): <span style={{ color: '#fff' }}>{wsStats.recentPackets}</span>
-            </div>
-            <div style={{ marginBottom: '4px' }}>
-              📊 Rate: <span style={{ color: '#fff' }}>{wsStats.packetRate}/sec</span>
-            </div>
-            <div style={{ marginBottom: '4px' }}>
-              ⏰ Last packet: <span style={{ color: lastPacketAge > 10 ? '#ff4444' : '#fff' }}>
-                {lastPacketAge}s ago
-              </span>
-            </div>
-            
-            <div style={{ marginTop: '8px', marginBottom: '4px', color: 'var(--vibes-primary, #00ff00)' }}>
-              📡 Store Status:
-            </div>
-            <div style={{ marginBottom: '4px' }}>
-              🔘 Nodes: <span style={{ color: '#fff' }}>{nodes.length}</span>
-            </div>
-            <div style={{ marginBottom: '4px' }}>
-              🔗 Connections: <span style={{ color: '#fff' }}>{connections.length}</span>
-            </div>
-            
-            <div style={{ marginTop: '8px', marginBottom: '4px', color: '#00aaff' }}>
-              📋 Recent Packets:
-            </div>
-            {wsStats.samplePackets.map((packet, idx) => (
-              <div key={idx} style={{ fontSize: '9px', marginBottom: '2px', color: '#ccc' }}>
-                {packet.src} → {packet.dst} ({packet.protocol}) {packet.age}s ago
-              </div>
-            ))}
-            
-            <div style={{ marginTop: '8px', fontSize: '9px', color: '#666' }}>
-              🔄 Renders: {renderCount.current}
-            </div>
-          </div>
-        )}
+            <Separator />
 
-        {activeTab === 'performance' && (
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#ffaa00' }}>
-              🧪 Performance Test Control
-            </div>
-            
-            <label style={{ display: 'block', marginBottom: '8px' }}>
-              <input
-                type="checkbox"
-                checked={testEnabled}
-                onChange={(e) => handleTestModeChange(e.target.checked)}
-                style={{ marginRight: '8px' }}
+            <Group title="Session totals">
+              <Row label="Packets">{formatCount(t.totalPackets)}</Row>
+              <Row label="Volume">{formatBytes(t.totalBytes)}</Row>
+              <Row label="Hosts">{nodes.length.toLocaleString()}</Row>
+              <Row label="Flows">{connections.length.toLocaleString()}</Row>
+            </Group>
+
+            <Separator />
+
+            <Group title="Provenance">
+              <p style={{ margin: '0 0 var(--spacing-2) 0', font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+                Of the {provenance.buffered.toLocaleString()} packets still in the buffer.
+              </p>
+              <Row label="Captured">
+                <Badge tone={provenance.real > 0 ? 'ok' : 'neutral'}>{provenance.real.toLocaleString()}</Badge>
+              </Row>
+              <Row label="Generated">
+                <Badge tone={provenance.simulated > 0 ? 'warn' : 'neutral'}>{provenance.simulated.toLocaleString()}</Badge>
+              </Row>
+              <Row label="Unlabelled">
+                <Badge tone="neutral">{provenance.unknown.toLocaleString()}</Badge>
+              </Row>
+            </Group>
+
+            <Separator />
+
+            <Group title="Last packets">
+              <DataTable columns={recentColumns} rows={recent} rowId="id" dense empty="Nothing captured yet." />
+            </Group>
+          </>
+        ) : null}
+
+        {activeTab === 'system' ? (
+          <>
+            <Group title="Frame timing">
+              <Row label="Frame rate">
+                <span style={{ color: `var(--status-${fpsTone === 'ok' ? 'ok' : fpsTone === 'warn' ? 'medium' : 'critical'})` }}>{fps} fps</span>
+              </Row>
+              <Row label="Longest frame">{worst} ms</Row>
+              <Progress value={Math.min(fps, 60)} max={60} tone={fpsTone} style={{ marginTop: 'var(--spacing-2)' }} />
+            </Group>
+
+            <Separator />
+
+            <Group title="Heap">
+              {heap ? (
+                <>
+                  <Row label="In use">{formatBytes(heap.used)}</Row>
+                  <Row label="Limit">{formatBytes(heap.limit)}</Row>
+                  <Progress value={heapPct} tone={heapTone} style={{ marginTop: 'var(--spacing-2)' }} />
+                </>
+              ) : (
+                <p style={{ margin: 0, font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+                  This browser does not expose heap statistics.
+                </p>
+              )}
+            </Group>
+
+            <Separator />
+
+            <Group title="Logging">
+              <Switch
+                checked={verboseLogging}
+                onChange={toggleVerboseLogging}
+                label="Verbose console logging"
+                hint="Writes per-packet detail to devtools. Costs frames under load."
               />
-              Enable Test Mode
-            </label>
+            </Group>
+          </>
+        ) : null}
 
-            <label style={{ display: 'block', marginBottom: '8px' }}>
-              Nodes:
-              <input
-                type="number"
-                value={nodeCount}
-                onChange={(e) => handleNodeCountChange(parseInt(e.target.value) || 1000)}
-                min="100"
-                max="10000"
-                disabled={!testEnabled}
-                style={{ 
-                  width: '80px', 
-                  marginLeft: '8px',
-                  background: 'black',
-                  color: 'var(--vibes-primary, #00ff00)',
-                  border: '1px solid var(--vibes-primary, #00ff00)',
-                  padding: '2px 4px'
-                }}
-              />
-            </label>
+        {activeTab === 'renderer' ? (
+          <Group title="Drawing engine">
+            <div role="radiogroup" aria-label="Drawing engine" style={{ display: 'grid', gap: 'var(--spacing-2)' }}>
+              {rendererOptions.map((r) => {
+                const active = currentRenderer === r.key;
+                return (
+                  <label
+                    key={r.key}
+                    style={{
+                      display: 'grid',
+                      gap: 'var(--spacing-1)',
+                      padding: 'var(--spacing-3)',
+                      cursor: 'pointer',
+                      borderRadius: 'var(--radius-md)',
+                      border: `1px solid ${active ? 'var(--signal-teal)' : 'var(--border)'}`,
+                      background: active ? 'color-mix(in oklab, var(--signal-teal) 8%, transparent)' : 'transparent',
+                      transition: 'var(--transition-control)',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+                      <input
+                        type="radio"
+                        name="renderer"
+                        value={r.key}
+                        checked={active}
+                        onChange={(e) => onRendererChange?.(e.target.value)}
+                        style={{ accentColor: 'var(--signal-teal)' }}
+                      />
+                      <span style={{ font: 'var(--type-ui)', color: 'var(--text-hi)' }}>{r.name}</span>
+                      {r.recommended ? <Badge tone="ok">Recommended</Badge> : null}
+                    </span>
+                    <span style={{ font: 'var(--type-data-sm)', color: 'var(--text-muted)', paddingLeft: 'var(--spacing-6)' }}>
+                      {r.description}
+                    </span>
+                    <span style={{ font: 'var(--type-data-sm)', color: 'var(--text-faint)', paddingLeft: 'var(--spacing-6)' }}>
+                      Holds {r.scale}.
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p style={{ margin: 'var(--spacing-2) 0 0', font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>
+              Drag to pan, wheel to zoom, R to reset the view.
+            </p>
+          </Group>
+        ) : null}
 
-            <label style={{ display: 'block', marginBottom: '8px' }}>
-              Connections:
-              <input
-                type="number"
-                value={connectionCount}
-                onChange={(e) => handleConnectionCountChange(parseInt(e.target.value) || 1000)}
-                min="100"
-                max="15000"
-                disabled={!testEnabled}
-                style={{ 
-                  width: '80px', 
-                  marginLeft: '8px',
-                  background: 'black',
-                  color: 'var(--vibes-primary, #00ff00)',
-                  border: '1px solid var(--vibes-primary, #00ff00)',
-                  padding: '2px 4px'
-                }}
-              />
-            </label>
-
-            {testEnabled && (
-              <div style={{
-                marginTop: '12px',
-                padding: '8px',
-                background: 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.1)',
-                border: '1px solid var(--vibes-primary, #00ff00)',
-                borderRadius: '4px'
-              }}>
-                <div>🧪 Performance Test Active</div>
-                <div>Nodes: {nodeCount}</div>
-                <div>Connections: {connectionCount}</div>
-                <div style={{ fontSize: '9px', color: '#888' }}>
-                  Simulating Agar.io-scale data
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'system' && (
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#ffaa00' }}>
-              💻 System Monitor
-            </div>
-            
-            {/* Memory usage */}
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ marginBottom: '4px', fontSize: '10px' }}>Memory Usage:</div>
-              <div style={{ height: '8px', width: '100%', background: '#111', borderRadius: '4px', overflow: 'hidden' }}>
-                <div 
-                  style={{ 
-                    height: '100%', 
-                    width: `${memory.limit ? (memory.used / memory.limit) * 100 : 50}%`,
-                    background: getMemoryColor(),
-                    transition: 'width 0.5s, background 0.5s'
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', marginTop: '2px' }}>
-                <span>{memory.used} MB used</span>
-                <span>{memory.limit ? `${memory.limit} MB limit` : 'Unknown limit'}</span>
-              </div>
-            </div>
-
-            {/* Packet Analysis */}
-            <div style={{ marginBottom: '4px', fontSize: '10px' }}>Packet Analysis:</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-              <span>✅ Real packets:</span> 
-              <span style={{ 
-                color: packetStats.real > 0 ? '#00ff41' : '#ff3333',
-                fontWeight: 'bold'
-              }}>
-                {packetStats.real}
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-              <span>🤖 Simulated:</span> 
-              <span style={{ color: '#ff3333' }}>{packetStats.simulated}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span>❓ Unknown:</span> 
-              <span>{packetStats.unknown}</span>
-            </div>
-            
-            <div style={{ 
-              padding: '4px', 
-              background: packetStats.real > 0 ? 'rgba(0,255,65,0.2)' : 'rgba(255,51,51,0.2)',
-              borderRadius: '3px',
-              color: packetStats.real > 0 ? '#00ff41' : '#ff3333',
-              fontWeight: 'bold',
-              fontSize: '9px',
-              textAlign: 'center'
-            }}>
-              {packetStats.real > 0 
-                ? '✅ SHOWING REAL NETWORK DATA' 
-                : '⚠️ NO REAL PACKETS DETECTED'}
-            </div>
-
-            {/* Verbose Logging Toggle */}
-            <div style={{ marginTop: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={verboseLogging}
-                  onChange={toggleVerboseLogging}
-                  style={{ marginRight: '8px' }}
-                />
-                Enable Verbose Console Logs
-              </label>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'renderer' && (
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#ffaa00' }}>
-              🖥️ Rendering Engine
-            </div>
-            
-            {/* Canvas Renderer Stats */}
-            {currentRenderer === 'canvas' && (
-              <div style={{ 
-                marginBottom: '12px',
-                padding: '6px',
-                background: 'rgba(0, 255, 65, 0.1)',
-                borderRadius: '4px',
-                border: '1px solid rgba(0, 255, 65, 0.3)'
-              }}>
-                <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '4px', color: '#00ff41' }}>
-                  🎨 Canvas Renderer v2.0 - Live Stats
-                </div>
-                <div style={{ fontSize: '9px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
-                  <span>FPS:</span><span style={{ color: '#fff' }}>Real-time</span>
-                  <span>Zoom:</span><span style={{ color: '#fff' }}>Interactive</span>
-                  <span>Pan:</span><span style={{ color: '#fff' }}>Mouse control</span>
-                  <span>Controls:</span><span style={{ color: '#fff' }}>Mouse + Wheel</span>
-                </div>
-                <div style={{ fontSize: '8px', marginTop: '4px', color: '#888' }}>
-                  Tip: Mouse to pan, wheel to zoom, R to reset view
-                </div>
-              </div>
-            )}
-            
-            {rendererOptions.map((renderer) => (
-              <div key={renderer.key} style={{ marginBottom: '6px' }}>
-                <label style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  cursor: 'pointer',
-                  padding: '4px',
-                  backgroundColor: currentRenderer === renderer.key ? 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.2)' : 'transparent',
-                  borderRadius: '2px'
-                }}>
-                  <input
-                    type="radio"
-                    name="renderer"
-                    value={renderer.key}
-                    checked={currentRenderer === renderer.key}
-                    onChange={(e) => onRendererChange?.(e.target.value)}
-                    style={{ marginRight: '8px' }}
-                  />
-                  <div>
-                    <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{renderer.name}</div>
-                    <div style={{ fontSize: '8px', color: '#aaa' }}>
-                      {renderer.performance} | {renderer.status}
+        {activeTab === 'protocols' ? (
+          <Group title="Protocol mix">
+            {t.protocols.length ? (
+              <div style={{ display: 'grid', gap: 'var(--spacing-2-5)' }}>
+                {t.protocols.map((p) => (
+                  <div key={p.protocol} style={{ display: 'grid', gap: 'var(--spacing-1)' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--spacing-2)' }}>
+                      <span
+                        style={{
+                          font: 'var(--type-data)',
+                          color: `var(--proto-${p.protocol}, var(--proto-other))`,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {p.protocol}
+                      </span>
+                      <span style={{ marginLeft: 'auto', font: 'var(--type-data-sm)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatCount(p.packets)} · {p.pct.toFixed(1)}%
+                      </span>
                     </div>
-                    <div style={{ fontSize: '8px', color: '#888' }}>
-                      {renderer.description}
+                    <div style={{ height: 4, borderRadius: 'var(--radius-full)', background: 'var(--input)', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: '100%',
+                          background: `var(--proto-${p.protocol}, var(--proto-other))`,
+                          transformOrigin: 'left center',
+                          transform: `scaleX(${Math.max(0.01, p.pct / 100)})`,
+                          transition: 'transform var(--duration-base) var(--ease-out)',
+                        }}
+                      />
                     </div>
                   </div>
-                </label>
+                ))}
               </div>
-            ))}
-            
-            <div style={{ 
-              marginTop: '8px', 
-              padding: '4px', 
-              backgroundColor: 'rgba(0, 100, 0, 0.3)',
-              fontSize: '8px',
-              borderRadius: '2px'
-            }}>
-              💡 Canvas renderer is optimized for Agar.io-scale performance
-            </div>
-
-            <div style={{
-              marginTop: '8px',
-              padding: '4px',
-              background: 'rgba(0, 0, 255, 0.2)',
-              borderRadius: '2px',
-              fontSize: '9px',
-              textAlign: 'center'
-            }}>
-              Active: {rendererOptions.find(r => r.key === currentRenderer)?.name || currentRenderer}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'stats' && (
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#ffaa00' }}>
-              📈 Network Statistics
-            </div>
-            
-            {/* Stats Grid */}
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span>📦 Total Packets:</span>
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>{networkStats.totalPackets}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span>🔘 Unique Nodes:</span>
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>{networkStats.uniqueNodes}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span>🔗 Connections:</span>
-                <span style={{ color: '#fff', fontWeight: 'bold' }}>{networkStats.uniqueConnections}</span>
-              </div>
-            </div>
-
-            {/* Protocol Distribution */}
-            <div style={{ marginBottom: '4px', fontSize: '10px', color: '#00aaff' }}>
-              Protocol Distribution:
-            </div>
-            {Object.entries(networkStats.protocolStats).map(([protocol, count]) => (
-              <div key={protocol} style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginBottom: '2px',
-                fontSize: '9px'
-              }}>
-                <span style={{ color: '#aaa' }}>{protocol}:</span>
-                <span style={{ color: '#fff' }}>{count}</span>
-              </div>
-            ))}
-
-            {Object.keys(networkStats.protocolStats).length === 0 && (
-              <div style={{ color: '#666', fontSize: '9px', fontStyle: 'italic' }}>
-                No protocols detected yet
-              </div>
+            ) : (
+              <p style={{ margin: 0, font: 'var(--type-data-sm)', color: 'var(--text-faint)' }}>No protocols seen yet.</p>
             )}
-          </div>
-        )}
+          </Group>
+        ) : null}
       </div>
-    </div>
+    </FloatingPanel>
   );
-}; 
+};

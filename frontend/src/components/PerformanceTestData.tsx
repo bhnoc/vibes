@@ -9,6 +9,12 @@ interface TestDataProps {
   enabled?: boolean
 }
 
+/** Weighted so the protocol mix looks like a guest network rather than a uniform draw. */
+const PROTOCOLS = ['tcp', 'tcp', 'tcp', 'tcp', 'udp', 'udp', 'icmp']
+
+/** Ordinary service ports only. The generator never fabricates a finding. */
+const PORTS = [443, 443, 443, 80, 80, 53, 53, 123, 8080, 993, 5228]
+
 export const PerformanceTestData: React.FC<TestDataProps> = ({ 
   nodeCount = 2000, 
   connectionCount = 3000, 
@@ -85,14 +91,22 @@ export const PerformanceTestData: React.FC<TestDataProps> = ({
         const targetId = nodeIds[Math.floor(Math.random() * nodeIds.length)]
         
         if (sourceId !== targetId) {
+          // Field names have to match the Packet contract in packetStore. Emitting
+          // source/destination here left every generated packet without endpoints,
+          // so the telemetry engine counted bytes but could not attribute them and
+          // the talkers table stayed empty while the map looked busy.
+          const protocol = PROTOCOLS[Math.floor(Math.random() * PROTOCOLS.length)]
+          const ported = protocol !== 'icmp'
           addPacket({
-            id: `packet-${Date.now()}-${i}`,
+            id: `sim-${Date.now()}-${i}`,
             timestamp: Date.now(),
-            source: sourceId,
-            destination: targetId,
-            protocol: Math.random() > 0.5 ? 'TCP' : 'UDP',
+            src: sourceId,
+            dst: targetId,
+            protocol,
             size: Math.floor(Math.random() * 1500),
-            port: Math.floor(Math.random() * 65535)
+            src_port: ported ? 32768 + Math.floor(Math.random() * 28000) : undefined,
+            dst_port: ported ? PORTS[Math.floor(Math.random() * PORTS.length)] : undefined,
+            source: 'simulated',
           })
 
           // Update node activity

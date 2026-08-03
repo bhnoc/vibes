@@ -72,12 +72,17 @@ const retroBlue: Theme = {
   labelColor: '#7dd3fc',
 }
 
+// The default skin. Its background is the design system's --background token
+// resolved to hex, so the canvas clear and the shell chrome are the same black
+// and the map has no visible seam where it meets the rail or the dock. Edge
+// colours are the signal palette, which is why a violet line on the map and a
+// violet chip in the dock mean the same protocol.
 const blackhatNoc: Theme = {
   key: 'blackhat-noc',
   label: 'Black Hat NOC',
   primary: '#00d2aa',
   primaryRgb: '0, 210, 170',
-  background: '#0e0e0e',
+  background: '#0a0a0a',
   nodeHueMin: 160,
   nodeHueMax: 200,
   nodeSat: 85,
@@ -168,7 +173,10 @@ interface ThemeState {
   resetThemeColors: () => void;
 }
 
-const THEME_VERSION = 1;
+// Bumped when the default skin changed to the Black Hat NOC one. The migration
+// below is intentionally destructive: a persisted retro skin from before the
+// design system landed would otherwise pin returning operators to the old look.
+const THEME_VERSION = 2;
 
 // Push the active theme's chrome colors into CSS custom properties so the
 // hardcoded-green UI (index.css) recolors without per-element JS.
@@ -188,10 +196,10 @@ export function applyThemeVars(theme: Theme) {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
-      themeKey: 'retro-blue',
-      theme: retroBlue,
+      themeKey: 'blackhat-noc',
+      theme: blackhatNoc,
       setTheme: (key: string) => {
-        const base = THEMES[key] ?? retroBlue;
+        const base = THEMES[key] ?? blackhatNoc;
         const overrides = getSessionCustomizations(base.key);
         const theme = { ...base, ...overrides };
         applyThemeVars(theme);
@@ -210,7 +218,7 @@ export const useThemeStore = create<ThemeState>()(
       resetThemeColors: () => {
         set((state) => {
           clearSessionCustomizations(state.themeKey);
-          const theme = { ...(THEMES[state.themeKey] ?? retroBlue) };
+          const theme = { ...(THEMES[state.themeKey] ?? blackhatNoc) };
           applyThemeVars(theme);
           return { theme };
         });
@@ -220,12 +228,12 @@ export const useThemeStore = create<ThemeState>()(
       name: 'vibes-theme-storage',
       version: THEME_VERSION,
       storage: createJSONStorage(() => localStorage),
-      migrate: () => ({ themeKey: 'retro-blue', theme: retroBlue } as ThemeState),
+      migrate: () => ({ themeKey: 'blackhat-noc', theme: blackhatNoc } as ThemeState),
       onRehydrateStorage: () => (state) => {
         // Rebuild the theme object from its key (defends against a persisted
         // null/stale theme) and apply CSS vars as soon as it loads.
         if (state) {
-          const base = THEMES[state.themeKey] ?? retroBlue;
+          const base = THEMES[state.themeKey] ?? blackhatNoc;
           const overrides = getSessionCustomizations(base.key);
           const theme = { ...base, ...overrides };
           state.theme = theme;

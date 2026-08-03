@@ -1,0 +1,25 @@
+/* ---------------------------------------------------------------------------
+   Product semantics for the NOC surfaces, expressed in terms of the shadcn
+   contract above. Use these in NOC screens; use the shadcn names inside
+   components so upstream shadcn code stays portable.
+   --------------------------------------------------------------------------- */
+:root{
+  --surface-page:var(--background);
+  --surface-card:var(--card);
+  --surface-chrome:var(--sidebar);
+  --surface-raised:var(--secondary);
+  --surface-overlay:color-mix(in oklab,var(--popover) 82%,transparent);
+  --surface-scrim:oklch(0 0 0 / 50%);
+
+  --text-hi:var(--foreground);
+  --text-body:color-mix(in oklab,var(--foreground) 88%,transparent);
+  --text-muted:var(--muted-foreground);
+  --text-faint:color-mix(in oklab,var(--muted-foreground) 78%,transparent);
+  --text-inverse:var(--primary-foreground);
+  --text-link:var(--signal-teal);
+
+  --line-hairline:color-mix(in oklab,var(--border) 60%,transparent);
+  --line-soft:var(--border);
+  --line-strong:var(--input);
+  --line-focus:var(--ring);
+}

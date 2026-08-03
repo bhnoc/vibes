@@ -1,0 +1,50 @@
+/* ---------------------------------------------------------------------------
+   VIBES extension layer. The Black Hat NOC contract stops at the chrome; VIBES
+   adds one surface the design system never had to describe: a full-bleed
+   capture canvas that the operator reads like a map. These tokens name the
+   shell geometry around that canvas and bind protocol identity to the signal
+   palette, so the picture and the panels agree on what a colour means.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Shell geometry. The console shell from the NOC spec, with a right-hand
+     instrumentation dock added for the live capture read-outs. */
+  --vibes-rail-w: 3.5rem;      /* 56px icon rail */
+  --vibes-sidebar-w: 15rem;    /* 240px operations sidebar */
+  --vibes-dock-w: 23rem;       /* 368px telemetry dock */
+  --vibes-topbar-h: 3.5rem;    /* 56px */
+  --vibes-statusbar-h: 1.75rem;/* 28px */
+
+  /* Protocol identity. Canvas edges and panel chips read from the same six
+     values, so a violet line on the map is a violet chip in the table. */
+  --proto-tcp: var(--signal-teal);
+  --proto-udp: var(--signal-violet);
+  --proto-icmp: var(--signal-red);
+  --proto-http: var(--signal-amber);
+  --proto-dns: var(--signal-cyan);
+  --proto-other: var(--muted-foreground);
+
+  /* The canvas sits below the chrome and is never a card. It gets its own
+     ground so the scrims that protect overlay text have something to fade to. */
+  --canvas-ground: var(--background);
+  --canvas-scrim-top: linear-gradient(to bottom, color-mix(in oklab, var(--background) 88%, transparent) 0%, transparent 100%);
+  --canvas-scrim-bottom: linear-gradient(to top, color-mix(in oklab, var(--background) 88%, transparent) 0%, transparent 100%);
+  --canvas-vignette: radial-gradient(ellipse 120% 90% at 50% 45%, transparent 40%, color-mix(in oklab, var(--background) 55%, transparent) 100%);
+}
+
+/* Enter animation for dock panels and board changes, reusing the system easing.
+   Motion means the data is changing: this fires on mount, never on a loop. */
+@keyframes vibes-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A single sweep used only on the capture canvas overlay to mark that a frame
+   of live traffic has landed. Stops entirely when the stream is not live. */
+@keyframes vibes-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-animate] { animation: none !important; }
+}
