@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { useNetworkStore } from '../../stores/networkStore';
 import { usePacketStore } from '../../stores/packetStore';
 import { CommandBar } from '../CommandBar';
@@ -23,6 +23,7 @@ const CAPTURE_SOURCE_LABELS: Record<string, { label: string; level: 'ok' | 'info
 export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
   const { nodes, connections } = useNetworkStore();
   const { packets } = usePacketStore();
+  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 
   const latestSource = packets.length ? packets[packets.length - 1].source : undefined;
   const sourceInfo = latestSource
@@ -34,11 +35,12 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
       className="noc-status-bar"
       style={{
         position: 'fixed',
-        bottom: 0,
+        bottom: isConsoleOpen ? '150px' : '0px',
         left: 0,
         right: 0,
         height: '36px',
         zIndex: 1000,
+        transition: 'bottom 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -51,7 +53,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
     >
       {/* Left side: Command bar console trigger */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 360px', minWidth: '260px', maxWidth: '480px', marginRight: '20px' }}>
-        <CommandBar />
+        <CommandBar onConsoleToggle={setIsConsoleOpen} />
       </div>
 
       {/* Center/Right side: Real-time telemetry counters */}

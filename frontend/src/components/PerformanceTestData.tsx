@@ -129,27 +129,7 @@ export const PerformanceTestData: React.FC<TestDataProps> = ({
     }
   }, [enabled, nodeCount, connectionCount, addNode, addConnection, addPacket, clearNetwork])
 
-  if (!enabled) return null
-
-  return (
-    <div style={{
-      position: 'fixed',
-      top: '80px',
-      left: '10px',
-      background: 'rgba(0, 0, 0, 0.8)',
-      color: '#00ff00',
-      padding: '10px',
-      border: '1px solid #00ff00',
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      zIndex: 1000
-    }}>
-      <div>🧪 Performance Test Mode</div>
-      <div>Nodes: {nodeCount}</div>
-      <div>Connections: {connectionCount}</div>
-      <div>Simulating Agar.io-scale data</div>
-    </div>
-  )
+  return null;
 }
 
 // Add control to toggle test mode (disabled/hidden)
