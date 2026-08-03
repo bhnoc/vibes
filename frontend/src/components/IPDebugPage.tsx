@@ -407,37 +407,93 @@ export const IPDebugPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full h-screen bg-black text-green-400 relative overflow-hidden">
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 bg-black bg-opacity-90 border-b border-green-400 p-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-mono">IP Debug Visualizer (Shared WebSocket)</h1>
-          <div className="flex items-center gap-4">
+    <div style={{
+      position: 'relative',
+      width: '100vw',
+      height: '100vh',
+      background: 'var(--surface-page, #0b0b0b)',
+      color: 'var(--text-hi, #fff)',
+      overflow: 'hidden',
+      fontFamily: 'var(--font-sans)'
+    }}>
+      {/* Sub-header under NocHeader */}
+      <div style={{
+        position: 'absolute',
+        top: '56px',
+        left: 0,
+        right: 0,
+        zIndex: 10,
+        background: 'var(--surface-chrome, #0e0e0e)',
+        borderBottom: 'var(--border-inset, 1px solid rgba(255,255,255,0.1))',
+        padding: '12px 18px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <h1 style={{ font: 'var(--type-h2)', margin: 0, color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
+            IP Address Activity Map
+          </h1>
+          <span style={{
+            font: 'var(--type-data-sm)',
+            color: 'var(--signal-teal)',
+            background: 'var(--wash-ok)',
+            padding: '3px 9px',
+            borderRadius: 'var(--radius-md, 8px)',
+            border: '1px solid color-mix(in oklab, var(--signal-teal) 35%, transparent)'
+          }}>
+            LIVE WEBSOCKET STREAM
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', gap: '14px', font: 'var(--type-data-sm)', color: 'var(--text-muted)' }}>
+            <span>PACKETS: <strong style={{ color: 'var(--signal-cyan)' }}>{packets.length}</strong></span>
+            <span>ACTIVE NODES: <strong style={{ color: 'var(--signal-teal)' }}>{Array.from(nodes.values()).filter(n => n.isActive).length}</strong></span>
+            <span>TOTAL NODES: <strong style={{ color: 'var(--text-hi)' }}>{nodes.size}</strong></span>
+          </div>
+
+          <div style={{ width: '1px', height: '20px', background: 'var(--line-strong, rgba(255,255,255,0.2))' }} />
+
+          <div style={{ display: 'flex', gap: '8px' }}>
             <button
               onClick={handleClear}
-              className="px-3 py-1 bg-red-900 hover:bg-red-800 text-red-300 rounded text-sm"
+              style={{
+                background: 'var(--wash-critical)',
+                border: '1px solid color-mix(in oklab, var(--signal-red) 40%, transparent)',
+                color: 'var(--signal-red)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md, 8px)',
+                font: 'var(--type-ui-sm)',
+                textTransform: 'uppercase',
+                cursor: 'pointer'
+              }}
             >
-              Clear
+              Clear Map
             </button>
             <button
               onClick={handleTestIP}
-              className="px-3 py-1 bg-blue-900 hover:bg-blue-800 text-blue-300 rounded text-sm"
+              style={{
+                background: 'var(--wash-ok)',
+                border: '1px solid color-mix(in oklab, var(--signal-teal) 40%, transparent)',
+                color: 'var(--signal-teal)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md, 8px)',
+                font: 'var(--type-ui-sm)',
+                textTransform: 'uppercase',
+                cursor: 'pointer'
+              }}
             >
-              Test IP
+              Simulate IP
             </button>
           </div>
-        </div>
-        
-        <div className="mt-2 text-xs text-green-600">
-          Packets in Store: {packets.length} | Active Nodes: {Array.from(nodes.values()).filter(n => n.isActive).length} | Total Nodes: {nodes.size}
         </div>
       </div>
 
       {/* PIXI Canvas Container */}
       <div 
         ref={canvasRef}
-        className="w-full h-full pt-20"
-        style={{ position: 'absolute', top: '80px', left: 0, right: 0, bottom: 0 }}
+        style={{ position: 'absolute', top: '110px', left: 0, right: 0, bottom: '36px' }}
       />
     </div>
   )

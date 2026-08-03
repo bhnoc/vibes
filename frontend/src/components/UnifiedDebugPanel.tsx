@@ -216,19 +216,19 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
     return (
       <div style={{
         position: 'fixed',
-        top: '60px',
-        right: '10px',
+        top: '68px',
+        left: '18px',
         zIndex: 1001,
-        background: 'rgba(0, 0, 0, 0.9)',
-        border: '1px solid var(--vibes-primary, #00ff00)',
-        borderRadius: '4px',
-        padding: '8px 12px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: 'var(--vibes-primary, #00ff00)',
-        cursor: 'pointer'
+        background: 'var(--surface-card, #141414)',
+        border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
+        borderRadius: 'var(--radius-md, 8px)',
+        padding: '8px 14px',
+        font: 'var(--type-ui-sm)',
+        color: 'var(--text-hi, #fff)',
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
       }} onClick={() => setIsMinimized(false)}>
-        🔧 Debug Panel (Click to expand)
+        TELEMETRY CONSOLE [CLICK TO EXPAND]
       </div>
     );
   }
@@ -236,50 +236,54 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   return (
     <div style={{
       position: 'fixed',
-      top: '60px',
-      right: '10px',
+      top: '68px',
+      left: '18px',
       zIndex: 1001,
-      background: 'rgba(0, 0, 0, 0.95)',
-      border: '1px solid var(--vibes-primary, #00ff00)',
-      borderRadius: '6px',
-      fontFamily: 'monospace',
-      fontSize: '11px',
-      color: 'var(--vibes-primary, #00ff00)',
-      width: '400px',
+      background: 'var(--surface-card, #141414)',
+      border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
+      borderRadius: 'var(--radius-xl, 14px)',
+      fontFamily: 'var(--font-sans)',
+      fontSize: '12px',
+      color: 'var(--text-hi, #fff)',
+      width: '420px',
       maxHeight: '80vh',
       overflow: 'hidden',
-      backdropFilter: 'blur(4px)'
+      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)',
+      backdropFilter: 'blur(8px)'
     }}>
       {/* Header */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '8px 12px',
-        borderBottom: '1px solid var(--vibes-primary, #00ff00)',
-        background: 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.1)'
+        padding: '10px 14px',
+        borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
+        background: 'var(--sidebar, #0e0e0e)'
       }}>
-        <span style={{ fontWeight: 'bold', color: 'var(--vibes-primary, #00ff00)' }}>🔧 Debug Panel</span>
+        <span style={{ font: 'var(--type-label)', letterSpacing: '0.14em', color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
+          System Telemetry &amp; Diagnostics
+        </span>
         <button
           onClick={() => setIsMinimized(true)}
           style={{
-            background: 'none',
-            border: '1px solid var(--vibes-primary, #00ff00)',
-            color: 'var(--vibes-primary, #00ff00)',
+            background: 'transparent',
+            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+            color: 'var(--text-muted)',
             cursor: 'pointer',
-            borderRadius: '2px',
-            padding: '2px 6px',
-            fontSize: '10px'
+            borderRadius: 'var(--radius-sm, 6px)',
+            padding: '2px 8px',
+            font: 'var(--type-ui-sm)'
           }}
         >
-          ➖
+          Minimize
         </button>
       </div>
 
       {/* Tab navigation */}
       <div style={{
         display: 'flex',
-        borderBottom: '1px solid #333'
+        borderBottom: 'var(--border-card, 1px solid rgba(255,255,255,0.1))',
+        background: 'var(--sidebar, #0e0e0e)'
       }}>
         {tabs.map(tab => (
           <button
@@ -287,17 +291,19 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
             onClick={() => setActiveTab(tab.id as TabType)}
             style={{
               flex: 1,
-              padding: '8px 4px',
-              background: activeTab === tab.id ? 'rgba(var(--vibes-primary-rgb, 0, 255, 0),0.2)' : 'transparent',
+              padding: '10px 4px',
+              background: activeTab === tab.id ? 'var(--sidebar-accent, rgba(255,255,255,0.1))' : 'transparent',
               border: 'none',
-              color: activeTab === tab.id ? 'var(--vibes-primary, #00ff00)' : '#666',
+              color: activeTab === tab.id ? 'var(--text-hi, #fff)' : 'var(--text-muted, rgba(255,255,255,0.6))',
+              borderBottom: activeTab === tab.id ? '2px solid var(--signal-teal, #00d2aa)' : '2px solid transparent',
               cursor: 'pointer',
-              fontSize: '9px',
-              borderRight: '1px solid #333'
+              font: 'var(--type-ui-sm)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
             }}
           >
             <div>{tab.icon}</div>
-            <div style={{ fontSize: '8px' }}>{tab.label.split(' ')[1]}</div>
+            <div style={{ fontSize: '10px', marginTop: '2px' }}>{tab.label.split(' ')[1]}</div>
           </button>
         ))}
       </div>
