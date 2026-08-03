@@ -3,11 +3,12 @@ import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
 import { usePinStore } from '../stores/pinStore';
+import { useWindowStore } from '../stores/windowStore';
 
 // --- Custom PrismJS Grammar for our commands ---
 Prism.languages.vibes = {
   'command': {
-    pattern: /^\/(pin|unpin|pinned|list|help|whoami)\b/,
+    pattern: /^\/(pin|unpin|pinned|list|debug|legend|settings|help|whoami)\b/,
     alias: 'keyword',
   },
   'subcommand': {
@@ -46,6 +47,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
   const [history, setHistory] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const { addPinningRule, removePinningRule, pinningRules, clearAllPins } = usePinStore();
+  const { toggleSettings, toggleDebug, toggleLegend } = useWindowStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const consoleOutputRef = useRef<HTMLDivElement>(null);
 
@@ -75,8 +77,41 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
       }
     } else if (action === '/pinned' || (action === '/list' && arg0 === 'pinned')) {
       output = `Active pinning rules: ${Array.from(pinningRules).join(', ')}`;
+    } else if (action === '/debug') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleDebug(true);
+        output = 'Debug window opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleDebug(false);
+        output = 'Debug window closed.';
+      } else {
+        toggleDebug();
+        output = 'Toggled debug window.';
+      }
+    } else if (action === '/legend') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleLegend(true);
+        output = 'Legend window opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleLegend(false);
+        output = 'Legend window closed.';
+      } else {
+        toggleLegend();
+        output = 'Toggled legend window.';
+      }
+    } else if (action === '/settings') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleSettings(true);
+        output = 'Settings panel opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleSettings(false);
+        output = 'Settings panel closed.';
+      } else {
+        toggleSettings();
+        output = 'Toggled settings panel.';
+      }
     } else if (action === '/help') {
-      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /help, /whoami`;
+      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /debug, /legend, /settings, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {
@@ -196,7 +231,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
             highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
             padding={{ top: 8, right: 10, bottom: 8, left: 2 }}
             className="command-input-editor"
-            placeholder="CONSOLE ['~' to toggle] | /help"
+            placeholder={showConsole ? "command (/help)" : "CONSOLE (~ or /help)"}
           />
         </div>
       </div>

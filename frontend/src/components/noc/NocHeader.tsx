@@ -74,7 +74,7 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
       }}
     >
       {/* Wordmark and Identity */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexShrink: 1 }}>
         <span
           style={{
             font: 'var(--type-label)',
@@ -82,17 +82,23 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
             textTransform: 'uppercase',
             color: 'var(--text-hi, #fff)',
             fontWeight: 700,
+            flexShrink: 0,
           }}
         >
           VIBES
         </span>
-        <div style={{ width: '1px', height: '24px', background: 'var(--line-strong, rgba(255,255,255,0.2))' }} />
+        <div style={{ width: '1px', height: '24px', background: 'var(--line-strong, rgba(255,255,255,0.2))', flexShrink: 0 }} />
         <span
+          className="noc-header-subtitle"
           style={{
             font: 'var(--type-label)',
             letterSpacing: 'var(--tracking-wide, 0.14em)',
             textTransform: 'uppercase',
             color: 'var(--text-faint, rgba(255,255,255,0.6))',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            minWidth: 0,
           }}
         >
           Network Operations Center
@@ -245,41 +251,12 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
           <span>Settings</span>
         </button>
 
-        {/* Connection status dot */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '5px 12px',
-            border: `1px solid ${status === 'connected' ? 'var(--signal-teal)' : status === 'connecting' ? 'var(--signal-amber)' : 'var(--signal-red)'}`,
-            borderRadius: '999px',
-            background: status === 'connected' ? 'var(--wash-ok)' : status === 'connecting' ? 'var(--wash-medium)' : 'var(--wash-critical)',
-          }}
-          title={error || undefined}
-        >
-          <StatusDot
-            status={
-              status === 'connected'
-                ? 'ok'
-                : status === 'connecting'
-                ? 'warning'
-                : 'critical'
-            }
-            size={7}
-            pulse={status === 'connected'}
-          />
-          <span
-            style={{
-              font: 'var(--type-data-sm)',
-              color: status === 'connected' ? 'var(--signal-teal)' : status === 'connecting' ? 'var(--signal-amber)' : 'var(--signal-red)',
-              textTransform: 'uppercase',
-              letterSpacing: 'var(--tracking-label, 0.08em)',
-            }}
-          >
-            {status}
-          </span>
-        </div>
+        {/* Connection status badge */}
+        <SeverityBadge
+          level={status === 'connected' ? 'ok' : status === 'connecting' ? 'medium' : 'critical'}
+          label={status}
+          showDot={true}
+        />
 
         {/* Local/UTC timestamp in monospace tabular numerals */}
         <span
