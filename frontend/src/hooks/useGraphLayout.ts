@@ -521,7 +521,9 @@ export function useGraphLayout(): GraphLayoutResult {
     });
 
     // ── Pinned nodes dock in a fixed SCREEN-space frame ──────────────────────
-    // Straight down the right edge (below the top-right debug panel), then
+    // Straight down a column left of the top-right debug panel (UnifiedDebugPanel:
+    // fixed, right:10px, width:400px, maxHeight:80vh — clearing it horizontally
+    // is the only robust option since its height varies with content), then
     // wrapping right→left across the bottom; overflow stacks upward so a full
     // /24 stays on-screen. Positions are screen px converted to world coords
     // through the live camera, so the dock stays glued to the screen under any
@@ -532,12 +534,13 @@ export function useGraphLayout(): GraphLayoutResult {
       .sort((a, b) => a.id.localeCompare(b.id));
     const screenW = vp.width || 1280;
     const screenH = vp.height || 800;
-    const dockRightX = screenW - 55;
-    const dockTopY = 300;
-    const dockBottomY = screenH - 45;
-    const vStep = 64;   // more vertical room per pin so its neighbour fan doesn't crowd the next pin
-    const hStep = 150;
     const leftMargin = 60;
+    const hStep = 150;
+    // Clears the debug panel's left edge (screenW - 410) with margin; clamped for narrow viewports
+    const dockRightX = Math.max(leftMargin + hStep, screenW - 440);
+    const dockTopY = 70;
+    const dockBottomY = Math.max(dockTopY + 64, screenH - 45);
+    const vStep = 64;   // more vertical room per pin so its neighbour fan doesn't crowd the next pin
     const rightColCount = Math.max(1, Math.floor((dockBottomY - dockTopY) / vStep));
     const bottomCols = Math.max(1, Math.floor((dockRightX - leftMargin) / hStep));
     const pinExpired: string[] = [];

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { useSizeStore } from '../stores/sizeStore';
 import { useGraphLayout, WORLD_SCALE, camera } from '../hooks/useGraphLayout';
 import { useThemeStore, subnetNodeColor, edgeColor, Theme } from '../stores/themeStore';
+import { usePinStore } from '../stores/pinStore';
 
 // Start zoomed out so the whole (larger-than-viewport) world fits, leaving real
 // room to zoom in. zoom = 1/WORLD_SCALE with pan (0,0) maps world → viewport 1:1.
@@ -254,16 +255,86 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let dragging = false, lastX = 0, lastY = 0;
+    let dragging = false, moved = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
+    let hitId: string | null = null;
+    // Last node confirmed under the cursor by a mousemove (identity, not
+    // position). Nodes drift fast under the physics layout — 20-40px within
+    // 100-300ms is typical, far more than any fixed click radius could absorb
+    // without also snagging neighbours. So a click targets whichever node the
+    // cursor most recently hovered, however far it's since wandered, rather
+    // than re-testing distance at the moment of the click.
+    let hoverId: string | null = null;
+    const CLICK_DRAG_THRESHOLD = 4; // px of movement before a click becomes a pan
 
-    const onDown  = (e: MouseEvent) => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.style.cursor = 'grabbing'; };
+    const setCursor = (cursor: string) => {
+      if (canvas.style.cursor !== cursor) {
+        canvas.style.cursor = cursor;
+      }
+    };
+
+    // Screen (client) coords → nearest node under the cursor, or null.
+    // Optimized with squared distance comparison and direct iterator to avoid
+    // Math.hypot / square root overhead in the mousemove hot path.
+    const hitTestNode = (clientX: number, clientY: number): string | null => {
+      const rect = canvas.getBoundingClientRect();
+      const sx = clientX - rect.left;
+      const sy = clientY - rect.top;
+      const vp = viewportRef.current;
+      let bestId: string | null = null;
+      let bestDistSq = Infinity;
+      for (const node of layoutNodes.current.values()) {
+        if (node.alpha <= 0) continue;
+        const nx = (node.x - vp.x) * vp.zoom;
+        const ny = (node.y - vp.y) * vp.zoom;
+        const hitR = Math.max(node.radius * vp.zoom, 9);
+        const dx = sx - nx;
+        const dy = sy - ny;
+        const dSq = dx * dx + dy * dy;
+        if (dSq <= hitR * hitR && dSq < bestDistSq) {
+          bestId = node.id;
+          bestDistSq = dSq;
+        }
+      }
+      return bestId;
+    };
+
+    const onDown  = (e: MouseEvent) => {
+      if (e.button !== 0) return; // Only left-click triggers pinning and drag selection
+      dragging = true; moved = false;
+      lastX = e.clientX; lastY = e.clientY;
+      downX = e.clientX; downY = e.clientY;
+      // Prefer a fresh hit (covers a click with no preceding hover event);
+      // fall back to the last hovered node so a drifted target still counts.
+      hitId = hitTestNode(e.clientX, e.clientY) ?? hoverId;
+      setCursor('grabbing');
+    };
     const onMove  = (e: MouseEvent) => {
-      if (!dragging) return;
+      if (!dragging) {
+        hoverId = hitTestNode(e.clientX, e.clientY);
+        setCursor(hoverId ? 'pointer' : 'grab');
+        return;
+      }
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if (!moved && dx * dx + dy * dy > CLICK_DRAG_THRESHOLD * CLICK_DRAG_THRESHOLD) moved = true;
       viewportRef.current.x -= (e.clientX - lastX) / viewportRef.current.zoom;
       viewportRef.current.y -= (e.clientY - lastY) / viewportRef.current.zoom;
       lastX = e.clientX; lastY = e.clientY;
     };
-    const onUp    = () => { dragging = false; canvas.style.cursor = 'grab'; };
+    const onUp    = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      dragging = false;
+      // A plain click (no drag) landing on a node toggles its pin — the fast
+      // path for pinning instead of typing /pin <ip> in the command bar.
+      if (!moved && hitId) {
+        const { isPined, addPinningRule, removePinningRule } = usePinStore.getState();
+        if (isPined(hitId)) removePinningRule(hitId); else addPinningRule(hitId);
+      }
+      hitId = null;
+      hoverId = hitTestNode(e.clientX, e.clientY);
+      setCursor(hoverId ? 'pointer' : 'grab');
+    };
+    const onLeave = () => { dragging = false; hitId = null; hoverId = null; setCursor('grab'); };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const newZoom = Math.max(0.1, Math.min(5, viewportRef.current.zoom * (e.deltaY > 0 ? 0.9 : 1.1)));
@@ -282,7 +353,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     canvas.addEventListener('mousedown',  onDown);
     canvas.addEventListener('mousemove',  onMove);
     canvas.addEventListener('mouseup',    onUp);
-    canvas.addEventListener('mouseleave', onUp);
+    canvas.addEventListener('mouseleave', onLeave);
     canvas.addEventListener('wheel',      onWheel, { passive: false });
     document.addEventListener('keydown',  onKey);
     canvas.style.cursor = 'grab';
@@ -292,7 +363,7 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       canvas.removeEventListener('mousedown',  onDown);
       canvas.removeEventListener('mousemove',  onMove);
       canvas.removeEventListener('mouseup',    onUp);
-      canvas.removeEventListener('mouseleave', onUp);
+      canvas.removeEventListener('mouseleave', onLeave);
       canvas.removeEventListener('wheel',      onWheel);
       document.removeEventListener('keydown',  onKey);
     };
