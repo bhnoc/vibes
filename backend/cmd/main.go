@@ -11,6 +11,7 @@ import (
 	"os"
 	"context"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,9 +44,22 @@ var (
 	dumpcapRingFiles  = flag.Int("dumpcap-ring-files", 20, "dumpcap ring: number of files before overwrite")
 	dumpcapBufferMB   = flag.Int("dumpcap-buffer-mb", 1024, "dumpcap kernel buffer size in MB (-B)")
 	zeekTCPListen = flag.String("zeek-tcp", "", "default listen address for Zeek conn.log JSON over TCP (e.g. :4777); used when WebSocket connects with zeek_tcp=1")
+	corsOrigin    = flag.String("cors-origin", "*", "allowed origin(s) for CORS (default: all, comma-separated list for multiple)")
 	upgrader    = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins
+			if *corsOrigin == "*" {
+				return true
+			}
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // Allow same-origin browser requests or non-browser clients without an Origin header
+			}
+			for _, allowed := range strings.Split(*corsOrigin, ",") {
+				if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+					return true
+				}
+			}
+			return false
 		},
 	}
 	// Packets dropped when WebSocket send buffer is full (ingest faster than browser/network).
@@ -121,12 +135,20 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 	manager.rulesMutex.RLock()
 	defer manager.rulesMutex.RUnlock()
 
+	// Fast-path: check exact string matches first (O(1) comparison without IP parsing)
+	for _, rule := range manager.pinningRules {
+		if rule == ipStr {
+			return true
+		}
+	}
+
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
 
 	for _, rule := range manager.pinningRules {
+		rule = strings.TrimSpace(rule)
 		if strings.Contains(rule, "/") { // CIDR
 			_, ipnet, err := net.ParseCIDR(rule)
 			if err == nil && ipnet.Contains(ip) {
@@ -134,31 +156,37 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 			}
 		} else if strings.Contains(rule, "-") { // Range
 			parts := strings.Split(rule, "-")
-			startIPStr := parts[0]
-			endOctetStr := parts[1]
+			if len(parts) != 2 {
+				continue
+			}
+			startIPStr, endPart := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 
 			startIP := net.ParseIP(startIPStr)
 			if startIP == nil {
 				continue
 			}
-			
-			baseIPParts := strings.Split(startIPStr, ".")
-			if len(baseIPParts) != 4 {
-				continue
-			}
-			
-			endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endOctetStr)
-			endIP := net.ParseIP(endIPStr)
-			if endIP == nil {
-				continue
+
+			var endIP net.IP
+			if strings.Contains(endPart, ".") || strings.Contains(endPart, ":") {
+				// Full IP range: startIP-endIP
+				endIP = net.ParseIP(endPart)
+			} else {
+				// Shorthand range: startIP-lastOctet
+				baseIPParts := strings.Split(startIPStr, ".")
+				if len(baseIPParts) == 4 {
+					endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endPart)
+					endIP = net.ParseIP(endIPStr)
+				}
 			}
 
-			if iplib.CompareIPs(ip, startIP) >= 0 && iplib.CompareIPs(ip, endIP) <= 0 {
-				return true
-			}
-		} else { // Exact match
-			if ipStr == rule {
-				return true
+			if endIP != nil {
+				// Ensure startIP and endIP are ordered correctly
+				if iplib.CompareIPs(startIP, endIP) > 0 {
+					startIP, endIP = endIP, startIP
+				}
+				if iplib.CompareIPs(ip, startIP) >= 0 && iplib.CompareIPs(ip, endIP) <= 0 {
+					return true
+				}
 			}
 		}
 	}
@@ -207,7 +235,15 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	selectedInterface := *iface
 
 	if pcapParam != "" {
-		selectedPcapFile = pcapParam
+		// Sanitize pcap path to prevent path traversal while allowing valid subdirectories
+		cleanStorage := filepath.Clean(*storageDir)
+		targetPath := filepath.Clean(filepath.Join(cleanStorage, pcapParam))
+		rel, err := filepath.Rel(cleanStorage, targetPath)
+		if err != nil || strings.HasPrefix(rel, "..") || targetPath == cleanStorage {
+			http.Error(w, "Invalid pcap path: access denied outside storage directory", http.StatusForbidden)
+			return
+		}
+		selectedPcapFile = targetPath
 	}
 	if speedParam != "" {
 		if speed, err := strconv.ParseFloat(speedParam, 64); err == nil && speed > 0 {
@@ -228,6 +264,18 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			}
 			zeekAddr = *zeekTCPListen
 		} else {
+			// Validate zeekAddr to prevent arbitrary port binding
+			portStr := zeekParam
+			if strings.Contains(portStr, ":") {
+				portStr = portStr[strings.LastIndex(portStr, ":")+1:]
+			} else {
+				zeekParam = ":" + zeekParam
+			}
+			port, err := strconv.Atoi(portStr)
+			if err != nil || port < 1024 || port > 65535 {
+				http.Error(w, "Invalid zeek_tcp address: port must be between 1024 and 65535", http.StatusBadRequest)
+				return
+			}
 			zeekAddr = zeekParam
 		}
 	}
