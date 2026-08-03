@@ -9,6 +9,7 @@ import { logger } from './utils/logger'
 import { useWebSocketPinning } from './hooks/useWebSocketPinning'
 import { useThemeStore } from './stores/themeStore'
 import { startTelemetry, useTelemetryStore } from './telemetry/nocTelemetry'
+import { useWindowStore } from './stores/windowStore'
 
 import { RendererSelector } from './components/RendererSelector'
 import { CaptureContext } from './components/MinimalGraph'
@@ -84,9 +85,10 @@ export const App = memo(() => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [dockOpen, setDockOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showDebug, setShowDebug] = useState(false)
-  const [showLegend, setShowLegend] = useState(false)
+  // Panel visibility lives in the window store rather than local state so the
+  // command bar's /settings, /debug and /legend slash commands drive the same
+  // switches as the rail buttons and the palette.
+  const { showSettings, showDebug, showLegend, toggleSettings, toggleDebug, toggleLegend } = useWindowStore()
   const [showPerfTest, setShowPerfTest] = useState(false)
 
   const { clearPackets } = usePacketStore()
@@ -354,9 +356,9 @@ export const App = memo(() => {
       { id: 'act:ack', label: 'Acknowledge all detections', icon: 'Check', group: 'Actions', run: () => useTelemetryStore.getState().acknowledgeAll() },
       { id: 'act:dock', label: dockOpen ? 'Hide telemetry dock' : 'Show telemetry dock', icon: 'PanelRight', group: 'Layout', run: () => setDockOpen((v) => !v) },
       { id: 'act:sidebar', label: sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar', icon: 'PanelLeft', group: 'Layout', run: () => setSidebarOpen((v) => !v) },
-      { id: 'act:settings', label: 'Open capture settings', icon: 'Settings', group: 'Layout', run: () => setShowSettings(true) },
-      { id: 'act:legend', label: 'Open theme legend', icon: 'Palette', group: 'Layout', run: () => setShowLegend(true) },
-      { id: 'act:debug', label: 'Open diagnostics', icon: 'Terminal', group: 'Layout', run: () => setShowDebug(true) },
+      { id: 'act:settings', label: 'Open capture settings', icon: 'Settings', group: 'Layout', run: () => toggleSettings(true) },
+      { id: 'act:legend', label: 'Open theme legend', icon: 'Palette', group: 'Layout', run: () => toggleLegend(true) },
+      { id: 'act:debug', label: 'Open diagnostics', icon: 'Terminal', group: 'Layout', run: () => toggleDebug(true) },
       { id: 'act:perf', label: 'Open performance test', icon: 'Activity', group: 'Layout', run: () => setShowPerfTest(true) },
     ],
     [goto, handleCaptureModeChange, resetStream, dockOpen, sidebarOpen],
@@ -418,7 +420,7 @@ export const App = memo(() => {
           status={status}
           error={error}
           onOpenPalette={() => setPaletteOpen(true)}
-          onToggleSettings={() => setShowSettings((v) => !v)}
+          onToggleSettings={() => toggleSettings()}
           settingsOpen={showSettings}
           onToggleDock={() => setDockOpen((v) => !v)}
           dockOpen={dockOpen}
@@ -430,8 +432,8 @@ export const App = memo(() => {
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
           onUtility={(k) => {
-            if (k === 'legend') setShowLegend((v) => !v)
-            if (k === 'debug') setShowDebug((v) => !v)
+            if (k === 'legend') toggleLegend()
+            if (k === 'debug') toggleDebug()
             if (k === 'perf') setShowPerfTest((v) => !v)
           }}
           legendOpen={showLegend}
@@ -460,7 +462,7 @@ export const App = memo(() => {
           zeekTcpAddr={zeekTcpAddr}
           onZeekTcpAddrChange={setZeekTcpAddr}
           wsPreviewUrl={wsUrl}
-          onMinimize={() => setShowSettings(false)}
+          onMinimize={() => toggleSettings(false)}
         />
 
         <PerformanceTestData enabled={generator.enabled} nodeCount={generator.nodeCount} connectionCount={generator.connectionCount} />
@@ -479,12 +481,12 @@ export const App = memo(() => {
             switch that can put fabricated traffic on the map. */}
         <UnifiedDebugPanel
           isOpen={showDebug}
-          onMinimize={() => setShowDebug(false)}
+          onMinimize={() => toggleDebug(false)}
           onRendererChange={setCurrentRenderer}
           currentRenderer={currentRenderer}
         />
 
-        <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
+        <ThemeLegend isOpen={showLegend} onMinimize={() => toggleLegend(false)} />
 
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       </CaptureContext.Provider>
