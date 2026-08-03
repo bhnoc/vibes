@@ -306,9 +306,15 @@ export const App = memo(() => {
     const serverUiMode =
       actualCaptureMode === 'zeek_conn'
         ? 'zeek'
-        : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
-          ? null
-          : (actualCaptureMode as 'simulated' | 'real');
+        : (actualCaptureMode as string) === 'dumpcap'
+          // dumpcap is live capture served on the same /ws endpoint — map it to
+          // the 'real' UI mode. Without this the app set captureMode to the
+          // unhandled 'dumpcap', wsUrl became null, and it disconnected into
+          // "WAITING / no source data" against a dumpcap backend.
+          ? 'real'
+          : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
+            ? null
+            : (actualCaptureMode as 'simulated' | 'real');
     // Only update if this is not a user-initiated change and there's a meaningful difference
     if (
       serverUiMode !== null &&
