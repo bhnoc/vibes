@@ -16,12 +16,16 @@ interface UnifiedDebugPanelProps {
     performance: string;
     status: string;
   }>;
+  isOpen?: boolean;
+  onMinimize?: () => void;
 }
 
 export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   onTestModeChange,
   onRendererChange,
   currentRenderer = 'canvas',
+  isOpen = false,
+  onMinimize,
   rendererOptions = [
     {
       key: 'canvas',
@@ -248,29 +252,8 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
   const lastPacketAge = wsStats.lastPacketTime > 0 ? 
     Math.round((Date.now() - wsStats.lastPacketTime) / 1000) : 0;
 
-  if (isMinimized) {
-    return (
-      <div 
-        onMouseDown={handleHeaderMouseDown}
-        style={{
-          position: 'fixed',
-          top: `${position.y}px`,
-          left: `${position.x}px`,
-          zIndex: 1001,
-          background: 'var(--surface-card, #141414)',
-          border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
-          borderRadius: 'var(--radius-md, 8px)',
-          padding: '8px 14px',
-          font: 'var(--type-ui-sm)',
-          color: 'var(--text-hi, #fff)',
-          cursor: 'move',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-        }} 
-        onClick={() => setIsMinimized(false)}
-      >
-        TELEMETRY CONSOLE [DRAG / CLICK TO EXPAND]
-      </div>
-    );
+  if (!isOpen) {
+    return null;
   }
 
   return (
@@ -305,10 +288,10 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
         }}
       >
         <span style={{ font: 'var(--type-label)', letterSpacing: '0.14em', color: 'var(--text-hi, #fff)', textTransform: 'uppercase' }}>
-          System Telemetry &amp; Diagnostics
+          DEBUG
         </span>
         <button
-          onClick={() => setIsMinimized(true)}
+          onClick={onMinimize || (() => setIsMinimized(true))}
           style={{
             background: 'transparent',
             border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
@@ -316,7 +299,8 @@ export const UnifiedDebugPanel: React.FC<UnifiedDebugPanelProps> = ({
             cursor: 'pointer',
             borderRadius: 'var(--radius-sm, 6px)',
             padding: '2px 8px',
-            font: 'var(--type-ui-sm)'
+            font: 'var(--type-ui-sm)',
+            transition: 'all 0.15s ease'
           }}
         >
           Minimize

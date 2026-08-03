@@ -143,10 +143,15 @@ export const CommandBar = () => {
     };
   }, [toggleConsole]);
 
+  const isConsoleOpen = showConsole || command.length > 0;
+
   return (
     <div className="command-bar-container" ref={containerRef}>
-      {showConsole && (
+      {isConsoleOpen && (
         <div className="console-output" ref={consoleOutputRef}>
+          <div style={{ color: 'var(--text-muted, rgba(255,255,255,0.4))', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
+            VIBES INTERACTIVE CONSOLE — TYPE /help FOR COMMANDS ['~' OR ESC TO HIDE]
+          </div>
           {history.map((line, index) => {
             if (line.startsWith(PROMPT)) {
               const cmd = line.replace(`${PROMPT} `, '');
@@ -163,7 +168,7 @@ export const CommandBar = () => {
         </div>
       )}
       <div 
-        className={`editor-container ${showConsole ? 'console-active' : ''}`}
+        className={`editor-container ${isConsoleOpen ? 'console-active' : ''}`}
         onKeyDown={handleKeyDown} 
         onClick={() => !showConsole && toggleConsole()}
       >
@@ -171,9 +176,9 @@ export const CommandBar = () => {
           value={command}
           onValueChange={code => setCommand(code)}
           highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
-          padding={{ top: 10, right: 10, bottom: 10, left: showConsole ? 100 : 10 }}
+          padding={{ top: 10, right: 10, bottom: 10, left: isConsoleOpen ? 90 : 10 }}
           className="command-input-editor"
-          placeholder={showConsole ? '' : "CONSOLE ['`' to toggle] | /help"}
+          placeholder={isConsoleOpen ? '' : "CONSOLE ['~' to toggle] | /help"}
         />
       </div>
     </div>

@@ -4,36 +4,20 @@ import { useThemeStore, THEMES } from '../stores/themeStore';
 /**
  * Collapsible protocol & node color legend for visual themes.
  */
-export const ThemeLegend: React.FC = () => {
+export interface ThemeLegendProps {
+  isOpen?: boolean;
+  onMinimize?: () => void;
+}
+
+/**
+ * Collapsible protocol & node color legend for visual themes.
+ */
+export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinimize }) => {
   const { themeKey } = useThemeStore();
   const theme = THEMES[themeKey] || THEMES['blackhat-noc'] || THEMES.classic;
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // Only auto-show by default for blackhat-noc and custom-legend, or let user expand/collapse
-  if (isCollapsed) {
-    return (
-      <button
-        onClick={() => setIsCollapsed(false)}
-        style={{
-          position: 'fixed',
-          bottom: '48px',
-          left: '18px',
-          zIndex: 900,
-          background: 'var(--surface-card, #141414)',
-          border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.15))',
-          borderRadius: 'var(--radius-md, 8px)',
-          padding: '6px 12px',
-          color: 'var(--text-hi, #fff)',
-          font: 'var(--type-ui-sm)',
-          cursor: 'pointer',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-        }}
-      >
-        SPECTRUM LEGEND [+]
-      </button>
-    );
+  if (!isOpen) {
+    return null;
   }
 
   return (
@@ -72,21 +56,22 @@ export const ThemeLegend: React.FC = () => {
             color: 'var(--text-hi, #fff)',
           }}
         >
-          {theme.label} Legend
+          LEGEND
         </span>
         <button
-          onClick={() => setIsCollapsed(true)}
+          onClick={onMinimize}
           style={{
             background: 'transparent',
             border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
             color: 'var(--text-muted)',
             borderRadius: 'var(--radius-sm, 6px)',
-            padding: '2px 6px',
+            padding: '2px 8px',
             font: 'var(--type-ui-sm)',
             cursor: 'pointer',
+            transition: 'all 0.15s ease',
           }}
         >
-          [-]
+          Minimize
         </button>
       </div>
 

@@ -56,7 +56,7 @@ export const SettingsPanel: React.FC<{
     <div className="settings-panel" onMouseDown={handlePanelMouseDown}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Settings</h2>
-        <button onClick={onMinimize} className="minimize-btn">_</button>
+        <button onClick={onMinimize} className="minimize-btn">Minimize</button>
       </div>
       
       {/* Tab Navigation */}

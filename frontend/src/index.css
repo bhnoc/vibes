@@ -393,50 +393,50 @@ body {
 }
 
 .command-input-editor {
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-size: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-hi, #fff);
+  font-family: var(--font-mono);
+  font-size: 12px;
   width: 100%;
   outline: none;
-  min-height: 38px; /* Adjusted for padding */
+  min-height: 28px;
 }
 
 .editor-container.console-active .command-input-editor {
-    padding-left: 100px; /* Make space for the prompt only when active */
+  padding-left: 90px;
 }
 
 .command-input::placeholder {
-  color: rgba(var(--vibes-primary-rgb, 0, 255, 0),0.5);
+  color: var(--text-muted, rgba(255,255,255,0.4));
 }
 
 .console-output {
-  position: absolute;
-  bottom: 100%; /* Position directly above the command bar */
+  position: fixed;
+  bottom: 0;
   left: 0;
-  width: 100%; /* Match the width of the container */
-  height: 200px; /* Max height for 10 lines */
-  background: rgba(0, 0, 0, 0.85);
-  border-top: 1px solid var(--vibes-primary, #00ff00);
-  border-left: 1px solid var(--vibes-primary, #00ff00);
-  border-right: 1px solid var(--vibes-primary, #00ff00);
-  padding: 10px;
+  right: 0;
+  width: 100vw;
+  height: 50vh;
+  background: var(--surface-chrome, #0e0e0e);
+  border-top: var(--border-card, 1px solid rgba(255, 255, 255, 0.15));
+  padding: 16px 20px 45px 20px;
   overflow-y: auto;
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-size: 16px;
-  line-height: 1.2;
-  z-index: 998;
+  color: var(--text-hi, #fff);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  z-index: 999;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.75);
 }
 
 .console-output div {
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
 .console-output .prompt {
-  color: #00ffff; /* Cyan for the prompt in history */
-  margin-right: 5px;
+  color: var(--signal-teal, #00d2aa);
+  margin-right: 8px;
 }
 
 
@@ -444,7 +444,7 @@ body {
 
 .command-input-editor textarea:focus {
   outline: none;
-  box-shadow: 0 0 10px rgba(var(--vibes-primary-rgb, 0, 255, 0),0.5);
+  box-shadow: none;
 }
 
 .command-input-editor .token.keyword {

@@ -22,7 +22,7 @@ const StatsPanel = lazy(() => import('./components/StatsPanel').then(module => (
 const IPDebugPage = lazy(() => import('./components/IPDebugPage').then(module => ({ default: module.IPDebugPage })))
 
 import { CommandBar } from './components/CommandBar';
-import { NocHeader, NocStatusBar } from './components/noc';
+import { NocHeader, NocStatusBar, PerformanceTestWindow } from './components/noc';
 import { ThemeLegend } from './components/ThemeLegend';
 
 // Loading fallback
@@ -52,6 +52,9 @@ export const App = memo(() => {
   const [initialLoad, setInitialLoad] = useState(true);
   const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
   const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
+  const [showDebug, setShowDebug] = useState(false);
+  const [showLegend, setShowLegend] = useState(true);
+  const [showPerfTest, setShowPerfTest] = useState(false);
 
   // --- Store Hooks ---
   const { packets, clearPackets } = usePacketStore()
@@ -447,6 +450,12 @@ export const App = memo(() => {
           captureMode={captureMode}
           showSettings={showSettings}
           onToggleSettings={() => setShowSettings(!showSettings)}
+          showDebug={showDebug}
+          onToggleDebug={() => setShowDebug(!showDebug)}
+          showLegend={showLegend}
+          onToggleLegend={() => setShowLegend(!showLegend)}
+          showPerfTest={showPerfTest}
+          onTogglePerfTest={() => setShowPerfTest(!showPerfTest)}
         />
         
         {/* Conditionally render content based on route */}
@@ -484,8 +493,19 @@ export const App = memo(() => {
               connectionCount={performanceTestData.connectionCount}
             />
             
+            {/* Draggable Performance Test Mode Window */}
+            <PerformanceTestWindow
+              isOpen={showPerfTest}
+              onMinimize={() => setShowPerfTest(false)}
+              onTestModeChange={(enabled, nodeCount, connectionCount) =>
+                setPerformanceTestData({ enabled, nodeCount, connectionCount })
+              }
+            />
+
             {/* Unified Debug Panel */}
             <UnifiedDebugPanel 
+              isOpen={showDebug}
+              onMinimize={() => setShowDebug(false)}
               onTestModeChange={handleTestModeChange}
               onRendererChange={handleRendererChange}
               currentRenderer={currentRenderer}
@@ -506,7 +526,7 @@ export const App = memo(() => {
                 }
               ]}
             />
-            <ThemeLegend />
+            <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
           </>
         )}
         
