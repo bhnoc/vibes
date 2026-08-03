@@ -52,8 +52,17 @@ export const SettingsPanel: React.FC<{
     e.stopPropagation();
   };
 
+  const handlePanelWheel = (e: React.WheelEvent) => {
+    // Keep scroll inside the panel; don't zoom/pan the canvas underneath.
+    e.stopPropagation();
+  };
+
   return (
-    <div className="settings-panel" onMouseDown={handlePanelMouseDown}>
+    <div
+      className="settings-panel"
+      onMouseDown={handlePanelMouseDown}
+      onWheel={handlePanelWheel}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Settings</h2>
         <button onClick={onMinimize} className="minimize-btn">_</button>

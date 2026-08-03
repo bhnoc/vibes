@@ -29,7 +29,45 @@ body {
   color: var(--vibes-primary, #00ff00);
   font-family: 'VT323', monospace;
   z-index: 1000;
-  width: 320px;
+  width: 340px;
+  min-width: 280px;
+  min-height: 220px;
+  max-width: calc(100vw - 40px);
+  /* Leave room for status/command bar; Physics + Experimental used to clip. */
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+}
+
+.settings-panel > div:first-child,
+.settings-panel > .button-group {
+  flex-shrink: 0;
+}
+
+.settings-panel .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  margin-right: -2px;
+}
+
+/* Subtle scrollbar so long Physics / Experimental lists stay usable */
+.settings-panel .tab-content::-webkit-scrollbar {
+  width: 8px;
+}
+.settings-panel .tab-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+}
+.settings-panel .tab-content::-webkit-scrollbar-thumb {
+  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.45);
+  border-radius: 4px;
+}
+.settings-panel .tab-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.75);
 }
 
 .settings-panel h2 {

@@ -4,6 +4,12 @@ import { usePhysicsStore } from '../stores/physicsStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePinStore } from '../stores/pinStore';
 import { useSizeStore } from '../stores/sizeStore';
+import {
+  NODE_RADIUS_MAX,
+  NODE_RADIUS_MIN,
+  calculateRelativeEdgeWidth,
+  calculateRelativeNodeRadius,
+} from '../utils/messageUtils';
 
 export interface LayoutNode {
   id: string;
@@ -16,6 +22,10 @@ export interface LayoutNode {
   clusterKey: string;
   radius: number;
   effectiveRadius: number;
+  /** 0..1 share of heaviest visible node's connection count (drives ball size). */
+  load: number;
+  /** Live connection count used for sizing. */
+  degree: number;
   color: string;
   highlightColor: string;
   alpha: number;
@@ -33,6 +43,8 @@ export interface LayoutEdge {
   dstPort?: number;
   alpha: number;
   weight: number;
+  /** Stroke width derived from peer-relative sustained weight. */
+  thickness: number;
   lastActive: number;
 }
 
@@ -44,7 +56,9 @@ export interface GraphLayoutResult {
 
 const PHYSICS_HZ = 30;
 const PHYSICS_STEP = 1000 / PHYSICS_HZ;
-const NODE_RADIUS = 8;
+const NODE_RADIUS = NODE_RADIUS_MIN + 2;
+/** How quickly radius eases toward the throughput target (per sync). */
+const RADIUS_SMOOTH = 0.22;
 // A pinned node with no live connection for this long fades out and is removed
 // (the pin RULE stays — it re-docks if the host talks again).
 const PIN_IDLE_MS = 60000;
@@ -339,6 +353,8 @@ export function useGraphLayout(): GraphLayoutResult {
           clusterKey,
           radius: NODE_RADIUS,
           effectiveRadius: NODE_RADIUS,
+          load: 0,
+          degree: 0,
           color: getProtocolColor(c.protocol),
           highlightColor: getHighlightColor(id),
           alpha: 1,
@@ -351,22 +367,68 @@ export function useGraphLayout(): GraphLayoutResult {
       }
     }
 
+    const {
+      nodeSizingIntensity,
+      edgeWidthIntensity,
+    } = physicsRef.current;
+    const sizingI = Math.max(0, Math.min(1, nodeSizingIntensity));
+    const edgeI = Math.max(0, Math.min(1, edgeWidthIntensity));
+
+    // Peer-relative edge thickness from sustained (decayed) weight.
+    let maxEdgeWeight = 0;
+    for (const c of visibleConns) {
+      if (!layoutNodes.current.has(c.source) || !layoutNodes.current.has(c.target)) continue;
+      const w = c.weight ?? 1;
+      if (w > maxEdgeWeight) maxEdgeWeight = w;
+    }
+    if (maxEdgeWeight <= 0) maxEdgeWeight = 1;
+
     layoutEdges.current = visibleConns
       .filter(c =>
         layoutNodes.current.has(c.source) &&
         layoutNodes.current.has(c.target)
       )
-      .map(c => ({
-        id: c.id,
-        sourceId: c.source,
-        targetId: c.target,
-        color: c.packetColor ?? getProtocolColor(c.protocol),
-        protocol: c.protocol,
-        dstPort: c.dstPort,
-        alpha: Math.max(0, 1 - (now - c.lastActive) / connectionLifetime),
-        weight: c.weight ?? 1,
-        lastActive: c.lastActive,
-      }));
+      .map(c => {
+        const weight = c.weight ?? 1;
+        const classicWidth = Math.max(1, Math.min(4, 1 + Math.log1p(weight)));
+        const relativeWidth = calculateRelativeEdgeWidth(weight / maxEdgeWeight);
+        const thickness = classicWidth + (relativeWidth - classicWidth) * edgeI;
+        return {
+          id: c.id,
+          sourceId: c.source,
+          targetId: c.target,
+          color: c.packetColor ?? getProtocolColor(c.protocol),
+          protocol: c.protocol,
+          dstPort: c.dstPort,
+          alpha: Math.max(0, 1 - (now - c.lastActive) / connectionLifetime),
+          weight,
+          thickness,
+          lastActive: c.lastActive,
+        };
+      });
+
+    // Experimental mapping (per-intensity):
+    //   ball size  → connection count (degree)
+    //   line width → throughput (edge weight) — set above
+    const degreeById = new Map<string, number>();
+    for (const edge of layoutEdges.current) {
+      degreeById.set(edge.sourceId, (degreeById.get(edge.sourceId) ?? 0) + 1);
+      degreeById.set(edge.targetId, (degreeById.get(edge.targetId) ?? 0) + 1);
+    }
+    let maxDegree = 0;
+    for (const deg of degreeById.values()) if (deg > maxDegree) maxDegree = deg;
+    if (maxDegree <= 0) maxDegree = 1;
+
+    layoutNodes.current.forEach(node => {
+      const degree = degreeById.get(node.id) ?? 0;
+      const degRel = degree / maxDegree;
+      node.degree = degree;
+      node.load = sizingI > 0 ? degRel : 0;
+      const sizedRadius = calculateRelativeNodeRadius(degRel, NODE_RADIUS_MIN, NODE_RADIUS_MAX);
+      const targetRadius = NODE_RADIUS + (sizedRadius - NODE_RADIUS) * sizingI;
+      node.radius += (targetRadius - node.radius) * RADIUS_SMOOTH;
+      node.effectiveRadius = node.radius;
+    });
   }, []);
 
   const tickLayout = useCallback((dt: number) => {

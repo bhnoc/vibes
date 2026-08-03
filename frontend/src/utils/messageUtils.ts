@@ -34,21 +34,48 @@ export const formatDataSize = (bytes: number): string => {
   }
 }
 
+/** Visual node radius range in world units (Canvas layout). */
+export const NODE_RADIUS_MIN = 6
+export const NODE_RADIUS_MAX = 26
+
 /**
- * Calculates a node size based on traffic volume
- * Uses logarithmic scale to prevent huge nodes
+ * Maps absolute traffic volume → radius (legacy absolute scale).
+ * Prefer calculateRelativeNodeRadius for peer-relative sizing.
  */
 export const calculateNodeSize = (trafficVolume: number): number => {
-  // Base size is 10, max size is 50
-  const minSize = 10
-  const maxSize = 50
-  
+  const minSize = NODE_RADIUS_MIN
+  const maxSize = NODE_RADIUS_MAX
+
   if (trafficVolume <= 0) {
     return minSize
   }
-  
-  // Logarithmic scaling
+
   const size = minSize + (Math.log10(trafficVolume) * 5)
-  
   return Math.min(size, maxSize)
+}
+
+/**
+ * Peer-relative node radius: `relativeLoad` is this node's share of the
+ * heaviest visible talker (0..1). Sqrt softens winner-take-all spikes.
+ */
+export const calculateRelativeNodeRadius = (
+  relativeLoad: number,
+  minRadius = NODE_RADIUS_MIN,
+  maxRadius = NODE_RADIUS_MAX,
+): number => {
+  const t = Math.max(0, Math.min(1, relativeLoad))
+  return minRadius + (maxRadius - minRadius) * Math.sqrt(t)
+}
+
+/**
+ * Peer-relative edge stroke width from this edge's share of the heaviest
+ * visible flow (0..1). Quiet links stay thin; hot links read as pipes.
+ */
+export const calculateRelativeEdgeWidth = (
+  relativeWeight: number,
+  minWidth = 1,
+  maxWidth = 9,
+): number => {
+  const t = Math.max(0, Math.min(1, relativeWeight))
+  return minWidth + (maxWidth - minWidth) * Math.pow(t, 0.65)
 } 
