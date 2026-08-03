@@ -174,30 +174,6 @@ export const NocHeader: React.FC<NocHeaderProps> = ({
 
       {/* Right side operational controls & metrics */}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {onTogglePerfTest && (
-          <button
-            onClick={onTogglePerfTest}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              minHeight: '34px',
-              padding: '0 12px',
-              borderRadius: 'var(--radius-md, 8px)',
-              border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
-              background: showPerfTest ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'var(--card, #141414)',
-              color: showPerfTest ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
-              font: 'var(--type-ui-sm)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <span>Perf Test</span>
-          </button>
-        )}
-
         {onToggleLegend && (
           <button
             onClick={onToggleLegend}

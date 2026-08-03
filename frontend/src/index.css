@@ -452,17 +452,19 @@ body {
   left: 0;
   right: 0;
   width: 100vw;
-  height: 50vh;
+  max-height: 150px;
+  height: auto;
+  min-height: 80px;
   background: var(--surface-chrome, #0e0e0e);
   border-top: var(--border-card, 1px solid rgba(255, 255, 255, 0.15));
-  padding: 16px 20px 45px 20px;
+  padding: 10px 20px 40px 20px;
   overflow-y: auto;
   color: var(--text-hi, #fff);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.4;
   z-index: 999;
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.65);
 }
 
 .console-output div {

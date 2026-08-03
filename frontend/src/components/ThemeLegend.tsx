@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useThemeStore, THEMES } from '../stores/themeStore';
 
 /**
@@ -16,6 +16,42 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
   const { themeKey } = useThemeStore();
   const theme = THEMES[themeKey] || THEMES['blackhat-noc'] || THEMES.classic;
 
+  const [position, setPosition] = useState({ x: 18, y: typeof window !== 'undefined' ? window.innerHeight - 300 : 500 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - 240, dragRef.current.initialX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 100, dragRef.current.initialY + dy)),
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+  };
+
   if (!isOpen) {
     return null;
   }
@@ -24,8 +60,8 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
     <div
       style={{
         position: 'fixed',
-        bottom: '48px',
-        left: '18px',
+        top: `${position.y}px`,
+        left: `${position.x}px`,
         zIndex: 900,
         background: 'var(--surface-card, #141414)',
         border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.15))',
@@ -39,6 +75,7 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
       }}
     >
       <div
+        onMouseDown={handleHeaderMouseDown}
         style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -46,6 +83,7 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
           marginBottom: '10px',
           borderBottom: 'var(--border-inset, 1px solid rgba(255,255,255,0.1))',
           paddingBottom: '8px',
+          cursor: 'move',
         }}
       >
         <span

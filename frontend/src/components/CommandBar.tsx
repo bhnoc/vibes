@@ -49,7 +49,9 @@ export const CommandBar = () => {
 
   const executeCommand = () => {
     if (command.trim() === '') return;
-    const [action, ...args] = command.trim().split(' ');
+    const [rawAction, ...args] = command.trim().split(' ');
+    const action = rawAction.toLowerCase();
+    const arg0 = args[0]?.toLowerCase();
     let output = '';
 
     if (action === '/pin') {
@@ -59,22 +61,22 @@ export const CommandBar = () => {
         output = `Added pinning rule: ${rule}`;
       }
     } else if (action === '/unpin') {
-        const rule = args[0];
-        if (rule === 'clear') {
-            clearAllPins();
-            output = 'All pinning rules have been cleared.';
-        } else if (rule) {
-            removePinningRule(rule);
-            output = `Removed pinning rule: ${rule}`;
-        }
-    } else if (action === '/pinned' || (action === '/list' && args[0] === 'pinned')) {
+      const rule = args[0];
+      if (arg0 === 'clear') {
+        clearAllPins();
+        output = 'All pinning rules have been cleared.';
+      } else if (rule) {
+        removePinningRule(rule);
+        output = `Removed pinning rule: ${rule}`;
+      }
+    } else if (action === '/pinned' || (action === '/list' && arg0 === 'pinned')) {
       output = `Active pinning rules: ${Array.from(pinningRules).join(', ')}`;
     } else if (action === '/help') {
       output = `Available commands: /pin, /unpin, /pinned, /list pinned, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {
-      output = `Unknown command: ${action}`;
+      output = `Unknown command: ${rawAction}`;
     }
     
     const commandWithPrompt = `${PROMPT} ${command}`;

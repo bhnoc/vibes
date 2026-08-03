@@ -48,6 +48,42 @@ export const SettingsPanel: React.FC<{
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const [position, setPosition] = useState({ x: typeof window !== 'undefined' ? window.innerWidth - 380 : 800, y: 68 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - 300, dragRef.current.initialX + dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.initialY + dy)),
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+  };
+
   const handlePanelMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
@@ -62,8 +98,12 @@ export const SettingsPanel: React.FC<{
       className="settings-panel"
       onMouseDown={handlePanelMouseDown}
       onWheel={handlePanelWheel}
+      style={{ top: `${position.y}px`, left: `${position.x}px`, right: 'auto' }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        onMouseDown={handleHeaderMouseDown}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'move' }}
+      >
         <h2>Settings</h2>
         <button onClick={onMinimize} className="minimize-btn">Minimize</button>
       </div>

@@ -454,81 +454,68 @@ export const App = memo(() => {
           onToggleDebug={() => setShowDebug(!showDebug)}
           showLegend={showLegend}
           onToggleLegend={() => setShowLegend(!showLegend)}
-          showPerfTest={showPerfTest}
-          onTogglePerfTest={() => setShowPerfTest(!showPerfTest)}
         />
         
         {/* Conditionally render content based on route */}
         {currentRoute === 'debug' ? (
           <IPDebugPage />
         ) : (
-          <>
-            <div className="canvas-container">
-              {/* Use the fully memoized renderer component for maximum stability */}
-              {memoizedRenderer}
-            </div>
-            
-            {showSettings && (
-              <div className="sidebar">
-                <div className="sidebar-section">
-                  <SettingsPanel 
-                    captureMode={captureMode}
-                    onCaptureModeChange={handleCaptureModeChange} 
-                    interfaces={interfaces}
-                    selectedInterface={selectedInterface}
-                    onInterfaceSelect={handleInterfaceSelect}
-                    zeekTcpAddr={zeekTcpAddr}
-                    onZeekTcpAddrChange={setZeekTcpAddr}
-                    wsPreviewUrl={wsUrl}
-                    onMinimize={() => setShowSettings(false)}
-                  />
-                </div>
-              </div>
-            )}
-            
-            {/* Performance Test Data Generator */}
-            <PerformanceTestData 
-              enabled={performanceTestData.enabled}
-              nodeCount={performanceTestData.nodeCount}
-              connectionCount={performanceTestData.connectionCount}
-            />
-            
-            {/* Draggable Performance Test Mode Window */}
-            <PerformanceTestWindow
-              isOpen={showPerfTest}
-              onMinimize={() => setShowPerfTest(false)}
-              onTestModeChange={(enabled, nodeCount, connectionCount) =>
-                setPerformanceTestData({ enabled, nodeCount, connectionCount })
-              }
-            />
-
-            {/* Unified Debug Panel */}
-            <UnifiedDebugPanel 
-              isOpen={showDebug}
-              onMinimize={() => setShowDebug(false)}
-              onTestModeChange={handleTestModeChange}
-              onRendererChange={handleRendererChange}
-              currentRenderer={currentRenderer}
-              rendererOptions={[
-                {
-                  key: 'canvas',
-                  name: '🎨 Canvas (High Performance)',
-                  description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
-                  performance: '⭐⭐⭐⭐⭐',
-                  status: '✅ Recommended'
-                },
-                {
-                  key: 'minimal',
-                  name: '⚡ Minimal DOM',
-                  description: 'Lightweight DOM renderer - good for < 100 objects',
-                  performance: '⭐⭐⭐',
-                  status: '⚠️ Limited scale'
-                }
-              ]}
-            />
-            <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
-          </>
+          <div className="canvas-container">
+            {/* Use the fully memoized renderer component for maximum stability */}
+            {memoizedRenderer}
+          </div>
         )}
+
+        {showSettings && (
+          <div className="sidebar">
+            <div className="sidebar-section">
+              <SettingsPanel 
+                captureMode={captureMode}
+                onCaptureModeChange={handleCaptureModeChange} 
+                interfaces={interfaces}
+                selectedInterface={selectedInterface}
+                onInterfaceSelect={handleInterfaceSelect}
+                zeekTcpAddr={zeekTcpAddr}
+                onZeekTcpAddrChange={setZeekTcpAddr}
+                wsPreviewUrl={wsUrl}
+                onMinimize={() => setShowSettings(false)}
+              />
+            </div>
+          </div>
+        )}
+        
+        {/* Performance Test Data Generator */}
+        <PerformanceTestData 
+          enabled={performanceTestData.enabled}
+          nodeCount={performanceTestData.nodeCount}
+          connectionCount={performanceTestData.connectionCount}
+        />
+
+        {/* Unified Debug Panel */}
+        <UnifiedDebugPanel 
+          isOpen={showDebug}
+          onMinimize={() => setShowDebug(false)}
+          onTestModeChange={handleTestModeChange}
+          onRendererChange={handleRendererChange}
+          currentRenderer={currentRenderer}
+          rendererOptions={[
+            {
+              key: 'canvas',
+              name: '🎨 Canvas (High Performance)',
+              description: 'New Canvas-based renderer - handles 1000s of objects at 60fps',
+              performance: '⭐⭐⭐⭐⭐',
+              status: '✅ Recommended'
+            },
+            {
+              key: 'minimal',
+              name: '⚡ Minimal DOM',
+              description: 'Lightweight DOM renderer - good for < 100 objects',
+              performance: '⭐⭐⭐',
+              status: '⚠️ Limited scale'
+            }
+          ]}
+        />
+        <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
         
         <NocStatusBar status={status} error={error} />
       </CaptureContext.Provider>
