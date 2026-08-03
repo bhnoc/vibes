@@ -43,6 +43,8 @@ export const PhysicsPanel: React.FC = () => {
     driftAwayStrength,
     centerPullStrength,
     springRestLength,
+    nodeSizeIntensity,
+    edgeWidthIntensity,
     setConnectionPullStrength,
     setCollisionRepulsion,
     setDamping,
@@ -52,6 +54,8 @@ export const PhysicsPanel: React.FC = () => {
     setDriftAwayStrength,
     setCenterPullStrength,
     setSpringRestLength,
+    setNodeSizeIntensity,
+    setEdgeWidthIntensity,
     resetPhysicsDefaults,
   } = usePhysicsStore();
 
@@ -150,6 +154,32 @@ export const PhysicsPanel: React.FC = () => {
           onChange={setSpringRestLength}
           displayValue={`${springRestLength} px`}
         />
+
+        <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: '1px solid rgba(0,255,0,0.25)' }}>
+          <h4 style={{ margin: '0 0 12px', color: '#00ff00', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.95em' }}>
+            Experimental
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <RangeSlider
+              label="Node Size (connections)"
+              value={Math.round(nodeSizeIntensity * 100)}
+              min="0"
+              max="100"
+              step="1"
+              onChange={(v: number) => setNodeSizeIntensity(v / 100)}
+              displayValue={nodeSizeIntensity <= 0 ? 'off' : `${nodeSizeIntensity.toFixed(2)}×`}
+            />
+            <RangeSlider
+              label="Edge Width (throughput)"
+              value={Math.round(edgeWidthIntensity * 100)}
+              min="0"
+              max="100"
+              step="1"
+              onChange={(v: number) => setEdgeWidthIntensity(v / 100)}
+              displayValue={edgeWidthIntensity <= 0 ? 'off' : `${edgeWidthIntensity.toFixed(2)}×`}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

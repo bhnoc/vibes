@@ -4,6 +4,12 @@ import { usePhysicsStore } from '../stores/physicsStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePinStore } from '../stores/pinStore';
 import { useSizeStore } from '../stores/sizeStore';
+import {
+  NODE_RADIUS_MAX,
+  NODE_RADIUS_MIN,
+  calculateRelativeEdgeWidth,
+  calculateRelativeNodeRadius,
+} from '../utils/messageUtils';
 
 export interface LayoutNode {
   id: string;
@@ -16,6 +22,8 @@ export interface LayoutNode {
   clusterKey: string;
   radius: number;
   effectiveRadius: number;
+  /** Live peer count used for sizing (distinct nodes connected via visible edges). */
+  degree: number;
   color: string;
   highlightColor: string;
   alpha: number;
@@ -33,6 +41,8 @@ export interface LayoutEdge {
   dstPort?: number;
   alpha: number;
   weight: number;
+  /** Stroke width derived from peer-relative throughput (bytes). */
+  thickness: number;
   lastActive: number;
 }
 
@@ -44,7 +54,9 @@ export interface GraphLayoutResult {
 
 const PHYSICS_HZ = 30;
 const PHYSICS_STEP = 1000 / PHYSICS_HZ;
-const NODE_RADIUS = 8;
+const NODE_RADIUS = NODE_RADIUS_MIN + 2;
+/** How quickly radius eases toward the packet-volume target (per sync). */
+const RADIUS_SMOOTH = 0.22;
 // A pinned node with no live connection for this long fades out and is removed
 // (the pin RULE stays — it re-docks if the host talks again).
 const PIN_IDLE_MS = 60000;
@@ -339,6 +351,7 @@ export function useGraphLayout(): GraphLayoutResult {
           clusterKey,
           radius: NODE_RADIUS,
           effectiveRadius: NODE_RADIUS,
+          degree: 0,
           color: getProtocolColor(c.protocol),
           highlightColor: getHighlightColor(id),
           alpha: 1,
@@ -351,22 +364,66 @@ export function useGraphLayout(): GraphLayoutResult {
       }
     }
 
+    // ── Visual sizing: node radius ∝ peer connections, edge width ∝ throughput ─
+    // Node size = how many other visible nodes are linked to it (degree).
+    // Conversation keys are undirected, so we count unique peers, not
+    // directional in-degree. Edge width still tracks byte throughput.
+    // Intensities come from the Experimental physics sliders.
+    const { nodeSizeIntensity, edgeWidthIntensity } = physicsRef.current;
+    const peersByNode = new Map<string, Set<string>>();
+    let maxEdgeBytes = 0;
+    const addPeer = (a: string, b: string) => {
+      let set = peersByNode.get(a);
+      if (!set) { set = new Set(); peersByNode.set(a, set); }
+      set.add(b);
+    };
+    for (const c of visibleConns) {
+      if (!layoutNodes.current.has(c.source) || !layoutNodes.current.has(c.target)) continue;
+      if (c.source === c.target) continue;
+      addPeer(c.source, c.target);
+      addPeer(c.target, c.source);
+      const bytes = c.byteCount ?? c.size ?? 0;
+      // Prefer bytes for throughput; fall back to weight-scaled proxy when
+      // the capture path hasn't filled byteCount yet.
+      const throughput = bytes > 0 ? bytes : (c.weight ?? 1) * 512;
+      if (throughput > maxEdgeBytes) maxEdgeBytes = throughput;
+    }
+    let maxNodeDegree = 0;
+    peersByNode.forEach(peers => {
+      if (peers.size > maxNodeDegree) maxNodeDegree = peers.size;
+    });
+    if (maxNodeDegree < 1) maxNodeDegree = 1;
+    if (maxEdgeBytes < 1) maxEdgeBytes = 1;
+
+    layoutNodes.current.forEach(node => {
+      const degree = peersByNode.get(node.id)?.size ?? 0;
+      node.degree = degree;
+      const targetR = calculateRelativeNodeRadius(degree, maxNodeDegree, nodeSizeIntensity);
+      node.radius += (targetR - node.radius) * RADIUS_SMOOTH;
+      node.effectiveRadius = node.radius;
+    });
+
     layoutEdges.current = visibleConns
       .filter(c =>
         layoutNodes.current.has(c.source) &&
         layoutNodes.current.has(c.target)
       )
-      .map(c => ({
-        id: c.id,
-        sourceId: c.source,
-        targetId: c.target,
-        color: c.packetColor ?? getProtocolColor(c.protocol),
-        protocol: c.protocol,
-        dstPort: c.dstPort,
-        alpha: Math.max(0, 1 - (now - c.lastActive) / connectionLifetime),
-        weight: c.weight ?? 1,
-        lastActive: c.lastActive,
-      }));
+      .map(c => {
+        const bytes = c.byteCount ?? c.size ?? 0;
+        const throughput = bytes > 0 ? bytes : (c.weight ?? 1) * 512;
+        return {
+          id: c.id,
+          sourceId: c.source,
+          targetId: c.target,
+          color: c.packetColor ?? getProtocolColor(c.protocol),
+          protocol: c.protocol,
+          dstPort: c.dstPort,
+          alpha: Math.max(0, 1 - (now - c.lastActive) / connectionLifetime),
+          weight: c.weight ?? 1,
+          thickness: calculateRelativeEdgeWidth(throughput, maxEdgeBytes, edgeWidthIntensity),
+          lastActive: c.lastActive,
+        };
+      });
   }, []);
 
   const tickLayout = useCallback((dt: number) => {
@@ -520,39 +577,31 @@ export function useGraphLayout(): GraphLayoutResult {
       });
     });
 
-    // ── Pinned nodes dock in a fixed SCREEN-space frame ──────────────────────
-    // Straight down the right edge (below the top-right debug panel), then
-    // wrapping right→left across the bottom; overflow stacks upward so a full
-    // /24 stays on-screen. Positions are screen px converted to world coords
-    // through the live camera, so the dock stays glued to the screen under any
-    // pan/zoom. Placed BEFORE the home loop so neighbours can target the dock.
+    // ── Pinned nodes dock in a fixed SCREEN-space frame (center) ─────────────
+    // Pins sit in a compact grid around the viewport midpoint — the open watch
+    // zone — instead of the right/bottom chrome. Screen px → world via the live
+    // camera so the dock stays glued under pan/zoom. Neighbours fan in a full
+    // ring around each pin (outward), since "toward centre" is no longer useful.
     layoutNodes.current.forEach(n => { n.pinned = isPined(n.id); });
     const pinnedList = Array.from(layoutNodes.current.values())
       .filter(n => n.pinned)
       .sort((a, b) => a.id.localeCompare(b.id));
     const screenW = vp.width || 1280;
     const screenH = vp.height || 800;
-    const dockRightX = screenW - 55;
-    const dockTopY = 300;
-    const dockBottomY = screenH - 45;
-    const vStep = 64;   // more vertical room per pin so its neighbour fan doesn't crowd the next pin
-    const hStep = 150;
-    const leftMargin = 60;
-    const rightColCount = Math.max(1, Math.floor((dockBottomY - dockTopY) / vStep));
-    const bottomCols = Math.max(1, Math.floor((dockRightX - leftMargin) / hStep));
+    const dockCx = screenW * 0.5;
+    const dockCy = screenH * 0.48;
+    const vStep = 72;
+    const hStep = 130;
+    const pinCols = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, pinnedList.length))));
+    const pinRows = Math.max(1, Math.ceil(pinnedList.length / pinCols));
     const pinExpired: string[] = [];
     pinnedList.forEach((node, i) => {
-      let sx: number, sy: number;
-      if (i < rightColCount) {
-        sx = dockRightX;
-        sy = dockTopY + i * vStep;
-      } else {
-        const j = i - rightColCount;
-        const row = Math.floor(j / bottomCols);
-        const colInRow = j % bottomCols;
-        sx = dockRightX - colInRow * hStep;
-        sy = dockBottomY - row * vStep;
-      }
+      const col = i % pinCols;
+      const row = Math.floor(i / pinCols);
+      const gridW = (pinCols - 1) * hStep;
+      const gridH = (pinRows - 1) * vStep;
+      const sx = dockCx - gridW / 2 + col * hStep;
+      const sy = dockCy - gridH / 2 + row * vStep;
       node.x = sx / camera.zoom + camera.x;
       node.y = sy / camera.zoom + camera.y;
       node.vx = 0;
@@ -578,9 +627,8 @@ export function useGraphLayout(): GraphLayoutResult {
     });
 
     // Neighbours of pinned nodes migrate to the dock, but instead of piling on
-    // the pin they fan out on a compact arc opening toward screen centre (so a
-    // right-edge pin's talkers spread left into open canvas, a bottom pin's
-    // spread up). Strongest edge decides which pin a neighbour belongs to.
+    // the pin they fan out on a full ring around it. Strongest edge decides
+    // which pin a neighbour belongs to.
     const pinNbrs = new Map<string, { pinId: string; w: number }>();
     layoutEdges.current.forEach(edge => {
       if (now - edge.lastActive > connectionLifetime) return;
@@ -598,19 +646,15 @@ export function useGraphLayout(): GraphLayoutResult {
       if (arr) arr.push(nbId); else byPin.set(v.pinId, [nbId]);
     });
     const pinAttractor = new Map<string, { x: number; y: number }>();
-    const fanGap = NODE_RADIUS * 2 + 26;              // compact, dock-local spacing
+    const fanGap = NODE_RADIUS * 2 + 30;
     byPin.forEach((nbIds, pinId) => {
       const pin = layoutNodes.current.get(pinId);
       if (!pin) return;
       nbIds.sort();
-      let ix = centerX - pin.x, iy = centerY - pin.y;  // inward = toward screen centre
-      const il = Math.hypot(ix, iy) || 1; ix /= il; iy /= il;
-      const inwardAng = Math.atan2(iy, ix);
       const n = nbIds.length;
-      const R = Math.max(fanGap * 1.6, (fanGap * n) / Math.PI);  // radius grows with count
-      const step = fanGap / R;                         // ~fanGap arc spacing between neighbours
+      const R = Math.max(fanGap * 2.2, (fanGap * n) / (Math.PI * 1.2));
       nbIds.forEach((nbId, k) => {
-        const a = inwardAng + (k - (n - 1) / 2) * step;
+        const a = -Math.PI / 2 + (k / Math.max(1, n)) * Math.PI * 2;
         pinAttractor.set(nbId, { x: pin.x + Math.cos(a) * R, y: pin.y + Math.sin(a) * R });
       });
     });
@@ -704,9 +748,12 @@ export function useGraphLayout(): GraphLayoutResult {
     });
 
     // Spatial-hash repulsion: O(n * neighbors) instead of O(n^2) so 1000 nodes
-    // stays real-time. Cell size = the largest interaction distance.
+    // stays real-time. Cell size = the largest interaction distance (sized for
+    // the max node radius at current intensity so fat hosts still collide).
     const nodes = Array.from(layoutNodes.current.values());
-    const maxSoft = (NODE_RADIUS * 2 + adaptiveSpacing) * 1.6;
+    const sizeIntensity = Math.max(0, physicsRef.current.nodeSizeIntensity ?? 1);
+    const maxNodeR = NODE_RADIUS_MIN + (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * sizeIntensity;
+    const maxSoft = (maxNodeR * 2 + adaptiveSpacing) * 1.6;
     const cellSize = Math.max(24, maxSoft);
     const grid = new Map<number, LayoutNode[]>();
     const cellOf = (x: number, y: number) => (Math.floor(x / cellSize) * 73856093) ^ (Math.floor(y / cellSize) * 19349663);
