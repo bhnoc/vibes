@@ -3,6 +3,7 @@ import { useSizeStore } from '../stores/sizeStore';
 import { useGraphLayout, WORLD_SCALE, camera } from '../hooks/useGraphLayout';
 import { useThemeStore, subnetNodeColor, edgeColor, Theme } from '../stores/themeStore';
 import { usePinStore } from '../stores/pinStore';
+import { usePhysicsStore } from '../stores/physicsStore';
 
 // Start zoomed out so the whole (larger-than-viewport) world fits, leaving real
 // room to zoom in. zoom = 1/WORLD_SCALE with pan (0,0) maps world → viewport 1:1.
@@ -24,9 +25,16 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
   // Active theme read per-frame via a ref so switching recolors instantly
   // with zero React re-renders in the render loop.
   const themeRef = useRef<Theme>(useThemeStore.getState().theme);
+  const physicsRef = useRef(usePhysicsStore.getState());
   useEffect(() => {
     themeRef.current = useThemeStore.getState().theme;
-    return useThemeStore.subscribe(s => { themeRef.current = s.theme; });
+    physicsRef.current = usePhysicsStore.getState();
+    const unsubTheme = useThemeStore.subscribe(s => { themeRef.current = s.theme; });
+    const unsubPhysics = usePhysicsStore.subscribe(s => { physicsRef.current = s; });
+    return () => {
+      unsubTheme();
+      unsubPhysics();
+    };
   }, []);
 
   // ── Canvas resize ───────────────────────────────────────────────────────────
@@ -89,23 +97,33 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       edgeDegree.set(edge.targetId, (edgeDegree.get(edge.targetId) ?? 0) + 1);
     });
 
+    const { edgeWidthIntensity } = physicsRef.current;
+    const edgeI = Math.max(0, Math.min(1, edgeWidthIntensity));
+
     // ── Draw edges ──────────────────────────────────────────────────────────
     // Budget for port labels shown at the zoomed-out overview (interesting
     // edges only) so scan ports read without diving all the way in.
     let portLabels = 0;
     const portLabelBoxes: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
-    edges.forEach(edge => {
+
+    // Throughput width only changes stroke thickness — not opacity — so quiet
+    // links stay visible. Draw thin→thick so hot pipes sit on top.
+    const drawEdges = edgeI > 0
+      ? Array.from(edges).sort((a, b) => a.weight - b.weight)
+      : Array.from(edges);
+    drawEdges.forEach(edge => {
       const src = nodes.get(edge.sourceId);
       const tgt = nodes.get(edge.targetId);
       if (!src || !tgt || edge.alpha <= 0) return;
 
       const proto = edge.protocol?.toLowerCase() ?? '';
       const degree = Math.max(edgeDegree.get(edge.sourceId) ?? 1, edgeDegree.get(edge.targetId) ?? 1);
-      const degreeAlpha = Math.max(0.5, Math.min(1, Math.sqrt(24 / degree)));
-      const weightBoost = Math.max(0.75, Math.min(1.4, Math.sqrt(edge.weight)));
-      const edgeAlpha = Math.min(1, edge.alpha * degreeAlpha * weightBoost);
-      const weightedWidth = Math.max(1, Math.min(4, 1 + Math.log1p(edge.weight)));
-      const lineWidth = proto === 'icmp' ? Math.max(1, weightedWidth - 0.75) : weightedWidth;
+      const classicDegreeAlpha = Math.max(0.5, Math.min(1, Math.sqrt(24 / degree)));
+      const classicWeightBoost = Math.max(0.75, Math.min(1.4, Math.sqrt(edge.weight)));
+      // Classic edge alpha only (no experimental quiet-link fade).
+      const edgeAlpha = Math.min(1, edge.alpha * classicDegreeAlpha * classicWeightBoost);
+      const weightedWidth = edge.thickness ?? Math.max(1, Math.min(4, 1 + Math.log1p(edge.weight)));
+      const lineWidth = proto === 'icmp' ? Math.max(1, weightedWidth * 0.7) : weightedWidth;
 
       ctx.strokeStyle = edgeColor(proto, edgeAlpha, theme);
       ctx.lineWidth   = lineWidth;
@@ -161,9 +179,10 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
     // stands out as the thing to watch.
     let anyFocus = false;
     nodes.forEach(n => { if (n.focus) anyFocus = true; });
-    nodes.forEach(node => {
-      if (node.alpha <= 0) return;
 
+    const drawNodes = Array.from(nodes.values()).filter(n => n.alpha > 0);
+
+    for (const node of drawNodes) {
       const hr = parseInt(node.highlightColor.slice(1, 3), 16);
       const hg = parseInt(node.highlightColor.slice(3, 5), 16);
       const hb = parseInt(node.highlightColor.slice(5, 7), 16);
@@ -172,23 +191,23 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       const isFocus = node.focus;
       const isConnected = connectedIds.has(node.id) || node.pinned || isFocus;
       const dimBulk = anyFocus && !isFocus && !node.pinned;
+
       const visualAlpha = isFocus ? 1
         : isConnected ? node.alpha * (dimBulk ? 0.34 : 1)
         : node.alpha * (anyFocus ? 0.1 : 0.35);
+      const talkBright = isConnected ? 1 : 0.35;
+      const bodyColor = subnetNodeColor(node.clusterKey, isFocus ? 1 : talkBright, theme);
 
-      // Node fill: per-subnet hue from the active theme, brighter when talking.
-      // This is what makes subnet blobs read as coherent color groups.
-      const bodyColor = subnetNodeColor(node.clusterKey, isConnected ? 1 : 0.35, theme);
-
-      // Glow ring — always for focus nodes (stronger), plus active nodes.
-      if (isFocus || (node.radius > 7 && isConnected && !dimBulk)) {
-        ctx.fillStyle = `rgba(${hr},${hg},${hb},${(isFocus ? 0.45 : visualAlpha * 0.3)})`;
+      const showGlow = isFocus || (node.radius > 7 && isConnected && !dimBulk);
+      if (showGlow) {
+        const glowAlpha = isFocus ? 0.45 : visualAlpha * 0.3;
+        const glowScale = isFocus ? 2.2 : 1.5;
+        ctx.fillStyle = `rgba(${hr},${hg},${hb},${glowAlpha})`;
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius * (isFocus ? 2.2 : 1.5), 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, node.radius * glowScale, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Node body (focus nodes drawn larger so the star pops)
       const bodyR = isFocus ? node.radius * 1.5 : isConnected ? node.radius : node.radius * 0.7;
       ctx.globalAlpha = visualAlpha;
       ctx.fillStyle   = bodyColor;
@@ -197,12 +216,12 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // Label connected nodes (the active conversations). Font is constant on
-      // screen regardless of zoom; overlapping labels are always dropped, so
-      // the overview shows a clean sparse set and detail fills in on zoom-in.
-      // Cap labels per frame: canvas fillText/measureText is costly, and at
-      // wide spacing few labels overlap (so many would draw). Bound it.
-      if ((isFocus || labelBoxes.length < 140) && isConnected && node.id.includes('.') && vp.zoom >= labelZoomThreshold) {
+      if (
+        (isFocus || labelBoxes.length < 140) &&
+        isConnected &&
+        node.id.includes('.') &&
+        vp.zoom >= labelZoomThreshold
+      ) {
         const fontSize = labelScreenPx / vp.zoom; // constant screen px
         ctx.font      = `${fontSize}px monospace`;
         ctx.textAlign = 'center';
@@ -221,14 +240,14 @@ export const CanvasNetworkRenderer: React.FC = React.memo(() => {
           labelBox.y1 < box.y2 &&
           labelBox.y2 > box.y1
         );
-        if (overlapsLabel) return; // always cull overlaps → clean at every zoom
+        if (overlapsLabel) continue; // always cull overlaps → clean at every zoom
         labelBoxes.push(labelBox);
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.fillRect(labelBox.x1, labelBox.y1, tw + pad * 2, fontSize + pad * 2);
         ctx.fillStyle = `rgba(${hr},${hg},${hb},${node.alpha})`;
         ctx.fillText(node.id, node.x, textY);
       }
-    });
+    }
 
     ctx.textAlign = 'left';
     ctx.restore();
