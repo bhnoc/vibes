@@ -133,10 +133,36 @@ export function edgeColor(protocol: string | undefined, alpha: number, theme: Th
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function getSessionCustomizations(key: string): Partial<Theme> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(`vibes-legend-${key}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionCustomizations(key: string, overrides: Partial<Theme>) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(`vibes-legend-${key}`, JSON.stringify(overrides));
+  } catch {}
+}
+
+function clearSessionCustomizations(key: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(`vibes-legend-${key}`);
+  } catch {}
+}
+
 interface ThemeState {
   themeKey: string;
   theme: Theme;
   setTheme: (key: string) => void;
+  updateThemeColor: (field: keyof Theme, value: string) => void;
+  resetThemeColors: () => void;
 }
 
 const THEME_VERSION = 1;
@@ -162,9 +188,29 @@ export const useThemeStore = create<ThemeState>()(
       themeKey: 'retro-blue',
       theme: retroBlue,
       setTheme: (key: string) => {
-        const theme = THEMES[key] ?? retroBlue;
+        const base = THEMES[key] ?? retroBlue;
+        const overrides = getSessionCustomizations(base.key);
+        const theme = { ...base, ...overrides };
         applyThemeVars(theme);
         set({ themeKey: theme.key, theme });
+      },
+      updateThemeColor: (field: keyof Theme, value: string) => {
+        set((state) => {
+          const overrides = getSessionCustomizations(state.themeKey);
+          const nextOverrides = { ...overrides, [field]: value };
+          saveSessionCustomizations(state.themeKey, nextOverrides);
+          const theme = { ...state.theme, [field]: value };
+          applyThemeVars(theme);
+          return { theme };
+        });
+      },
+      resetThemeColors: () => {
+        set((state) => {
+          clearSessionCustomizations(state.themeKey);
+          const theme = { ...(THEMES[state.themeKey] ?? retroBlue) };
+          applyThemeVars(theme);
+          return { theme };
+        });
       },
     }),
     {
@@ -176,9 +222,11 @@ export const useThemeStore = create<ThemeState>()(
         // Rebuild the theme object from its key (defends against a persisted
         // null/stale theme) and apply CSS vars as soon as it loads.
         if (state) {
-          const theme = THEMES[state.themeKey] ?? retroBlue;
+          const base = THEMES[state.themeKey] ?? retroBlue;
+          const overrides = getSessionCustomizations(base.key);
+          const theme = { ...base, ...overrides };
           state.theme = theme;
-          state.themeKey = theme.key;
+          state.themeKey = base.key;
           applyThemeVars(theme);
         }
       },

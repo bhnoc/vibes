@@ -13,8 +13,8 @@ export interface ThemeLegendProps {
  * Collapsible protocol & node color legend for visual themes.
  */
 export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinimize }) => {
-  const { themeKey } = useThemeStore();
-  const theme = THEMES[themeKey] || THEMES['blackhat-noc'] || THEMES.classic;
+  const { theme, updateThemeColor, resetThemeColors } = useThemeStore();
+  const currentTheme = theme || THEMES['blackhat-noc'] || THEMES.classic;
 
   const [position, setPosition] = useState({ x: 18, y: typeof window !== 'undefined' ? window.innerHeight - 300 : 500 });
   const [isDragging, setIsDragging] = useState(false);
@@ -69,7 +69,7 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
         padding: '12px 14px',
         color: 'var(--text-hi, #fff)',
         fontFamily: 'var(--font-sans)',
-        width: '240px',
+        width: '250px',
         boxShadow: '0 10px 30px rgba(0, 0, 0, 0.65)',
         backdropFilter: 'blur(8px)',
       }}
@@ -96,62 +96,105 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
         >
           LEGEND
         </span>
-        <button
-          onClick={onMinimize}
-          style={{
-            background: 'transparent',
-            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
-            color: 'var(--text-muted)',
-            borderRadius: 'var(--radius-sm, 6px)',
-            padding: '2px 8px',
-            font: 'var(--type-ui-sm)',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          Minimize
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            onClick={resetThemeColors}
+            title="Reset custom legend colors to defaults"
+            style={{
+              background: 'transparent',
+              border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+              color: 'var(--text-muted)',
+              borderRadius: 'var(--radius-sm, 6px)',
+              padding: '2px 6px',
+              font: 'var(--type-ui-sm)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            Reset
+          </button>
+          <button
+            onClick={onMinimize}
+            style={{
+              background: 'transparent',
+              border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+              color: 'var(--text-muted)',
+              borderRadius: 'var(--radius-sm, 6px)',
+              padding: '2px 8px',
+              font: 'var(--type-ui-sm)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            Minimize
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gap: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--text-muted)' }}>TCP STREAM</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 12, height: 3, background: theme.edgeTcp, borderRadius: 2 }} />
-            <span style={{ color: theme.edgeTcp }}>{theme.edgeTcp}</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize TCP color">
+            <input
+              type="color"
+              value={currentTheme.edgeTcp}
+              onChange={(e) => updateThemeColor('edgeTcp', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.edgeTcp }}>{currentTheme.edgeTcp}</span>
+          </label>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--text-muted)' }}>UDP DATAGRAM</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 12, height: 3, background: theme.edgeUdp, borderRadius: 2 }} />
-            <span style={{ color: theme.edgeUdp }}>{theme.edgeUdp}</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize UDP color">
+            <input
+              type="color"
+              value={currentTheme.edgeUdp}
+              onChange={(e) => updateThemeColor('edgeUdp', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.edgeUdp }}>{currentTheme.edgeUdp}</span>
+          </label>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--text-muted)' }}>HTTP / WEB</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 12, height: 3, background: theme.edgeHttp, borderRadius: 2 }} />
-            <span style={{ color: theme.edgeHttp }}>{theme.edgeHttp}</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize HTTP color">
+            <input
+              type="color"
+              value={currentTheme.edgeHttp}
+              onChange={(e) => updateThemeColor('edgeHttp', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.edgeHttp }}>{currentTheme.edgeHttp}</span>
+          </label>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--text-muted)' }}>ICMP CONTROL</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 12, height: 3, background: theme.edgeIcmp, borderRadius: 2 }} />
-            <span style={{ color: theme.edgeIcmp }}>{theme.edgeIcmp}</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize ICMP color">
+            <input
+              type="color"
+              value={currentTheme.edgeIcmp}
+              onChange={(e) => updateThemeColor('edgeIcmp', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.edgeIcmp }}>{currentTheme.edgeIcmp}</span>
+          </label>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ color: 'var(--text-muted)' }}>OTHER PROTOCOL</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 12, height: 3, background: theme.edgeDefault, borderRadius: 2 }} />
-            <span style={{ color: theme.edgeDefault }}>{theme.edgeDefault}</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize Default protocol color">
+            <input
+              type="color"
+              value={currentTheme.edgeDefault}
+              onChange={(e) => updateThemeColor('edgeDefault', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.edgeDefault }}>{currentTheme.edgeDefault}</span>
+          </label>
         </div>
 
         <div
@@ -165,10 +208,15 @@ export const ThemeLegend: React.FC<ThemeLegendProps> = ({ isOpen = true, onMinim
           }}
         >
           <span style={{ color: 'var(--text-muted)' }}>GROUP HALO</span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: 10, height: 10, borderRadius: 999, border: `2px solid ${theme.groupHalo}` }} />
-            <span style={{ color: theme.groupHalo }}>ACTIVE</span>
-          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} title="Click to customize Halo color">
+            <input
+              type="color"
+              value={currentTheme.groupHalo}
+              onChange={(e) => updateThemeColor('groupHalo', e.target.value)}
+              style={{ width: '18px', height: '14px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+            />
+            <span style={{ color: currentTheme.groupHalo }}>{currentTheme.groupHalo}</span>
+          </label>
         </div>
       </div>
     </div>
