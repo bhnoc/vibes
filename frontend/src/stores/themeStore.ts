@@ -52,24 +52,21 @@ const classic: Theme = {
 const retroBlue: Theme = {
   key: 'retro-blue',
   label: 'Retro Blue',
-  primary: '#33ccff',
-  primaryRgb: '51, 204, 255',
-  background: '#04101f',       // deep navy
-  // subnet hues live in the cyan → blue → violet band so blobs read as groups
-  nodeHueMin: 185,
-  nodeHueMax: 265,
-  nodeSat: 88,
-  nodeLightMin: 45,
-  nodeLightMax: 68,
-  // edges keep protocol meaning but shift into the blue field's complement set;
-  // amber/magenta stay as high-contrast accents that pop against navy
-  edgeTcp: '#38bdf8',
-  edgeUdp: '#c084fc',
-  edgeIcmp: '#fbbf24',
-  edgeHttp: '#f472b6',
-  edgeDefault: '#22d3ee',
-  groupHalo: '#fbbf24',
-  labelColor: '#7dd3fc',
+  primary: '#00ffff',
+  primaryRgb: '0, 255, 255',
+  background: '#040814',
+  nodeHueMin: 0,
+  nodeHueMax: 360,
+  nodeSat: 100,
+  nodeLightMin: 55,
+  nodeLightMax: 85,
+  edgeTcp: '#00ffff',
+  edgeUdp: '#ff00ff',
+  edgeIcmp: '#ff0055',
+  edgeHttp: '#00ff66',
+  edgeDefault: '#ffff00',
+  groupHalo: '#ff00aa',
+  labelColor: '#00ffff',
 }
 
 const blackhatNoc: Theme = {

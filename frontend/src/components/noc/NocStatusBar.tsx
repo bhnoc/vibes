@@ -47,6 +47,7 @@ export const NocStatusBar = memo(({ error }: NocStatusBarProps) => {
         padding: '0 18px',
         background: 'var(--surface-chrome, #0e0e0e)',
         borderTop: 'var(--border-inset, 1px solid rgba(255, 255, 255, 0.1))',
+        borderBottom: isConsoleOpen ? 'none' : undefined,
         fontFamily: 'var(--font-mono)',
         color: 'var(--text-hi)',
       }}
