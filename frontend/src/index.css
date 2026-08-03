@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-@import url('../../../noc-ui-kit/styles.css');
+/* NOTE: the NOC design-system stylesheet was imported from '../../../noc-ui-kit/
+   styles.css' — a path OUTSIDE the repo (a local machine layout). That file is not
+   committed, so the build failed for everyone else and on the box. Removed to make
+   the frontend build. To restore it, vendor styles.css into frontend/src/styles/
+   and import it with an in-repo relative path. */
 @import url('./styles/components.css');
 
 /* Base styles */
