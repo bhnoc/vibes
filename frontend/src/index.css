@@ -102,11 +102,16 @@ body {
   background: rgba(0, 0, 0, 0.35);
 }
 .settings-panel .tab-content::-webkit-scrollbar-thumb {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.45);
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
   border-radius: 4px;
 }
 .settings-panel .tab-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0), 0.75);
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  filter: brightness(1.2);
+}
+
+input[type="range"] {
+  accent-color: var(--signal-teal, var(--vibes-primary, #33ccff));
 }
 
 .settings-panel h2 {
@@ -364,12 +369,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-primary);
-  border-radius: 0;
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-secondary);
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  filter: brightness(1.2);
 }
 
 /* Animation keyframes */
@@ -533,5 +539,14 @@ body {
 @media (max-width: 860px) {
   .noc-header-subtitle {
     display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .command-input-editor textarea::placeholder,
+  .command-input-editor input::placeholder,
+  .command-input-editor::placeholder {
+    color: transparent !important;
+    opacity: 0 !important;
   }
 }
