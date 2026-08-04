@@ -1,0 +1,16 @@
+*,*::before,*::after{box-sizing:border-box;border-color:var(--border)}
+body{margin:0;background:var(--background);color:var(--foreground);font:var(--type-body);-webkit-font-smoothing:antialiased;font-synthesis-weight:none;text-rendering:optimizeLegibility}
+a{color:var(--text-link);text-decoration:none;text-underline-offset:4px;transition:var(--transition-control)}
+a:hover{text-decoration:underline}
+a:active{opacity:.6}
+:focus-visible{outline:none;border-color:var(--ring);box-shadow:var(--focus-ring)}
+::selection{background:var(--selection);color:var(--selection-foreground)}
+code,kbd,samp,pre{font-family:var(--font-mono)}
+hr{border:0;border-top:var(--border-inset);margin:var(--spacing-6) 0}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--secondary);border:2px solid var(--background);border-radius:var(--radius-full)}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+.bh-label{font:var(--type-label);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--muted-foreground)}
+.bh-mono{font:var(--type-data)}
+.bh-tnum{font-variant-numeric:tabular-nums}

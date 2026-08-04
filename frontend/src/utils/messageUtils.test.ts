@@ -70,10 +70,25 @@ describe('messageUtils - Node and Edge Sizing Capabilities', () => {
       expect(getProtocolColor('ICMP')).toBe(0x10f0f0);
     });
 
-    it('formats data size correctly', () => {
+    it('formats data size correctly across units', () => {
       expect(formatDataSize(500)).toBe('500 B');
       expect(formatDataSize(2048)).toBe('2.0 KB');
       expect(formatDataSize(5 * 1024 * 1024)).toBe('5.0 MB');
+      expect(formatDataSize(3 * 1024 * 1024 * 1024)).toBe('3.0 GB');
+      expect(formatDataSize(2 * 1024 * 1024 * 1024 * 1024)).toBe('2.0 TB');
+    });
+  });
+
+  describe('sizing calculation edge cases', () => {
+    it('handles maxConns === 0 without divide-by-zero or NaN', () => {
+      expect(calculateRelativeNodeRadius(10, 0, 1)).toBe(NODE_RADIUS_MIN);
+      expect(calculateRelativeNodeRadius(10, -5, 1)).toBe(NODE_RADIUS_MIN);
+    });
+
+    it('handles maxThroughput === 0 without divide-by-zero or NaN', () => {
+      expect(calculateRelativeEdgeWidth(500, 0, 1)).toBe(EDGE_WIDTH_MIN);
+      expect(calculateRelativeEdgeWidth(-100, 100, 1)).toBe(EDGE_WIDTH_MIN);
     });
   });
 });
+

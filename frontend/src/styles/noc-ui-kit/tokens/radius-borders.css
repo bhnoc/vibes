@@ -1,0 +1,19 @@
+:root{
+  /* shadcn radius chain: everything derives from --radius (0.625rem = 10px). */
+  --radius-sm:calc(var(--radius) * 0.6);   /* 6px  — select items, inner chips */
+  --radius-md:calc(var(--radius) * 0.8);   /* 8px  — buttons, inputs, badges */
+  --radius-lg:var(--radius);               /* 10px — dialogs, popovers */
+  --radius-xl:calc(var(--radius) * 1.4);   /* 14px — cards */
+  --radius-2xl:calc(var(--radius) * 1.8);
+  --radius-full:9999px;
+
+  --bw-hair:1px;
+  --bw-emphasis:2px;
+  --bw-accent:3px;      /* left status edge on severity rows */
+
+  --border-card:var(--bw-hair) solid var(--border);
+  --border-inset:var(--bw-hair) solid var(--border);
+  --border-control:var(--bw-hair) solid var(--input);
+  /* shadcn focus: 3px ring at 50% + the ring colour on the border. */
+  --focus-ring:0 0 0 3px color-mix(in oklab,var(--ring) 50%,transparent);
+}

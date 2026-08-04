@@ -29,10 +29,15 @@ export const formatDataSize = (bytes: number): string => {
     return `${bytes} B`
   } else if (bytes < 1024 * 1024) {
     return `${(bytes / 1024).toFixed(1)} KB`
-  } else {
+  } else if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  } else if (bytes < 1024 * 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  } else {
+    return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`
   }
 }
+
 
 /** Visual node radius range in world units (Canvas layout). */
 export const NODE_RADIUS_MIN = 6;

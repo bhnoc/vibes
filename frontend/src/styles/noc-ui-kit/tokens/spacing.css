@@ -1,0 +1,38 @@
+:root{
+  /* Tailwind spacing scale (0.25rem base) — shadcn paddings are multiples of it. */
+  --spacing:0.25rem;
+  --spacing-0-5:0.125rem;
+  --spacing-1:0.25rem;
+  --spacing-1-5:0.375rem;
+  --spacing-2:0.5rem;
+  --spacing-2-5:0.625rem;
+  --spacing-3:0.75rem;
+  --spacing-4:1rem;
+  --spacing-5:1.25rem;
+  --spacing-6:1.5rem;
+  --spacing-8:2rem;
+  --spacing-10:2.5rem;
+  --spacing-12:3rem;
+  --spacing-16:4rem;
+  --spacing-20:5rem;
+
+  /* shadcn control heights */
+  --control-h-xs:1.5rem;   /* 24px  — size="xs" */
+  --control-h-sm:2rem;     /* 32px  — size="sm" */
+  --control-h:2.25rem;     /* 36px  — size="default" */
+  --control-h-lg:2.5rem;   /* 40px  — size="lg" */
+
+  /* NOC layout constants (fixed shell) */
+  --gutter:var(--spacing-4);
+  --pad-card:var(--spacing-6);
+  --pad-card-tight:var(--spacing-4);
+  --pad-cell-x:var(--spacing-2);
+  --pad-cell-y:var(--spacing-2);
+  --row-h:2.25rem;         /* 36px dense table row */
+  --row-h-comfy:2.5rem;
+  --rail-w:3.5rem;         /* 56px icon rail */
+  --sidebar-w:15rem;       /* 240px, shadcn sidebar width */
+  --topbar-h:3.5rem;       /* 56px */
+  --statusbar-h:1.75rem;   /* 28px */
+  --content-max:90rem;
+}

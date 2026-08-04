@@ -1,0 +1,25 @@
+:root{
+  /* Tailwind v4 shadow scale — what shadcn components use.
+     Rule of the system: an element gets a defined EDGE or a soft ELEVATION,
+     never both. Cards use a border and no shadow; floating layers use shadow
+     and no border. */
+  --shadow-2xs:0 1px rgb(0 0 0 / 0.05);
+  --shadow-xs:0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm:0 1px 3px 0 rgb(0 0 0 / 0.1),0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md:0 4px 6px -1px rgb(0 0 0 / 0.1),0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg:0 10px 15px -3px rgb(0 0 0 / 0.35),0 4px 6px -4px rgb(0 0 0 / 0.3);
+  --shadow-xl:0 20px 25px -5px rgb(0 0 0 / 0.4),0 8px 10px -6px rgb(0 0 0 / 0.3);
+  --shadow-2xl:0 25px 50px -12px rgb(0 0 0 / 0.5);
+  --inset-top:inset 0 1px 0 rgb(255 255 255 / 0.05);
+
+  /* ONE lighting effect in the whole system: an unacknowledged critical.
+     It stops the moment someone acknowledges. Nothing else glows. */
+  --glow-critical:0 0 0 1px color-mix(in oklab,var(--signal-red) 45%,transparent),0 0 16px color-mix(in oklab,var(--signal-red) 22%,transparent);
+
+  /* Protection scrims for text over maps, video and capture visualisations.
+     Gradients exist for legibility only, never as surface decoration. */
+  --scrim-bottom:linear-gradient(to top,color-mix(in oklab,var(--background) 94%,transparent) 0%,color-mix(in oklab,var(--background) 60%,transparent) 45%,transparent 100%); /* @kind other */
+  --scrim-top:linear-gradient(to bottom,color-mix(in oklab,var(--background) 92%,transparent) 0%,transparent 100%); /* @kind other */
+
+  --blur-overlay:saturate(120%) blur(14px); /* @kind other */
+}

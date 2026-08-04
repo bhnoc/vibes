@@ -3,8 +3,10 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
+
 
 func TestIsIPPinned(t *testing.T) {
 	tests := []struct {
@@ -41,6 +43,33 @@ func TestIsIPPinned(t *testing.T) {
 		})
 	}
 }
+
+func TestIsIPPinned_Concurrency(t *testing.T) {
+	manager := NewClientManager()
+	manager.pinningRules = []string{"192.168.1.0/24"}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			// Concurrent reads
+			if !manager.isIPPinned("192.168.1.50") {
+				t.Errorf("expected 192.168.1.50 to be pinned")
+			}
+			// Concurrent updates
+			manager.rulesMutex.Lock()
+			if idx%2 == 0 {
+				manager.pinningRules = []string{"192.168.1.0/24", "10.0.0.1"}
+			} else {
+				manager.pinningRules = []string{"192.168.1.0/24"}
+			}
+			manager.rulesMutex.Unlock()
+		}(i)
+	}
+	wg.Wait()
+}
+
 
 func TestHandleWebSocketParameters(t *testing.T) {
 	manager := NewClientManager()

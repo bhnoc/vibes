@@ -97,5 +97,46 @@ describe('geoLookup - Net-new Geo ASN and Country Label Capabilities', () => {
     it('returns null for an IP that has not been looked up', () => {
       expect(getGeo('8.8.8.8')).toBeNull();
     });
+
+    it('returns cached GeoInfo from localStorage if within 8-hour TTL', () => {
+      const validEntry = {
+        ok: true,
+        info: {
+          countryCode: 'US',
+          country: 'United States',
+          asn: 'AS15169',
+          asName: 'Google LLC',
+          fetchedAt: Date.now() - 1000,
+        },
+      };
+      localStorage.setItem('vibes-geoip-cache-v1', JSON.stringify({ '8.8.8.8': validEntry }));
+      const geo = getGeo('8.8.8.8');
+      expect(geo).not.toBeNull();
+      expect(geo?.countryCode).toBe('US');
+      expect(geo?.asn).toBe('AS15169');
+    });
+
+    it('ignores and expires cached GeoInfo from localStorage if older than 8-hour TTL', () => {
+      const expiredEntry = {
+        ok: true,
+        info: {
+          countryCode: 'US',
+          country: 'United States',
+          asn: 'AS15169',
+          asName: 'Google LLC',
+          fetchedAt: Date.now() - (8 * 60 * 60 * 1000 + 1000), // > 8 hours ago
+        },
+      };
+      localStorage.setItem('vibes-geoip-cache-v1', JSON.stringify({ '8.8.4.4': expiredEntry }));
+      const geo = getGeo('8.8.4.4');
+      expect(geo).toBeNull();
+    });
+
+    it('handles corrupted JSON in localStorage gracefully without throwing', () => {
+      localStorage.setItem('vibes-geoip-cache-v1', 'not-valid-json{');
+      expect(() => getGeo('1.1.1.1')).not.toThrow();
+      expect(getGeo('1.1.1.1')).toBeNull();
+    });
   });
 });
+
