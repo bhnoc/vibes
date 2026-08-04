@@ -10,6 +10,28 @@
   color: #00ff00;
   font-family: 'VT323', monospace;
   z-index: 1000;
+  width: 340px;
+  min-width: 280px;
+  min-height: 220px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+}
+
+.settings-panel > div:first-child,
+.settings-panel > .button-group {
+  flex-shrink: 0;
+}
+
+.settings-panel .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
 }
 
 .settings-panel h2 {

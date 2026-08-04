@@ -1,0 +1,274 @@
+import React, { useState, useEffect } from 'react';
+import { StatusDot, StatusLevel } from './StatusDot';
+import { SeverityBadge } from './SeverityBadge';
+
+export interface NocHeaderProps {
+  currentRoute: string;
+  status: string;
+  error: string | null;
+  captureMode: 'simulated' | 'real' | 'zeek' | 'waiting';
+  showSettings: boolean;
+  onToggleSettings: () => void;
+  showDebug?: boolean;
+  onToggleDebug?: () => void;
+  showLegend?: boolean;
+  onToggleLegend?: () => void;
+  showPerfTest?: boolean;
+  onTogglePerfTest?: () => void;
+}
+
+const MODE_LABELS: Record<string, { label: string; level: 'ok' | 'info' | 'waiting' | 'critical' }> = {
+  real: { label: 'LIVE CAPTURE', level: 'ok' },
+  simulated: { label: 'SIMULATED TRAFFIC', level: 'info' },
+  zeek: { label: 'ZEEK SENSOR', level: 'info' },
+  waiting: { label: 'WAITING FOR STREAM', level: 'waiting' },
+};
+
+export const NocHeader: React.FC<NocHeaderProps> = ({
+  currentRoute,
+  status,
+  error,
+  captureMode,
+  showSettings,
+  onToggleSettings,
+  showDebug,
+  onToggleDebug,
+  showLegend,
+  onToggleLegend,
+  showPerfTest,
+  onTogglePerfTest,
+}) => {
+  const [timeStr, setTimeStr] = useState<string>('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-US', { hour12: false });
+      const tz = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop() || 'UTC';
+      setTimeStr(`${time} ${tz}`);
+    };
+    updateClock();
+    const id = setInterval(updateClock, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const modeInfo = MODE_LABELS[captureMode] || { label: captureMode.toUpperCase(), level: 'info' };
+
+  return (
+    <header
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '56px',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px',
+        padding: '0 18px',
+        borderBottom: 'var(--border-inset, 1px solid rgba(255,255,255,0.1))',
+        background: 'var(--surface-chrome, #0e0e0e)',
+        color: 'var(--text-hi, #fff)',
+        fontFamily: 'var(--font-sans)',
+      }}
+    >
+      {/* Wordmark and Identity */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexShrink: 1 }}>
+        <span
+          style={{
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--tracking-wide, 0.14em)',
+            textTransform: 'uppercase',
+            color: 'var(--text-hi, #fff)',
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          VIBES
+        </span>
+        <div style={{ width: '1px', height: '24px', background: 'var(--line-strong, rgba(255,255,255,0.2))', flexShrink: 0 }} />
+        <span
+          className="noc-header-subtitle"
+          style={{
+            font: 'var(--type-label)',
+            letterSpacing: 'var(--tracking-wide, 0.14em)',
+            textTransform: 'uppercase',
+            color: 'var(--text-faint, rgba(255,255,255,0.6))',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            minWidth: 0,
+          }}
+        >
+          Network Operations Center
+        </span>
+      </div>
+
+      {/* Mode / Sensor Chip */}
+      <SeverityBadge level={modeInfo.level} label={modeInfo.label} />
+
+      {/* Navigation Tabs */}
+      <nav
+        aria-label="Surface navigation"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginLeft: '24px',
+        }}
+      >
+        <a
+          href="#main"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            minHeight: '34px',
+            padding: '0 14px',
+            borderRadius: 'var(--radius-md, 8px)',
+            background: currentRoute === 'main' ? 'var(--sidebar-accent, rgba(255,255,255,0.1))' : 'transparent',
+            color: currentRoute === 'main' ? 'var(--text-hi, #fff)' : 'var(--text-muted, rgba(255,255,255,0.65))',
+            font: 'var(--type-ui)',
+            textDecoration: 'none',
+            border: currentRoute === 'main' ? 'var(--border-control, 1px solid rgba(255,255,255,0.15))' : '1px solid transparent',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          {currentRoute === 'main' && (
+            <span
+              style={{
+                width: '3px',
+                height: '14px',
+                borderRadius: '2px',
+                background: 'var(--signal-teal, #00d2aa)',
+              }}
+            />
+          )}
+          Overview
+        </a>
+        <a
+          href="#debug"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            minHeight: '34px',
+            padding: '0 14px',
+            borderRadius: 'var(--radius-md, 8px)',
+            background: currentRoute === 'debug' ? 'var(--sidebar-accent, rgba(255,255,255,0.1))' : 'transparent',
+            color: currentRoute === 'debug' ? 'var(--text-hi, #fff)' : 'var(--text-muted, rgba(255,255,255,0.65))',
+            font: 'var(--type-ui)',
+            textDecoration: 'none',
+            border: currentRoute === 'debug' ? 'var(--border-control, 1px solid rgba(255,255,255,0.15))' : '1px solid transparent',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          {currentRoute === 'debug' && (
+            <span
+              style={{
+                width: '3px',
+                height: '14px',
+                borderRadius: '2px',
+                background: 'var(--signal-teal, #00d2aa)',
+              }}
+            />
+          )}
+          Inspector
+        </a>
+      </nav>
+
+      {/* Right side operational controls & metrics */}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {onToggleLegend && (
+          <button
+            onClick={onToggleLegend}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              minHeight: '34px',
+              padding: '0 12px',
+              borderRadius: 'var(--radius-md, 8px)',
+              border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+              background: showLegend ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'var(--card, #141414)',
+              color: showLegend ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
+              font: 'var(--type-ui-sm)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>Legend</span>
+          </button>
+        )}
+
+        {onToggleDebug && (
+          <button
+            onClick={onToggleDebug}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              minHeight: '34px',
+              padding: '0 12px',
+              borderRadius: 'var(--radius-md, 8px)',
+              border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+              background: showDebug ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'var(--card, #141414)',
+              color: showDebug ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
+              font: 'var(--type-ui-sm)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>Debug</span>
+          </button>
+        )}
+
+        {/* Settings Button */}
+        <button
+          onClick={onToggleSettings}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            minHeight: '34px',
+            padding: '0 12px',
+            borderRadius: 'var(--radius-md, 8px)',
+            border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+            background: showSettings ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'var(--card, #141414)',
+            color: showSettings ? 'var(--signal-teal, #00d2aa)' : 'var(--text-hi, #fff)',
+            font: 'var(--type-ui-sm)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span>Settings</span>
+        </button>
+
+        {/* Connection status badge */}
+        <SeverityBadge
+          level={status === 'connected' ? 'ok' : status === 'connecting' ? 'medium' : 'critical'}
+          label={status}
+          showDot={true}
+        />
+
+        {/* Local/UTC timestamp in monospace tabular numerals */}
+        <span
+          style={{
+            font: 'var(--type-data-sm)',
+            color: 'var(--text-muted, rgba(255,255,255,0.65))',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {timeStr || '00:00:00'}
+        </span>
+      </div>
+    </header>
+  );
+};

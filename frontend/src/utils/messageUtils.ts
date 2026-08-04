@@ -34,7 +34,7 @@ export const formatDataSize = (bytes: number): string => {
   }
 }
 
-/** World-space radius range for host nodes (packet-volume driven). */
+/** Visual node radius range in world units (Canvas layout). */
 export const NODE_RADIUS_MIN = 6;
 export const NODE_RADIUS_MAX = 26;
 
@@ -59,34 +59,49 @@ export const calculateNodeSize = (trafficVolume: number): number => {
 };
 
 /**
- * Node radius relative to the busiest visible peer (live connection count).
- * sqrt scale keeps hubs readable without swallowing quiet hosts.
- * `intensity` scales the effect: 0 = off (uniform min size), 1 = full span.
+ * Node radius relative to the busiest visible peer (live connection count or relative load).
+ * Supports both signatures:
+ * - calculateRelativeNodeRadius(connectionCount, maxConnectionCount, intensity)
+ * - calculateRelativeNodeRadius(relativeLoad, minRadius, maxRadius)
  */
 export const calculateRelativeNodeRadius = (
-  connectionCount: number,
-  maxConnectionCount: number,
-  intensity = 1,
+  val: number,
+  maxValOrMinRadius: number = NODE_RADIUS_MIN,
+  intensityOrMaxRadius: number = NODE_RADIUS_MAX,
 ): number => {
-  const amount = Math.max(0, Math.min(1, intensity));
-  if (amount <= 0 || connectionCount <= 0 || maxConnectionCount <= 0) return NODE_RADIUS_MIN;
-  const t = Math.sqrt(Math.min(1, connectionCount / maxConnectionCount));
-  const span = (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * amount;
-  return NODE_RADIUS_MIN + t * span;
+  if (intensityOrMaxRadius <= 1) {
+    const intensity = Math.max(0, Math.min(1, intensityOrMaxRadius));
+    if (intensity <= 0 || val <= 0 || maxValOrMinRadius <= 0) return NODE_RADIUS_MIN;
+    const t = Math.sqrt(Math.min(1, val / maxValOrMinRadius));
+    const span = (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * intensity;
+    return NODE_RADIUS_MIN + t * span;
+  }
+  const minRadius = maxValOrMinRadius;
+  const maxRadius = intensityOrMaxRadius;
+  const t = Math.max(0, Math.min(1, val));
+  return minRadius + (maxRadius - minRadius) * Math.sqrt(t);
 };
 
 /**
- * Edge stroke width relative to the heaviest visible flow (byte throughput).
- * `intensity` scales the effect: 0 = off (uniform min width), 1 = full span.
+ * Edge stroke width relative to the heaviest visible flow (byte throughput or relative weight).
+ * Supports both signatures:
+ * - calculateRelativeEdgeWidth(throughput, maxThroughput, intensity)
+ * - calculateRelativeEdgeWidth(relativeWeight, minWidth, maxWidth)
  */
 export const calculateRelativeEdgeWidth = (
-  throughput: number,
-  maxThroughput: number,
-  intensity = 1,
+  val: number,
+  maxValOrMinWidth: number = EDGE_WIDTH_MIN,
+  intensityOrMaxWidth: number = EDGE_WIDTH_MAX,
 ): number => {
-  const amount = Math.max(0, Math.min(1, intensity));
-  if (amount <= 0 || throughput <= 0 || maxThroughput <= 0) return EDGE_WIDTH_MIN;
-  const t = Math.sqrt(Math.min(1, throughput / maxThroughput));
-  const span = (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN) * amount;
-  return EDGE_WIDTH_MIN + t * span;
-}; 
+  if (intensityOrMaxWidth <= 1) {
+    const intensity = Math.max(0, Math.min(1, intensityOrMaxWidth));
+    if (intensity <= 0 || val <= 0 || maxValOrMinWidth <= 0) return EDGE_WIDTH_MIN;
+    const t = Math.sqrt(Math.min(1, val / maxValOrMinWidth));
+    const span = (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN) * intensity;
+    return EDGE_WIDTH_MIN + t * span;
+  }
+  const minWidth = maxValOrMinWidth;
+  const maxWidth = intensityOrMaxWidth;
+  const t = Math.max(0, Math.min(1, val));
+  return minWidth + (maxWidth - minWidth) * Math.pow(t, 0.65);
+};

@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+@import url('../../../noc-ui-kit/styles.css');
 @import url('./styles/components.css');
 
 /* Base styles */
@@ -16,166 +17,209 @@ body {
   overflow: hidden;
 }
 
+/* Retro Blue Neon Theme Overrides — disregards standard UI Kit when selected */
+[data-theme="retro-blue"] {
+  --card: rgba(4, 16, 31, 0.95);
+  --surface-card: rgba(4, 16, 31, 0.95);
+  --surface-chrome: #030b17;
+  --border-card: 1px solid rgba(51, 204, 255, 0.4);
+  --border-control: 1px solid rgba(56, 189, 248, 0.5);
+  --text-hi: #7dd3fc;
+  --signal-teal: #33ccff;
+  --wash-ok: rgba(51, 204, 255, 0.18);
+  --vibes-primary: #33ccff;
+  --border-inset: 1px solid rgba(51, 204, 255, 0.2);
+  --text-muted: rgba(125, 211, 252, 0.7);
+  --type-ui: 'VT323', monospace;
+  --type-ui-sm: 'VT323', monospace;
+  --type-label: 'VT323', monospace;
+  --type-h2: 'VT323', monospace;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-xl: 6px;
+}
+
+[data-theme="retro-blue"] .settings-panel,
+[data-theme="retro-blue"] .noc-header,
+[data-theme="retro-blue"] .noc-status-bar,
+[data-theme="retro-blue"] .console-output {
+  box-shadow: 0 0 20px rgba(51, 204, 255, 0.25), inset 0 0 10px rgba(56, 189, 248, 0.1);
+  border-color: #33ccff !important;
+}
+
+[data-theme="retro-blue"] button:hover {
+  background: rgba(251, 191, 36, 0.2) !important;
+  color: #fbbf24 !important;
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+}
+
 /* Critical UI Component Styles */
 /* Settings Panel */
 .settings-panel {
   position: fixed;
-  top: 20px;
-  left: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  border-radius: 4px;
-  padding: 20px;
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
+  top: 68px;
+  right: 18px;
+  background: var(--surface-card, #141414);
+  border: var(--border-card, 1px solid rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-xl, 14px);
+  padding: 18px;
+  color: var(--text-hi, #fff);
+  font-family: var(--font-sans);
   z-index: 1000;
-  width: 320px;
+  width: 360px;
+  min-width: 280px;
+  min-height: 220px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.settings-panel > div:first-child,
+.settings-panel > .button-group {
+  flex-shrink: 0;
+}
+
+.settings-panel .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  margin-right: -2px;
+}
+
+/* Subtle scrollbar so long Physics / Experimental lists stay usable */
+.settings-panel .tab-content::-webkit-scrollbar {
+  width: 8px;
+}
+.settings-panel .tab-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+}
+.settings-panel .tab-content::-webkit-scrollbar-thumb {
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  border-radius: 4px;
+}
+.settings-panel .tab-content::-webkit-scrollbar-thumb:hover {
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  filter: brightness(1.2);
+}
+
+input[type="range"] {
+  accent-color: var(--signal-teal, var(--vibes-primary, #33ccff));
 }
 
 .settings-panel h2 {
-  margin: 0 0 20px 0;
-  font-size: 24px;
+  margin: 0 0 16px 0;
+  font: var(--type-h2);
+  letter-spacing: -0.01em;
+  color: var(--text-hi, #fff);
   text-transform: uppercase;
-  letter-spacing: 2px;
 }
 
 .minimize-btn {
-  background: none;
-  border: 1px solid var(--vibes-primary, #00ff00);
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-size: 18px;
+  background: transparent;
+  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+  font: var(--type-ui-sm);
   cursor: pointer;
-  padding: 0px 8px;
+  padding: 4px 10px;
   line-height: 1;
+  transition: all 0.15s ease;
 }
 
 .minimize-btn:hover {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0),0.2);
-}
-
-.settings-button {
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid #ff0000;
-  color: #ff0000;
-  padding: 10px 20px;
-  font-family: 'VT323', monospace;
-  font-size: 18px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.settings-button:hover {
-  background: rgba(255, 0, 0, 0.2);
-  box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+  background: var(--sidebar-accent, rgba(255, 255, 255, 0.1));
+  color: var(--text-hi, #fff);
 }
 
 .settings-panel h3 {
   margin: 0 0 10px 0;
-  font-size: 18px;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-wide, 0.14em);
+  text-transform: uppercase;
+  color: var(--text-faint, rgba(255, 255, 255, 0.5));
 }
 
 .button-group {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 20px;
 }
 
 .button-group button {
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  color: var(--vibes-primary, #00ff00);
-  padding: 8px 6px;
-  font-family: 'VT323', monospace;
-  font-size: 17px;
+  background: var(--card, #141414);
+  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+  padding: 8px 12px;
+  font: var(--type-ui-sm);
   cursor: pointer;
-  transition: all 0.3s ease;
-  border-radius: 4px;
+  transition: all 0.15s ease;
+  border-radius: var(--radius-md, 8px);
   flex: 1;
   text-transform: uppercase;
-  letter-spacing: 0;
+  letter-spacing: 0.05em;
   position: relative;
   overflow: hidden;
   white-space: nowrap;
 }
 
 .button-group button:hover {
-  background: rgba(var(--vibes-primary-rgb, 0, 255, 0),0.2);
-  box-shadow: 0 0 15px rgba(var(--vibes-primary-rgb, 0, 255, 0),0.5);
+  background: var(--sidebar-accent, rgba(255, 255, 255, 0.1));
+  color: var(--text-hi, #fff);
 }
 
 .button-group button.active {
-  background: var(--vibes-primary, #00ff00);
-  color: #000;
-  box-shadow: 0 0 15px var(--vibes-primary, #00ff00);
-}
-
-/* Pulsing effect for "Real" button to draw attention */
-.button-group button:last-child:not(.active) {
-  animation: pulse-border 1.5s infinite;
-}
-
-@keyframes pulse-border {
-  0% { box-shadow: 0 0 0 0 rgba(var(--vibes-primary-rgb, 0, 255, 0),0.7); }
-  70% { box-shadow: 0 0 0 10px rgba(var(--vibes-primary-rgb, 0, 255, 0),0); }
-  100% { box-shadow: 0 0 0 0 rgba(var(--vibes-primary-rgb, 0, 255, 0),0); }
+  background: var(--sidebar-accent, rgba(255, 255, 255, 0.15));
+  color: var(--text-hi, #fff);
+  border-color: var(--signal-teal, #00d2aa);
 }
 
 .interface-select {
-  margin-top: 15px;
-  border: 2px solid var(--vibes-primary, #00ff00);
-  padding: 15px;
-  background: rgba(0, 0, 0, 0.7);
-  border-radius: 4px;
-  animation: highlight-border 2s infinite;
-}
-
-@keyframes highlight-border {
-  0% { box-shadow: 0 0 5px var(--vibes-primary, #00ff00); }
-  50% { box-shadow: 0 0 15px var(--vibes-primary, #00ff00); }
-  100% { box-shadow: 0 0 5px var(--vibes-primary, #00ff00); }
+  margin-top: 16px;
+  border: var(--border-card, 1px solid rgba(255, 255, 255, 0.1));
+  padding: 14px;
+  background: var(--sidebar, #0e0e0e);
+  border-radius: var(--radius-lg, 10px);
 }
 
 .interface-select h3 {
   margin: 0 0 10px 0;
-  font-size: 18px;
-  color: var(--vibes-primary, #00ff00);
+  font: var(--type-label);
+  color: var(--text-muted, rgba(255, 255, 255, 0.7));
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: var(--tracking-wide, 0.14em);
 }
 
 .interface-select select {
   width: 100%;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  color: var(--vibes-primary, #00ff00);
-  padding: 12px;
-  font-family: 'VT323', monospace;
-  font-size: 18px;
-  height: 45px;
+  background: var(--card, #141414);
+  border: var(--border-control, 1px solid rgba(255, 255, 255, 0.15));
+  color: var(--text-hi, #fff);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  height: 38px;
   outline: none;
+  border-radius: var(--radius-md, 8px);
   cursor: pointer;
-  appearance: none; /* Remove default OS styling */
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--vibes-primary, #00ff00) 50%),
-                    linear-gradient(135deg, var(--vibes-primary, #00ff00) 50%, transparent 50%);
-  background-position: calc(100% - 15px) center, calc(100% - 10px) center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
 }
 
 .interface-select select:focus {
-  box-shadow: 0 0 10px var(--vibes-primary, #00ff00);
+  border-color: var(--signal-teal, #00d2aa);
+  box-shadow: var(--focus-ring);
 }
 
 .interface-select select option {
-  background: #000;
-  color: var(--vibes-primary, #00ff00);
-  padding: 10px;
+  background: #141414;
+  color: #fff;
+  padding: 8px;
 }
 
 /* Stats Panel */
@@ -266,7 +310,7 @@ body {
 /* Canvas container */
 .canvas-container {
   position: fixed;
-  top: 0;
+  top: 56px;
   left: 0;
   right: 0;
   bottom: 36px; /* stop above the status bar */
@@ -325,12 +369,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-primary);
-  border-radius: 0;
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-secondary);
+  background: var(--signal-teal, var(--vibes-primary, #33ccff));
+  filter: brightness(1.2);
 }
 
 /* Animation keyframes */
@@ -409,67 +454,51 @@ body {
   position: relative;
 }
 
-.editor-container::before {
-  content: 'u@vibes$#';
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  color: var(--vibes-primary, #00ff00);
-  pointer-events: none;
-  font-size: 16px;
-  font-family: 'VT323', monospace;
-  display: none; /* Hidden by default */
-}
-
-.editor-container.console-active::before {
-  display: block; /* Show only when console is active */
-}
-
 .command-input-editor {
-  background: rgba(0, 0, 0, 0.7);
-  border: 1px solid var(--vibes-primary, #00ff00);
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-size: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-hi, #fff);
+  font-family: var(--font-mono);
+  font-size: 12px;
   width: 100%;
   outline: none;
-  min-height: 38px; /* Adjusted for padding */
+  min-height: 28px;
 }
 
 .editor-container.console-active .command-input-editor {
-    padding-left: 100px; /* Make space for the prompt only when active */
+  padding-left: 90px;
 }
 
 .command-input::placeholder {
-  color: rgba(var(--vibes-primary-rgb, 0, 255, 0),0.5);
+  color: var(--text-muted, rgba(255,255,255,0.4));
 }
 
 .console-output {
-  position: absolute;
-  bottom: 100%; /* Position directly above the command bar */
+  position: fixed;
+  bottom: 0;
   left: 0;
-  width: 100%; /* Match the width of the container */
-  height: 200px; /* Max height for 10 lines */
-  background: rgba(0, 0, 0, 0.85);
-  border-top: 1px solid var(--vibes-primary, #00ff00);
-  border-left: 1px solid var(--vibes-primary, #00ff00);
-  border-right: 1px solid var(--vibes-primary, #00ff00);
-  padding: 10px;
+  right: 0;
+  width: 100vw;
+  height: 150px;
+  background: var(--surface-chrome, #0e0e0e);
+  border-top: none;
+  padding: 10px 20px 20px 20px;
   overflow-y: auto;
-  color: var(--vibes-primary, #00ff00);
-  font-family: 'VT323', monospace;
-  font-size: 16px;
-  line-height: 1.2;
-  z-index: 998;
+  color: var(--text-hi, #fff);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  z-index: 999;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
 }
 
 .console-output div {
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 
 .console-output .prompt {
-  color: #00ffff; /* Cyan for the prompt in history */
-  margin-right: 5px;
+  color: var(--signal-teal, #00d2aa);
+  margin-right: 8px;
 }
 
 
@@ -477,7 +506,7 @@ body {
 
 .command-input-editor textarea:focus {
   outline: none;
-  box-shadow: 0 0 10px rgba(var(--vibes-primary-rgb, 0, 255, 0),0.5);
+  box-shadow: none;
 }
 
 .command-input-editor .token.keyword {
@@ -500,5 +529,24 @@ body {
   color: #ff0000; /* Red for operators like '/' and '-' */
 }
 
+/* --- Responsive NOC Header & Footer --- */
+@media (max-width: 1024px) {
+  .noc-header-subtitle {
+    max-width: 140px;
+  }
+}
 
- 
+@media (max-width: 860px) {
+  .noc-header-subtitle {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .command-input-editor textarea::placeholder,
+  .command-input-editor input::placeholder,
+  .command-input-editor::placeholder {
+    color: transparent !important;
+    opacity: 0 !important;
+  }
+}

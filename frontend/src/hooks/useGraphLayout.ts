@@ -22,6 +22,8 @@ export interface LayoutNode {
   clusterKey: string;
   radius: number;
   effectiveRadius: number;
+  /** 0..1 share of heaviest visible node's connection count (drives ball size). */
+  load: number;
   /** Live peer count used for sizing (distinct nodes connected via visible edges). */
   degree: number;
   color: string;
@@ -41,7 +43,7 @@ export interface LayoutEdge {
   dstPort?: number;
   alpha: number;
   weight: number;
-  /** Stroke width derived from peer-relative throughput (bytes). */
+  /** Stroke width derived from peer-relative throughput (bytes) or sustained weight. */
   thickness: number;
   lastActive: number;
 }
@@ -55,7 +57,7 @@ export interface GraphLayoutResult {
 const PHYSICS_HZ = 30;
 const PHYSICS_STEP = 1000 / PHYSICS_HZ;
 const NODE_RADIUS = NODE_RADIUS_MIN + 2;
-/** How quickly radius eases toward the packet-volume target (per sync). */
+/** How quickly radius eases toward the throughput/packet-volume target (per sync). */
 const RADIUS_SMOOTH = 0.22;
 // A pinned node with no live connection for this long fades out and is removed
 // (the pin RULE stays — it re-docks if the host talks again).
@@ -351,6 +353,7 @@ export function useGraphLayout(): GraphLayoutResult {
           clusterKey,
           radius: NODE_RADIUS,
           effectiveRadius: NODE_RADIUS,
+          load: 0,
           degree: 0,
           color: getProtocolColor(c.protocol),
           highlightColor: getHighlightColor(id),
@@ -369,7 +372,7 @@ export function useGraphLayout(): GraphLayoutResult {
     // Conversation keys are undirected, so we count unique peers, not
     // directional in-degree. Edge width still tracks byte throughput.
     // Intensities come from the Experimental physics sliders.
-    const { nodeSizeIntensity, edgeWidthIntensity } = physicsRef.current;
+    const { nodeSizingIntensity, edgeWidthIntensity } = physicsRef.current;
     const peersByNode = new Map<string, Set<string>>();
     let maxEdgeBytes = 0;
     const addPeer = (a: string, b: string) => {
@@ -398,7 +401,8 @@ export function useGraphLayout(): GraphLayoutResult {
     layoutNodes.current.forEach(node => {
       const degree = peersByNode.get(node.id)?.size ?? 0;
       node.degree = degree;
-      const targetR = calculateRelativeNodeRadius(degree, maxNodeDegree, nodeSizeIntensity);
+      node.load = degree / maxNodeDegree;
+      const targetR = calculateRelativeNodeRadius(degree, maxNodeDegree, nodeSizingIntensity);
       node.radius += (targetR - node.radius) * RADIUS_SMOOTH;
       node.effectiveRadius = node.radius;
     });
@@ -751,7 +755,7 @@ export function useGraphLayout(): GraphLayoutResult {
     // stays real-time. Cell size = the largest interaction distance (sized for
     // the max node radius at current intensity so fat hosts still collide).
     const nodes = Array.from(layoutNodes.current.values());
-    const sizeIntensity = Math.max(0, physicsRef.current.nodeSizeIntensity ?? 1);
+    const sizeIntensity = Math.max(0, physicsRef.current.nodeSizingIntensity ?? 1);
     const maxNodeR = NODE_RADIUS_MIN + (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * sizeIntensity;
     const maxSoft = (maxNodeR * 2 + adaptiveSpacing) * 1.6;
     const cellSize = Math.max(24, maxSoft);

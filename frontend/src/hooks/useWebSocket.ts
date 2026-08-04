@@ -15,9 +15,10 @@ interface WebSocketState {
   sendMessage: (message: string) => void;
 }
 
-const wsRef = { current: null as WebSocket | null };
-
 export const useWebSocket = (url: string | null): WebSocketState => {
+  const wsRef = useRef<WebSocket | null>(null);
+  const isMounted = useRef<boolean>(true);
+
   const [state, setState] = useState<Omit<WebSocketState, 'sendMessage'>>({
     status: url ? 'connecting' : 'waiting',
     error: null,
@@ -49,6 +50,7 @@ export const useWebSocket = (url: string | null): WebSocketState => {
   }, []);
 
   useEffect(() => {
+    isMounted.current = true;
     setState({
       status: url ? 'connecting' : 'waiting',
       error: null,
@@ -108,13 +110,18 @@ export const useWebSocket = (url: string | null): WebSocketState => {
         ws.onclose = () => {
           logger.log('WebSocket connection closed');
           if (wsRef.current === ws) {
-            setState(prev => ({ ...prev, status: 'disconnected' }));
             wsRef.current = null;
+            if (!isMounted.current) {
+              return;
+            }
+            setState(prev => ({ ...prev, status: 'disconnected' }));
             if (retryCount.current < MAX_RETRIES) {
               const delay = Math.pow(2, retryCount.current) * 1000;
               timeoutRef.current = setTimeout(() => {
-                retryCount.current += 1;
-                connectWebSocket();
+                if (isMounted.current) {
+                  retryCount.current += 1;
+                  connectWebSocket();
+                }
               }, delay);
             }
           }
@@ -149,8 +156,11 @@ export const useWebSocket = (url: string | null): WebSocketState => {
     connectWebSocket();
     
     return () => {
+      isMounted.current = false;
       if (wsRef.current) {
-        wsRef.current.close();
+        const ws = wsRef.current;
+        wsRef.current = null;
+        ws.close();
       }
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);

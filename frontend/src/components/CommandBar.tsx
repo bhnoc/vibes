@@ -3,11 +3,12 @@ import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
 import { usePinStore } from '../stores/pinStore';
+import { useWindowStore } from '../stores/windowStore';
 
 // --- Custom PrismJS Grammar for our commands ---
 Prism.languages.vibes = {
   'command': {
-    pattern: /^\/(pin|unpin|pinned|list|help|whoami)\b/,
+    pattern: /^\/(pin|unpin|pinned|list|debug|legend|settings|help|whoami)\b/,
     alias: 'keyword',
   },
   'subcommand': {
@@ -37,11 +38,16 @@ Prism.languages.vibes = {
 };
 
 
-export const CommandBar = () => {
+export interface CommandBarProps {
+  onConsoleToggle?: (isOpen: boolean) => void;
+}
+
+export const CommandBar: React.FC<CommandBarProps> = ({ onConsoleToggle }) => {
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const { addPinningRule, removePinningRule, pinningRules, clearAllPins } = usePinStore();
+  const { toggleSettings, toggleDebug, toggleLegend } = useWindowStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const consoleOutputRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +55,9 @@ export const CommandBar = () => {
 
   const executeCommand = () => {
     if (command.trim() === '') return;
-    const [action, ...args] = command.trim().split(' ');
+    const [rawAction, ...args] = command.trim().split(' ');
+    const action = rawAction.toLowerCase();
+    const arg0 = args[0]?.toLowerCase();
     let output = '';
 
     if (action === '/pin') {
@@ -59,43 +67,79 @@ export const CommandBar = () => {
         output = `Added pinning rule: ${rule}`;
       }
     } else if (action === '/unpin') {
-        const rule = args[0];
-        if (rule === 'clear') {
-            clearAllPins();
-            output = 'All pinning rules have been cleared.';
-        } else if (rule) {
-            removePinningRule(rule);
-            output = `Removed pinning rule: ${rule}`;
-        }
-    } else if (action === '/pinned' || (action === '/list' && args[0] === 'pinned')) {
+      const rule = args[0];
+      if (arg0 === 'clear') {
+        clearAllPins();
+        output = 'All pinning rules have been cleared.';
+      } else if (rule) {
+        removePinningRule(rule);
+        output = `Removed pinning rule: ${rule}`;
+      }
+    } else if (action === '/pinned' || (action === '/list' && arg0 === 'pinned')) {
       output = `Active pinning rules: ${Array.from(pinningRules).join(', ')}`;
+    } else if (action === '/debug') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleDebug(true);
+        output = 'Debug window opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleDebug(false);
+        output = 'Debug window closed.';
+      } else {
+        toggleDebug();
+        output = 'Toggled debug window.';
+      }
+    } else if (action === '/legend') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleLegend(true);
+        output = 'Legend window opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleLegend(false);
+        output = 'Legend window closed.';
+      } else {
+        toggleLegend();
+        output = 'Toggled legend window.';
+      }
+    } else if (action === '/settings') {
+      if (arg0 === 'open' || arg0 === 'on' || arg0 === '1') {
+        toggleSettings(true);
+        output = 'Settings panel opened.';
+      } else if (arg0 === 'close' || arg0 === 'off' || arg0 === '0') {
+        toggleSettings(false);
+        output = 'Settings panel closed.';
+      } else {
+        toggleSettings();
+        output = 'Toggled settings panel.';
+      }
     } else if (action === '/help') {
-      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /help, /whoami`;
+      output = `Available commands: /pin, /unpin, /pinned, /list pinned, /debug, /legend, /settings, /help, /whoami`;
     } else if (action === '/whoami') {
       output = 'd4rkm4tter was here';
     } else {
-      output = `Unknown command: ${action}`;
+      output = `Unknown command: ${rawAction}`;
     }
     
     const commandWithPrompt = `${PROMPT} ${command}`;
     setHistory((prevHistory) => [...prevHistory, commandWithPrompt, output].slice(-20));
     setCommand('');
+    if (!showConsole) {
+      setShowConsole(true);
+      onConsoleToggle?.(true);
+    }
   };
 
   const toggleConsole = useCallback(() => {
     setShowConsole(prev => {
       const newShowState = !prev;
+      onConsoleToggle?.(newShowState);
       if (newShowState) {
-        // Use a timeout to ensure the DOM is updated before we try to focus
         setTimeout(() => {
-          // Directly find and focus the textarea within our component
           const textarea = containerRef.current?.querySelector('textarea');
           textarea?.focus();
-        }, 0);
+        }, 50);
       }
       return newShowState;
     });
-  }, []);
+  }, [onConsoleToggle]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -107,6 +151,10 @@ export const CommandBar = () => {
       if (lastCommand) {
         setCommand(lastCommand.replace(`${PROMPT} `, ''));
       }
+    } else if (e.key === 'Escape' && showConsole) {
+      e.preventDefault();
+      setShowConsole(false);
+      onConsoleToggle?.(false);
     }
   };
 
@@ -115,19 +163,6 @@ export const CommandBar = () => {
       consoleOutputRef.current.scrollTop = consoleOutputRef.current.scrollHeight;
     }
   }, [history, showConsole]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showConsole && containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setShowConsole(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showConsole, containerRef]);
 
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
@@ -144,7 +179,24 @@ export const CommandBar = () => {
   }, [toggleConsole]);
 
   return (
-    <div className="command-bar-container" ref={containerRef}>
+    <div className="command-bar-container" ref={containerRef} style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px' }}>
+      <button
+        onClick={toggleConsole}
+        style={{
+          background: showConsole ? 'var(--wash-ok, rgba(0, 210, 170, 0.14))' : 'transparent',
+          border: 'var(--border-control, 1px solid rgba(255,255,255,0.15))',
+          color: showConsole ? 'var(--signal-teal, #00d2aa)' : 'var(--text-muted)',
+          borderRadius: 'var(--radius-sm, 6px)',
+          padding: '2px 8px',
+          font: 'var(--type-mono)',
+          cursor: 'pointer',
+          flexShrink: 0,
+        }}
+        title="Toggle Command Console (~)"
+      >
+        {showConsole ? '[-] CONSOLE' : '[~] CONSOLE'}
+      </button>
+
       {showConsole && (
         <div className="console-output" ref={consoleOutputRef}>
           {history.map((line, index) => {
@@ -165,16 +217,23 @@ export const CommandBar = () => {
       <div 
         className={`editor-container ${showConsole ? 'console-active' : ''}`}
         onKeyDown={handleKeyDown} 
-        onClick={() => !showConsole && toggleConsole()}
+        style={{ flex: 1, display: 'flex', alignItems: 'center' }}
       >
-        <Editor
-          value={command}
-          onValueChange={code => setCommand(code)}
-          highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
-          padding={{ top: 10, right: 10, bottom: 10, left: showConsole ? 100 : 10 }}
-          className="command-input-editor"
-          placeholder={showConsole ? '' : "Press '`' to open console"}
-        />
+        {showConsole && (
+          <span style={{ color: 'var(--signal-teal, #00d2aa)', font: 'var(--type-mono)', marginRight: '6px', userSelect: 'none', flexShrink: 0 }}>
+            {PROMPT}
+          </span>
+        )}
+        <div style={{ flex: 1 }}>
+          <Editor
+            value={command}
+            onValueChange={code => setCommand(code)}
+            highlight={code => Prism.highlight(code, Prism.languages.vibes, 'vibes')}
+            padding={{ top: 8, right: 10, bottom: 8, left: 2 }}
+            className="command-input-editor"
+            placeholder={showConsole ? "command (/help)" : "CONSOLE (~ or /help)"}
+          />
+        </div>
       </div>
     </div>
   );

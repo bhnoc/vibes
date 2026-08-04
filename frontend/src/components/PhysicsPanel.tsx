@@ -10,11 +10,15 @@ interface RangeSliderProps {
   step?: string | number;
   onChange: (value: number) => void;
   displayValue: string;
+  hint?: string;
 }
 
-const RangeSlider: React.FC<RangeSliderProps> = ({ label, value, min, max, step, onChange, displayValue }) => (
+const RangeSlider: React.FC<RangeSliderProps> = ({ label, value, min, max, step, onChange, displayValue, hint }) => (
   <div>
     <label>{label}</label>
+    {hint && (
+      <div style={{ fontSize: '11px', opacity: 0.65, marginBottom: '4px' }}>{hint}</div>
+    )}
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
       <input
         type="range"
@@ -43,7 +47,7 @@ export const PhysicsPanel: React.FC = () => {
     driftAwayStrength,
     centerPullStrength,
     springRestLength,
-    nodeSizeIntensity,
+    nodeSizingIntensity,
     edgeWidthIntensity,
     setConnectionPullStrength,
     setCollisionRepulsion,
@@ -54,13 +58,13 @@ export const PhysicsPanel: React.FC = () => {
     setDriftAwayStrength,
     setCenterPullStrength,
     setSpringRestLength,
-    setNodeSizeIntensity,
+    setNodeSizingIntensity,
     setEdgeWidthIntensity,
     resetPhysicsDefaults,
   } = usePhysicsStore();
 
   return (
-    <div style={{ marginTop: '20px' }}>
+    <div style={{ marginTop: '12px', paddingBottom: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
         <h3>Physics Controls</h3>
         <button
@@ -116,27 +120,6 @@ export const PhysicsPanel: React.FC = () => {
           displayValue={damping.toFixed(3)}
         />
         <RangeSlider
-          label="Connection Lifetime"
-          value={connectionLifetime}
-          min="0"
-          max="5000"
-          step="50"
-          onChange={(v) => {
-            setConnectionLifetime(v);
-            if (v > nodeLifetime) setNodeLifetime(v);
-          }}
-          displayValue={`${connectionLifetime} ms`}
-        />
-        <RangeSlider
-          label="Node Lifetime"
-          value={nodeLifetime}
-          min={connectionLifetime}
-          max="120000"
-          step="1000"
-          onChange={(v) => setNodeLifetime(Math.max(v, connectionLifetime))}
-          displayValue={`${(nodeLifetime / 1000).toFixed(0)}s`}
-        />
-        <RangeSlider
           label="Center Pull"
           value={Math.round(centerPullStrength * 100000)}
           min="0"
@@ -155,32 +138,44 @@ export const PhysicsPanel: React.FC = () => {
           displayValue={`${springRestLength} px`}
         />
 
-        <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: '1px solid rgba(0,255,0,0.25)' }}>
-          <h4 style={{ margin: '0 0 12px', color: '#00ff00', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.95em' }}>
-            Experimental
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <RangeSlider
-              label="Node Size (connections)"
-              value={Math.round(nodeSizeIntensity * 100)}
-              min="0"
-              max="100"
-              step="1"
-              onChange={(v: number) => setNodeSizeIntensity(v / 100)}
-              displayValue={nodeSizeIntensity <= 0 ? 'off' : `${nodeSizeIntensity.toFixed(2)}×`}
-            />
-            <RangeSlider
-              label="Edge Width (throughput)"
-              value={Math.round(edgeWidthIntensity * 100)}
-              min="0"
-              max="100"
-              step="1"
-              onChange={(v: number) => setEdgeWidthIntensity(v / 100)}
-              displayValue={edgeWidthIntensity <= 0 ? 'off' : `${edgeWidthIntensity.toFixed(2)}×`}
-            />
-          </div>
+      </div>
+
+      {/* ── Experimental ─────────────────────────────────────────────────── */}
+      <div
+        style={{
+          marginTop: '28px',
+          paddingTop: '16px',
+          borderTop: 'var(--border-inset, 1px solid rgba(255, 255, 255, 0.15))',
+        }}
+      >
+        <h3 style={{ marginBottom: '6px' }}>Experimental</h3>
+        <p style={{ fontSize: '11px', opacity: 0.65, marginBottom: '14px', color: 'var(--text-muted)' }}>
+          Ball size = connections. Line width = throughput. 0% = off / regular.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <RangeSlider
+            label="Connection-count sizing"
+            hint="Ball size grows with number of connections"
+            value={Math.round(nodeSizingIntensity * 100)}
+            min="0"
+            max="100"
+            step="1"
+            onChange={(v) => setNodeSizingIntensity(v / 100)}
+            displayValue={`${Math.round(nodeSizingIntensity * 100)}%`}
+          />
+          <RangeSlider
+            label="Throughput line width"
+            hint="Line thickness follows sustained throughput"
+            value={Math.round(edgeWidthIntensity * 100)}
+            min="0"
+            max="100"
+            step="1"
+            onChange={(v) => setEdgeWidthIntensity(v / 100)}
+            displayValue={`${Math.round(edgeWidthIntensity * 100)}%`}
+          />
         </div>
       </div>
     </div>
   );
-}; 
+};

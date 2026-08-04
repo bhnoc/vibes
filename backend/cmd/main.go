@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"context"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,9 +44,22 @@ var (
 	dumpcapRingFiles  = flag.Int("dumpcap-ring-files", 20, "dumpcap ring: number of files before overwrite")
 	dumpcapBufferMB   = flag.Int("dumpcap-buffer-mb", 1024, "dumpcap kernel buffer size in MB (-B)")
 	zeekTCPListen = flag.String("zeek-tcp", "", "default listen address for Zeek conn.log JSON over TCP (e.g. :4777); used when WebSocket connects with zeek_tcp=1")
+	corsOrigin    = flag.String("cors-origin", "*", "allowed origin(s) for CORS (default: all, comma-separated list for multiple)")
 	upgrader    = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins
+			if *corsOrigin == "*" {
+				return true
+			}
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // Allow same-origin browser requests or non-browser clients without an Origin header
+			}
+			for _, allowed := range strings.Split(*corsOrigin, ",") {
+				if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+					return true
+				}
+			}
+			return false
 		},
 	}
 	// Packets dropped when WebSocket send buffer is full (ingest faster than browser/network).
@@ -68,9 +83,32 @@ type ClientManager struct {
 	unregister         chan *Client
 	pinningRules       []string
 	rulesMutex         sync.RWMutex
+	stateMutex         sync.RWMutex
+	modeChanged        chan struct{}
 	timeWindowProcessor *capture.TimeWindowProcessor
 	currentCaptureMode  string
 	originalCapture     capture.PacketCapture
+}
+
+func (manager *ClientManager) signalModeChangeLocked() {
+	if manager.modeChanged != nil {
+		close(manager.modeChanged)
+	}
+	manager.modeChanged = make(chan struct{})
+}
+
+func (manager *ClientManager) getActiveCaptureChannel() (<-chan *capture.Packet, <-chan struct{}, string) {
+	manager.stateMutex.RLock()
+	defer manager.stateMutex.RUnlock()
+
+	modeChanged := manager.modeChanged
+	if manager.timeWindowProcessor != nil && manager.currentCaptureMode == "time_window" {
+		return manager.timeWindowProcessor.GetPacketChannel(), modeChanged, "time_window"
+	}
+	if manager.originalCapture != nil {
+		return manager.originalCapture.GetPacketChannel(), modeChanged, manager.currentCaptureMode
+	}
+	return nil, modeChanged, ""
 }
 
 func NewClientManager() *ClientManager {
@@ -80,6 +118,7 @@ func NewClientManager() *ClientManager {
 		register:     make(chan *Client),
 		unregister:   make(chan *Client),
 		pinningRules: make([]string, 0),
+		modeChanged:  make(chan struct{}),
 	}
 }
 
@@ -96,12 +135,20 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 	manager.rulesMutex.RLock()
 	defer manager.rulesMutex.RUnlock()
 
+	// Fast-path: check exact string matches first (O(1) comparison without IP parsing)
+	for _, rule := range manager.pinningRules {
+		if rule == ipStr {
+			return true
+		}
+	}
+
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
 
 	for _, rule := range manager.pinningRules {
+		rule = strings.TrimSpace(rule)
 		if strings.Contains(rule, "/") { // CIDR
 			_, ipnet, err := net.ParseCIDR(rule)
 			if err == nil && ipnet.Contains(ip) {
@@ -109,31 +156,37 @@ func (manager *ClientManager) isIPPinned(ipStr string) bool {
 			}
 		} else if strings.Contains(rule, "-") { // Range
 			parts := strings.Split(rule, "-")
-			startIPStr := parts[0]
-			endOctetStr := parts[1]
+			if len(parts) != 2 {
+				continue
+			}
+			startIPStr, endPart := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 
 			startIP := net.ParseIP(startIPStr)
 			if startIP == nil {
 				continue
 			}
-			
-			baseIPParts := strings.Split(startIPStr, ".")
-			if len(baseIPParts) != 4 {
-				continue
-			}
-			
-			endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endOctetStr)
-			endIP := net.ParseIP(endIPStr)
-			if endIP == nil {
-				continue
+
+			var endIP net.IP
+			if strings.Contains(endPart, ".") || strings.Contains(endPart, ":") {
+				// Full IP range: startIP-endIP
+				endIP = net.ParseIP(endPart)
+			} else {
+				// Shorthand range: startIP-lastOctet
+				baseIPParts := strings.Split(startIPStr, ".")
+				if len(baseIPParts) == 4 {
+					endIPStr := fmt.Sprintf("%s.%s.%s.%s", baseIPParts[0], baseIPParts[1], baseIPParts[2], endPart)
+					endIP = net.ParseIP(endIPStr)
+				}
 			}
 
-			if iplib.CompareIPs(ip, startIP) >= 0 && iplib.CompareIPs(ip, endIP) <= 0 {
-				return true
-			}
-		} else { // Exact match
-			if ipStr == rule {
-				return true
+			if endIP != nil {
+				// Ensure startIP and endIP are ordered correctly
+				if iplib.CompareIPs(startIP, endIP) > 0 {
+					startIP, endIP = endIP, startIP
+				}
+				if iplib.CompareIPs(ip, startIP) >= 0 && iplib.CompareIPs(ip, endIP) <= 0 {
+					return true
+				}
 			}
 		}
 	}
@@ -182,7 +235,15 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	selectedInterface := *iface
 
 	if pcapParam != "" {
-		selectedPcapFile = pcapParam
+		// Sanitize pcap path to prevent path traversal while allowing valid subdirectories
+		cleanStorage := filepath.Clean(*storageDir)
+		targetPath := filepath.Clean(filepath.Join(cleanStorage, pcapParam))
+		rel, err := filepath.Rel(cleanStorage, targetPath)
+		if err != nil || strings.HasPrefix(rel, "..") || targetPath == cleanStorage {
+			http.Error(w, "Invalid pcap path: access denied outside storage directory", http.StatusForbidden)
+			return
+		}
+		selectedPcapFile = targetPath
 	}
 	if speedParam != "" {
 		if speed, err := strconv.ParseFloat(speedParam, 64); err == nil && speed > 0 {
@@ -203,6 +264,18 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			}
 			zeekAddr = *zeekTCPListen
 		} else {
+			// Validate zeekAddr to prevent arbitrary port binding
+			portStr := zeekParam
+			if strings.Contains(portStr, ":") {
+				portStr = portStr[strings.LastIndex(portStr, ":")+1:]
+			} else {
+				zeekParam = ":" + zeekParam
+			}
+			port, err := strconv.Atoi(portStr)
+			if err != nil || port < 1024 || port > 65535 {
+				http.Error(w, "Invalid zeek_tcp address: port must be between 1024 and 65535", http.StatusBadRequest)
+				return
+			}
 			zeekAddr = zeekParam
 		}
 	}
@@ -280,8 +353,10 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	manager.register <- client
 	
 	// Store original capture for live mode switching
+	manager.stateMutex.Lock()
 	manager.originalCapture = captureSystem
 	manager.currentCaptureMode = captureMode
+	manager.stateMutex.Unlock()
 
 	// Send mode information to the client
 	var modeMessage []byte
@@ -329,26 +404,19 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			var packet *capture.Packet
 			var packetReceived bool
 			
-			// Check if we're in time window mode
-			if manager.timeWindowProcessor != nil && manager.currentCaptureMode == "time_window" {
-				select {
-				case packet = <-manager.timeWindowProcessor.GetPacketChannel():
-					packetReceived = true
-				case <-client.stopForwarder:
-					return
-				case <-time.After(1 * time.Millisecond):
-					// No packet available from time window, continue
-				}
-			} else {
-				// Normal live capture mode
-				select {
-				case packet = <-captureSystem.GetPacketChannel():
-					packetReceived = true
-				case <-client.stopForwarder:
-					return
-				case <-time.After(1 * time.Millisecond):
-					// No packet available, continue
-				}
+			packetChan, modeChanged, _ := manager.getActiveCaptureChannel()
+			if packetChan == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			select {
+			case packet = <-packetChan:
+				packetReceived = true
+			case <-modeChanged:
+				continue
+			case <-client.stopForwarder:
+				return
 			}
 			
 			if packetReceived && packet != nil {
@@ -512,6 +580,7 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 	}
 	processor := capture.NewTimeWindowProcessor(config)
 	
+	manager.stateMutex.Lock()
 	// Stop current capture if running
 	if manager.originalCapture != nil {
 		manager.originalCapture.Stop()
@@ -519,6 +588,10 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 	
 	// Start time window playback
 	if err := processor.Start(); err != nil {
+		if manager.originalCapture != nil {
+			_ = manager.originalCapture.Start()
+		}
+		manager.stateMutex.Unlock()
 		log.Printf("Failed to start time window playback: %v", err)
 		response, _ := json.Marshal(map[string]interface{}{
 			"type": "time_window_error",
@@ -530,6 +603,8 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 	
 	manager.timeWindowProcessor = processor
 	manager.currentCaptureMode = "time_window"
+	manager.signalModeChangeLocked()
+	manager.stateMutex.Unlock()
 	
 	// Send success response
 	response, _ := json.Marshal(map[string]interface{}{
@@ -546,15 +621,21 @@ func (manager *ClientManager) handleTimeWindowCommand(msg map[string]interface{}
 func (manager *ClientManager) handleSwitchToLive(client *Client) {
 	log.Printf("🔄 Switching back to live mode...")
 	
-	// Stop time window processor
-	if manager.timeWindowProcessor != nil {
-		manager.timeWindowProcessor.Stop()
-		manager.timeWindowProcessor = nil
+	manager.stateMutex.Lock()
+	prev := manager.timeWindowProcessor
+	if prev != nil {
+		prev.Stop()
 	}
 	
 	// Restart original capture
 	if manager.originalCapture != nil {
 		if err := manager.originalCapture.Start(); err != nil {
+			if prev != nil {
+				manager.timeWindowProcessor = prev
+				_ = prev.Start()
+				// leave currentCaptureMode as time_window
+			}
+			manager.stateMutex.Unlock()
 			log.Printf("Failed to restart live capture: %v", err)
 			response, _ := json.Marshal(map[string]interface{}{
 				"type": "switch_to_live_error",
@@ -565,7 +646,10 @@ func (manager *ClientManager) handleSwitchToLive(client *Client) {
 		}
 	}
 	
+	manager.timeWindowProcessor = nil
 	manager.currentCaptureMode = "live"
+	manager.signalModeChangeLocked()
+	manager.stateMutex.Unlock()
 	
 	// Send success response
 	response, _ := json.Marshal(map[string]interface{}{
@@ -589,7 +673,10 @@ func (manager *ClientManager) handleSeekToTime(msg map[string]interface{}, clien
 		return
 	}
 	
-	if manager.timeWindowProcessor == nil {
+	manager.stateMutex.RLock()
+	twp := manager.timeWindowProcessor
+	manager.stateMutex.RUnlock()
+	if twp == nil {
 		log.Printf("No time window processor active for seeking")
 		response, _ := json.Marshal(map[string]interface{}{
 			"type": "seek_error",
@@ -601,7 +688,7 @@ func (manager *ClientManager) handleSeekToTime(msg map[string]interface{}, clien
 	
 	log.Printf("⏰ Seeking to time: %s", seekTime.Format("15:04:05"))
 	
-	if err := manager.timeWindowProcessor.SeekToTime(seekTime); err != nil {
+	if err := twp.SeekToTime(seekTime); err != nil {
 		log.Printf("Failed to seek to time: %v", err)
 		response, _ := json.Marshal(map[string]interface{}{
 			"type": "seek_error",
@@ -768,8 +855,40 @@ func main() {
 		http.ServeFile(w, r, "public/index.html")
 	})
 
-	log.Printf("Starting server on %s", *addr)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
-		log.Fatal("ListenAndServe: ", err)
+	srv := &http.Server{
+		Addr:              *addr,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
+
+	go func() {
+		log.Printf("Starting server on %s", *addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	<-ctx.Done()
+	log.Println("Shutting down server gracefully...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	manager.stateMutex.Lock()
+	if manager.originalCapture != nil {
+		manager.originalCapture.Stop()
+	}
+	if manager.timeWindowProcessor != nil {
+		manager.timeWindowProcessor.Stop()
+	}
+	manager.stateMutex.Unlock()
+
+	log.Println("Server exited cleanly")
 }

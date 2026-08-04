@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+const boolOrNumToIntensity = (v: unknown, fallback: number): number => {
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'number' && Number.isFinite(v)) return clamp01(v);
+  return fallback;
+};
+
 export interface PhysicsSettings {
   connectionPullStrength: number;
   collisionRepulsion: number;
@@ -11,9 +19,10 @@ export interface PhysicsSettings {
   driftAwayStrength: number;
   centerPullStrength: number;
   springRestLength: number;
-  /** Scales connection-degree → node radius (0 = off, 1 = full effect). */
-  nodeSizeIntensity: number;
-  /** Scales throughput → edge width (0 = off, 1 = full effect). */
+  // ── Experimental feature intensities (0 = off / classic, 1 = full) ───────
+  /** Ball size from connection count (degree). */
+  nodeSizingIntensity: number;
+  /** Line width from sustained throughput. */
   edgeWidthIntensity: number;
   setConnectionPullStrength: (v: number) => void;
   setCollisionRepulsion: (v: number) => void;
@@ -24,7 +33,7 @@ export interface PhysicsSettings {
   setDriftAwayStrength: (v: number) => void;
   setCenterPullStrength: (v: number) => void;
   setSpringRestLength: (v: number) => void;
-  setNodeSizeIntensity: (v: number) => void;
+  setNodeSizingIntensity: (v: number) => void;
   setEdgeWidthIntensity: (v: number) => void;
   resetPhysicsDefaults: () => void;
 }
@@ -39,12 +48,12 @@ const defaultPhysics = {
   driftAwayStrength: 2.4,
   centerPullStrength: 0.002, // weak territorial bias toward each node's subnet home
   springRestLength: 70,
-  nodeSizeIntensity: 1,
+  nodeSizingIntensity: 1,
   edgeWidthIntensity: 1,
 }
 
-// Increment when defaults/shape change; migrate merges so user tuning is kept.
-const PHYSICS_VERSION = 23;
+// Increment to force-reset / migrate localStorage when settings shape changes
+const PHYSICS_VERSION = 27;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
@@ -59,22 +68,47 @@ export const usePhysicsStore = create<PhysicsSettings>()(
       setDriftAwayStrength: (v) => set({ driftAwayStrength: v }),
       setCenterPullStrength: (v) => set({ centerPullStrength: v }),
       setSpringRestLength: (v) => set({ springRestLength: v }),
-      setNodeSizeIntensity: (v) => set({ nodeSizeIntensity: Math.max(0, Math.min(1, v)) }),
-      setEdgeWidthIntensity: (v) => set({ edgeWidthIntensity: Math.max(0, Math.min(1, v)) }),
+      setNodeSizingIntensity: (v) => set({ nodeSizingIntensity: clamp01(v) }),
+      setEdgeWidthIntensity: (v) => set({ edgeWidthIntensity: clamp01(v) }),
       resetPhysicsDefaults: () => set({ ...defaultPhysics }),
     }),
     {
       name: 'physics-settings-storage',
       version: PHYSICS_VERSION,
       storage: createJSONStorage(() => localStorage),
-      migrate: (persistedState: any) => {
-        const merged = {
-          ...defaultPhysics,
-          ...(persistedState && typeof persistedState === 'object' ? persistedState : {}),
-        };
-        merged.nodeSizeIntensity = Math.max(0, Math.min(1, Number(merged.nodeSizeIntensity) || 0));
-        merged.edgeWidthIntensity = Math.max(0, Math.min(1, Number(merged.edgeWidthIntensity) || 0));
-        return merged;
+      migrate: (persistedState: any, version: number) => {
+        if (version < PHYSICS_VERSION) {
+          const prev = persistedState ?? {};
+          const {
+            klipperMode: _km,
+            klipperIntensity: _ki,
+            klipperThroughputSizing,
+            klipperEdgeThickness,
+            klipperDimQuiet: _kd,
+            klipperEnhanceBusy: _keb,
+            klipperSizingIntensity,
+            klipperEdgeIntensity,
+            klipperDimIntensity: _kdi,
+            klipperEnhanceIntensity: _kei,
+            dimQuietIntensity: _dd,
+            enhanceBusyIntensity: _eb,
+            nodeSizeIntensity,
+            ...rest
+          } = prev;
+          return {
+            ...defaultPhysics,
+            ...rest,
+            nodeSizingIntensity: boolOrNumToIntensity(
+              prev.nodeSizingIntensity ?? nodeSizeIntensity ?? klipperSizingIntensity ?? klipperThroughputSizing,
+              1,
+            ),
+            edgeWidthIntensity: boolOrNumToIntensity(
+              prev.edgeWidthIntensity ?? klipperEdgeIntensity ?? klipperEdgeThickness,
+              1,
+            ),
+          };
+        }
+        return persistedState;
       },
     }
   )

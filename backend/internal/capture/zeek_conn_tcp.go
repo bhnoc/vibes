@@ -172,10 +172,12 @@ func (h *zeekHub) handleConn(c net.Conn) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetKeepAlive(true)
 	}
+	_ = c.SetReadDeadline(time.Now().Add(300 * time.Second))
 	sc := bufio.NewScanner(c)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
 	for sc.Scan() {
+		_ = c.SetReadDeadline(time.Now().Add(300 * time.Second))
 		line := sc.Bytes()
 		if len(line) == 0 {
 			continue
