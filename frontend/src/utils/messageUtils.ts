@@ -35,47 +35,73 @@ export const formatDataSize = (bytes: number): string => {
 }
 
 /** Visual node radius range in world units (Canvas layout). */
-export const NODE_RADIUS_MIN = 6
-export const NODE_RADIUS_MAX = 26
+export const NODE_RADIUS_MIN = 6;
+export const NODE_RADIUS_MAX = 26;
+
+/** Stroke width range for connections (throughput driven). */
+export const EDGE_WIDTH_MIN = 1;
+export const EDGE_WIDTH_MAX = 9;
 
 /**
- * Maps absolute traffic volume → radius (legacy absolute scale).
- * Prefer calculateRelativeNodeRadius for peer-relative sizing.
+ * Calculates a node size based on traffic volume.
+ * Uses logarithmic scale to prevent huge nodes.
  */
 export const calculateNodeSize = (trafficVolume: number): number => {
-  const minSize = NODE_RADIUS_MIN
-  const maxSize = NODE_RADIUS_MAX
+  const minSize = NODE_RADIUS_MIN;
+  const maxSize = NODE_RADIUS_MAX;
 
   if (trafficVolume <= 0) {
-    return minSize
+    return minSize;
   }
 
-  const size = minSize + (Math.log10(trafficVolume) * 5)
-  return Math.min(size, maxSize)
-}
+  const size = minSize + (Math.log10(trafficVolume) * 5);
+  return Math.min(size, maxSize);
+};
 
 /**
- * Peer-relative node radius: `relativeLoad` is this node's share of the
- * heaviest visible talker (0..1). Sqrt softens winner-take-all spikes.
+ * Node radius relative to the busiest visible peer (live connection count or relative load).
+ * Supports both signatures:
+ * - calculateRelativeNodeRadius(connectionCount, maxConnectionCount, intensity)
+ * - calculateRelativeNodeRadius(relativeLoad, minRadius, maxRadius)
  */
 export const calculateRelativeNodeRadius = (
-  relativeLoad: number,
-  minRadius = NODE_RADIUS_MIN,
-  maxRadius = NODE_RADIUS_MAX,
+  val: number,
+  maxValOrMinRadius: number = NODE_RADIUS_MIN,
+  intensityOrMaxRadius: number = NODE_RADIUS_MAX,
 ): number => {
-  const t = Math.max(0, Math.min(1, relativeLoad))
-  return minRadius + (maxRadius - minRadius) * Math.sqrt(t)
-}
+  if (intensityOrMaxRadius <= 1) {
+    const intensity = Math.max(0, Math.min(1, intensityOrMaxRadius));
+    if (intensity <= 0 || val <= 0 || maxValOrMinRadius <= 0) return NODE_RADIUS_MIN;
+    const t = Math.sqrt(Math.min(1, val / maxValOrMinRadius));
+    const span = (NODE_RADIUS_MAX - NODE_RADIUS_MIN) * intensity;
+    return NODE_RADIUS_MIN + t * span;
+  }
+  const minRadius = maxValOrMinRadius;
+  const maxRadius = intensityOrMaxRadius;
+  const t = Math.max(0, Math.min(1, val));
+  return minRadius + (maxRadius - minRadius) * Math.sqrt(t);
+};
 
 /**
- * Peer-relative edge stroke width from this edge's share of the heaviest
- * visible flow (0..1). Quiet links stay thin; hot links read as pipes.
+ * Edge stroke width relative to the heaviest visible flow (byte throughput or relative weight).
+ * Supports both signatures:
+ * - calculateRelativeEdgeWidth(throughput, maxThroughput, intensity)
+ * - calculateRelativeEdgeWidth(relativeWeight, minWidth, maxWidth)
  */
 export const calculateRelativeEdgeWidth = (
-  relativeWeight: number,
-  minWidth = 1,
-  maxWidth = 9,
+  val: number,
+  maxValOrMinWidth: number = EDGE_WIDTH_MIN,
+  intensityOrMaxWidth: number = EDGE_WIDTH_MAX,
 ): number => {
-  const t = Math.max(0, Math.min(1, relativeWeight))
-  return minWidth + (maxWidth - minWidth) * Math.pow(t, 0.65)
-} 
+  if (intensityOrMaxWidth <= 1) {
+    const intensity = Math.max(0, Math.min(1, intensityOrMaxWidth));
+    if (intensity <= 0 || val <= 0 || maxValOrMinWidth <= 0) return EDGE_WIDTH_MIN;
+    const t = Math.sqrt(Math.min(1, val / maxValOrMinWidth));
+    const span = (EDGE_WIDTH_MAX - EDGE_WIDTH_MIN) * intensity;
+    return EDGE_WIDTH_MIN + t * span;
+  }
+  const minWidth = maxValOrMinWidth;
+  const maxWidth = intensityOrMaxWidth;
+  const t = Math.max(0, Math.min(1, val));
+  return minWidth + (maxWidth - minWidth) * Math.pow(t, 0.65);
+};

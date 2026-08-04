@@ -137,6 +137,7 @@ export const PhysicsPanel: React.FC = () => {
           onChange={setSpringRestLength}
           displayValue={`${springRestLength} px`}
         />
+
       </div>
 
       {/* ── Experimental ─────────────────────────────────────────────────── */}
