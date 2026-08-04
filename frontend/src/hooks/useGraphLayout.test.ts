@@ -47,17 +47,30 @@ describe('useGraphLayout - Net-new Layout & Dock Capabilities', () => {
       const pinRows = Math.max(1, Math.ceil(pinCount / pinCols));
       expect(pinCols).toBe(3);
       expect(pinRows).toBe(3);
+
+      const singleCols = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, 1))));
+      const singleRows = Math.max(1, Math.ceil(1 / singleCols));
+      expect(singleCols).toBe(1);
+      expect(singleRows).toBe(1);
+
+      const largeCols = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, 16))));
+      const largeRows = Math.max(1, Math.ceil(16 / largeCols));
+      expect(largeCols).toBe(4);
+      expect(largeRows).toBe(4);
     });
   });
 
   describe('quiet ghost filtering and overview port label budget', () => {
-    it('identifies interesting edges for overview port labels', () => {
+    it('identifies interesting edges for overview port labels across degrees and pin states', () => {
       const isInteresting = (degree: number, sourcePinned: boolean, targetPinned: boolean) =>
         degree >= 6 || sourcePinned || targetPinned;
 
       expect(isInteresting(2, false, false)).toBe(false);
       expect(isInteresting(6, false, false)).toBe(true);
       expect(isInteresting(1, true, false)).toBe(true);
+      expect(isInteresting(0, false, false)).toBe(false);
+      expect(isInteresting(100, false, false)).toBe(true);
     });
   });
 });
+
