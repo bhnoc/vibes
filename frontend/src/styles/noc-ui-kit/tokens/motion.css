@@ -1,0 +1,24 @@
+:root{
+  --duration-instant:80ms; /* @kind other */
+  --duration-fast:120ms; /* @kind other */
+  --duration-base:180ms; /* @kind other */
+  --duration-slow:280ms; /* @kind other */
+  --duration-pulse:1600ms; /* @kind other */
+
+  --ease-out:cubic-bezier(.2,0,.2,1);/* @kind other */
+  --ease-in-out:cubic-bezier(.4,0,.2,1);/* @kind other */
+
+  /* shadcn transitions: colours and box-shadow only. Instruments don't bounce. */
+  --transition-control:color var(--duration-fast) var(--ease-out),background-color var(--duration-fast) var(--ease-out),border-color var(--duration-fast) var(--ease-out),box-shadow var(--duration-fast) var(--ease-out);/* @kind other */
+  --transition-surface:background-color var(--duration-base) var(--ease-out);/* @kind other */
+}
+@keyframes bh-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes bh-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes bh-ping{0%{transform:scale(1);opacity:.55}100%{transform:scale(2.6);opacity:0}}
+@keyframes bh-fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){:root{
+  --duration-instant:0ms; /* @kind other */
+  --duration-fast:0ms; /* @kind other */
+  --duration-base:0ms; /* @kind other */
+  --duration-slow:0ms; /* @kind other */
+}}

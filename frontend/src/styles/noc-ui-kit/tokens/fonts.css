@@ -1,0 +1,14 @@
+/* Typefaces. Archivo carries the UI voice, Archivo Black is the display cut,
+   JetBrains Mono is the machine register. Deliberately not Inter, Geist or
+   Space Grotesk: those faces are on every generated dashboard.
+   Archivo Black ships one weight (400) and is already heavier than Archivo 700,
+   so display type never asks for a weight the family does not serve.
+   NOTE: the Black Hat wordmark is a custom rounded-geometric face with no
+   webfont equivalent. Always use the supplied logo artwork, never re-type it. */
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
+:root{
+  --font-sans:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --font-display:"Archivo Black","Archivo",ui-sans-serif,system-ui,sans-serif;
+}

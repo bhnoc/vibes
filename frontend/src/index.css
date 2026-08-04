@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-@import url('../../../noc-ui-kit/styles.css');
+@import url('./styles/noc-ui-kit/styles.css');
 @import url('./styles/components.css');
+
 
 /* Base styles */
 * {
