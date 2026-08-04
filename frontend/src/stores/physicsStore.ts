@@ -53,7 +53,7 @@ const defaultPhysics = {
 }
 
 // Increment to force-reset / migrate localStorage when settings shape changes
-const PHYSICS_VERSION = 26;
+const PHYSICS_VERSION = 27;
 
 export const usePhysicsStore = create<PhysicsSettings>()(
   persist(
@@ -92,13 +92,14 @@ export const usePhysicsStore = create<PhysicsSettings>()(
             klipperEnhanceIntensity: _kei,
             dimQuietIntensity: _dd,
             enhanceBusyIntensity: _eb,
+            nodeSizeIntensity,
             ...rest
           } = prev;
           return {
             ...defaultPhysics,
             ...rest,
             nodeSizingIntensity: boolOrNumToIntensity(
-              prev.nodeSizingIntensity ?? klipperSizingIntensity ?? klipperThroughputSizing,
+              prev.nodeSizingIntensity ?? nodeSizeIntensity ?? klipperSizingIntensity ?? klipperThroughputSizing,
               1,
             ),
             edgeWidthIntensity: boolOrNumToIntensity(

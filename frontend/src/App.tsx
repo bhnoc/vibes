@@ -9,6 +9,7 @@ import './index.css'
 import { logger } from './utils/logger'
 import { useWebSocketPinning } from './hooks/useWebSocketPinning'
 import { useThemeStore } from './stores/themeStore'
+import { useWindowStore } from './stores/windowStore'
 
 // Import critical components directly 
 import { RendererSelector } from './components/RendererSelector'
@@ -52,10 +53,14 @@ export const App = memo(() => {
   const [currentRoute, setCurrentRoute] = useState(window.location.hash.slice(1) || 'main');
   const [initialLoad, setInitialLoad] = useState(true);
   const [performanceTestData, setPerformanceTestData] = useState({ enabled: false, nodeCount: 0, connectionCount: 0 });
-  const [showSettings, setShowSettings] = useState(captureMode === 'waiting');
-  const [showDebug, setShowDebug] = useState(false);
-  const [showLegend, setShowLegend] = useState(true);
+  const { showSettings, showDebug, showLegend, toggleSettings, toggleDebug, toggleLegend } = useWindowStore();
   const [showPerfTest, setShowPerfTest] = useState(false);
+
+  useEffect(() => {
+    if (captureMode === 'waiting') {
+      toggleSettings(true);
+    }
+  }, [captureMode, toggleSettings]);
 
   // --- Store Hooks ---
   const { packets, clearPackets } = usePacketStore()
@@ -461,11 +466,11 @@ export const App = memo(() => {
           error={error}
           captureMode={captureMode}
           showSettings={showSettings}
-          onToggleSettings={() => setShowSettings(!showSettings)}
+          onToggleSettings={() => toggleSettings()}
           showDebug={showDebug}
-          onToggleDebug={() => setShowDebug(!showDebug)}
+          onToggleDebug={() => toggleDebug()}
           showLegend={showLegend}
-          onToggleLegend={() => setShowLegend(!showLegend)}
+          onToggleLegend={() => toggleLegend()}
         />
         
         {/* Conditionally render content based on route */}
@@ -490,7 +495,7 @@ export const App = memo(() => {
                 zeekTcpAddr={zeekTcpAddr}
                 onZeekTcpAddrChange={setZeekTcpAddr}
                 wsPreviewUrl={wsUrl}
-                onMinimize={() => setShowSettings(false)}
+                onMinimize={() => toggleSettings(false)}
               />
             </div>
           </div>
@@ -506,7 +511,7 @@ export const App = memo(() => {
         {/* Unified Debug Panel */}
         <UnifiedDebugPanel 
           isOpen={showDebug}
-          onMinimize={() => setShowDebug(false)}
+          onMinimize={() => toggleDebug(false)}
           onTestModeChange={handleTestModeChange}
           onRendererChange={handleRendererChange}
           currentRenderer={currentRenderer}
@@ -527,7 +532,7 @@ export const App = memo(() => {
             }
           ]}
         />
-        <ThemeLegend isOpen={showLegend} onMinimize={() => setShowLegend(false)} />
+        <ThemeLegend isOpen={showLegend} onMinimize={() => toggleLegend(false)} />
         
         <NocStatusBar status={status} error={error} />
       </CaptureContext.Provider>
