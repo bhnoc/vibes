@@ -6,7 +6,7 @@ export interface NocHeaderProps {
   currentRoute: string;
   status: string;
   error: string | null;
-  captureMode: 'simulated' | 'real' | 'zeek' | 'waiting';
+  captureMode: 'simulated' | 'real' | 'zeek' | 'netflow' | 'waiting';
   showSettings: boolean;
   onToggleSettings: () => void;
   showDebug?: boolean;
@@ -21,6 +21,7 @@ const MODE_LABELS: Record<string, { label: string; level: 'ok' | 'info' | 'waiti
   real: { label: 'LIVE CAPTURE', level: 'ok' },
   simulated: { label: 'SIMULATED TRAFFIC', level: 'info' },
   zeek: { label: 'ZEEK SENSOR', level: 'info' },
+  netflow: { label: 'NETFLOW V9', level: 'info' },
   waiting: { label: 'WAITING FOR STREAM', level: 'waiting' },
 };
 

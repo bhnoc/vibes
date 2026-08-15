@@ -15,6 +15,7 @@ import { useWindowStore } from './stores/windowStore'
 import { RendererSelector } from './components/RendererSelector'
 import { CaptureContext } from './components/MinimalGraph'
 import { SettingsPanel } from './components/SettingsPanel' // Direct import
+import type { NetFlowHostAddress, NetFlowListenerStatus } from './components/SettingsPanel'
 import { UnifiedDebugPanel } from './components/UnifiedDebugPanel'
 import { PerformanceTestData } from './components/PerformanceTestData'
 // import { IPDebugPage } from './components/IPDebugPage'  // Using lazy loading instead
@@ -45,8 +46,13 @@ const LoadingFallback = () => (
 
 export const App = memo(() => {
   // --- State Declarations ---
-  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'zeek' | 'waiting'>('simulated');
+  const [captureMode, setCaptureMode] = useState<'simulated' | 'real' | 'zeek' | 'netflow' | 'waiting'>('simulated');
   const [zeekTcpAddr, setZeekTcpAddr] = useState<string>(':4777');
+  const [netflowAddresses, setNetflowAddresses] = useState<NetFlowHostAddress[]>([]);
+  const [netflowBindIP, setNetflowBindIP] = useState<string>('0.0.0.0');
+  const [netflowPort, setNetflowPort] = useState<number>(2055);
+  const [netflowStatus, setNetflowStatus] = useState<NetFlowListenerStatus | null>(null);
+  const [netflowBusy, setNetflowBusy] = useState(false);
   const [interfaces, setInterfaces] = useState<{ name: string; description: string }[]>([]);
   const [selectedInterface, setSelectedInterface] = useState<string>('');
   const [currentRenderer, setCurrentRenderer] = useState('canvas');
@@ -98,6 +104,9 @@ export const App = memo(() => {
     if (captureMode === 'zeek') {
       const addr = zeekTcpAddr.trim() || ':4777';
       return `${wsBase}/ws?zeek_tcp=${encodeURIComponent(addr)}`;
+    }
+    if (captureMode === 'netflow') {
+      return `${wsBase}/ws?netflow=1`;
     }
     if (captureMode === 'simulated') {
       return `${wsBase}/ws`;
@@ -287,6 +296,54 @@ export const App = memo(() => {
     
     fetchInterfaces();
   }, [captureMode]);
+
+  // NetFlow: load host IPs + poll listener status while in NetFlow mode
+  useEffect(() => {
+    if (captureMode !== 'netflow') return;
+
+    let cancelled = false;
+    const apiBaseUrl = getApiBaseUrl();
+
+    const refreshAddresses = async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/netflow/addresses`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as NetFlowHostAddress[];
+        if (cancelled) return;
+        setNetflowAddresses(data);
+        setNetflowBindIP((current) => {
+          if (data.length && !data.some((a) => a.ip === current)) {
+            return data[0].ip;
+          }
+          return current;
+        });
+      } catch (err) {
+        logger.warn('Failed to load NetFlow bind addresses:', err);
+      }
+    };
+
+    const refreshStatus = async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/netflow/status`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as NetFlowListenerStatus;
+        if (cancelled) return;
+        setNetflowStatus(data);
+        if (data.bind_ip) setNetflowBindIP(data.bind_ip);
+        if (data.port) setNetflowPort(data.port);
+      } catch (err) {
+        logger.warn('Failed to load NetFlow status:', err);
+      }
+    };
+
+    refreshAddresses();
+    refreshStatus();
+    const id = window.setInterval(refreshStatus, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [captureMode]);
   
   logger.log(`🌐 WebSocket URL updated: ${wsUrl || 'none - waiting for settings'} (mode: ${captureMode}, interface: ${selectedInterface})`);
 
@@ -311,21 +368,23 @@ export const App = memo(() => {
     const serverUiMode =
       actualCaptureMode === 'zeek_conn'
         ? 'zeek'
-        : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
-          ? null
-          : (actualCaptureMode as 'simulated' | 'real');
+        : actualCaptureMode === 'netflow_v9'
+          ? 'netflow'
+          : actualCaptureMode === 'unknown' || actualCaptureMode === 'waiting'
+            ? null
+            : (actualCaptureMode as 'simulated' | 'real');
     // Only update if this is not a user-initiated change and there's a meaningful difference
     if (
       serverUiMode !== null &&
       serverUiMode !== captureMode &&
       !userInitiatedChangeRef.current
     ) {
-      // Don't let hook "simulated" (reconnect/error) stomp an explicit Zeek selection before server mode arrives
-      if (captureMode === 'zeek' && serverUiMode === 'simulated') {
+      // Don't let hook "simulated" (reconnect/error) stomp an explicit Zeek/NetFlow selection before server mode arrives
+      if ((captureMode === 'zeek' || captureMode === 'netflow') && serverUiMode === 'simulated') {
         return;
       }
       logger.log(`📡 Server reported capture mode: ${actualCaptureMode}, updating local state`);
-      setCaptureMode(serverUiMode === 'zeek' ? 'zeek' : serverUiMode);
+      setCaptureMode(serverUiMode);
     }
   }, [actualCaptureMode, captureMode]);
   
@@ -353,12 +412,14 @@ export const App = memo(() => {
       document.title = 'Network Visualizer - SIMULATION';
     } else if (actualCaptureMode === 'zeek_conn') {
       document.title = 'Network Visualizer - ZEEK CONN';
+    } else if (actualCaptureMode === 'netflow_v9') {
+      document.title = 'Network Visualizer - NETFLOW V9';
     } else {
       document.title = 'Network Visualizer';
     }
   }, [actualCaptureMode]);
   
-  const handleCaptureModeChange = (mode: 'simulated' | 'real' | 'zeek') => {
+  const handleCaptureModeChange = (mode: 'simulated' | 'real' | 'zeek' | 'netflow') => {
     logger.log("🔄 User switching mode to:", mode);
     
     // Prevent multiple rapid calls
@@ -380,6 +441,49 @@ export const App = memo(() => {
       userInitiatedChangeRef.current = false;
     }, 2000);
   }
+
+  const handleNetflowStart = async () => {
+    setNetflowBusy(true);
+    try {
+      const apiBaseUrl = getApiBaseUrl();
+      const res = await fetch(`${apiBaseUrl}/api/netflow/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: netflowBindIP || '0.0.0.0', port: netflowPort || 2055 }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data?.error || `HTTP ${res.status}`;
+        logger.warn('NetFlow start failed:', msg);
+        if (data?.status) setNetflowStatus(data.status);
+        else setNetflowStatus((prev) => ({ ...(prev || {
+          state: 'error', bind_ip: netflowBindIP, port: netflowPort, listen_addr: '', templates: 0,
+          datagrams_ok: 0, datagrams_bad: 0, flows_ok: 0, subscribers: 0,
+        }), state: 'error', last_error: msg }));
+        return;
+      }
+      setNetflowStatus(data as NetFlowListenerStatus);
+    } catch (err) {
+      logger.warn('NetFlow start error:', err);
+    } finally {
+      setNetflowBusy(false);
+    }
+  };
+
+  const handleNetflowStop = async () => {
+    setNetflowBusy(true);
+    try {
+      const apiBaseUrl = getApiBaseUrl();
+      const res = await fetch(`${apiBaseUrl}/api/netflow/stop`, { method: 'POST' });
+      if (res.ok) {
+        setNetflowStatus((await res.json()) as NetFlowListenerStatus);
+      }
+    } catch (err) {
+      logger.warn('NetFlow stop error:', err);
+    } finally {
+      setNetflowBusy(false);
+    }
+  };
   
   const handleInterfaceSelect = (iface: string) => {
     logger.log("🔌 Interface selected:", iface);
@@ -424,7 +528,7 @@ export const App = memo(() => {
   // Simplified error handling - fall back to simulation only if not user-initiated
   useEffect(() => {
     if (status === 'error' && 
-        (captureMode === 'real' || captureMode === 'zeek') && 
+        (captureMode === 'real' || captureMode === 'zeek' || captureMode === 'netflow') && 
         !userInitiatedChangeRef.current) {
       logger.log('🔄 Capture failed, falling back to simulation mode');
       setCaptureMode('simulated');
@@ -448,9 +552,11 @@ export const App = memo(() => {
         captureMode:
           actualCaptureMode === 'zeek_conn'
             ? 'zeek'
-            : actualCaptureMode === 'real' || actualCaptureMode === 'simulated'
-              ? actualCaptureMode
-              : captureMode,
+            : actualCaptureMode === 'netflow_v9'
+              ? 'netflow'
+              : actualCaptureMode === 'real' || actualCaptureMode === 'simulated'
+                ? actualCaptureMode
+                : captureMode,
         captureInterface: selectedInterface 
       }}>
         {/* Black Hat NOC Header */}
@@ -488,6 +594,15 @@ export const App = memo(() => {
                 onInterfaceSelect={handleInterfaceSelect}
                 zeekTcpAddr={zeekTcpAddr}
                 onZeekTcpAddrChange={setZeekTcpAddr}
+                netflowAddresses={netflowAddresses}
+                netflowBindIP={netflowBindIP}
+                onNetflowBindIPChange={setNetflowBindIP}
+                netflowPort={netflowPort}
+                onNetflowPortChange={setNetflowPort}
+                netflowStatus={netflowStatus}
+                netflowBusy={netflowBusy}
+                onNetflowStart={handleNetflowStart}
+                onNetflowStop={handleNetflowStop}
                 wsPreviewUrl={wsUrl}
                 onMinimize={() => toggleSettings(false)}
               />

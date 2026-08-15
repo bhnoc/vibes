@@ -5,7 +5,7 @@ import { createContext, useContext } from 'react'
 import { logger } from '../utils/logger'
 
 interface CaptureContextType {
-  captureMode: 'real' | 'simulated' | 'zeek' | 'unknown' | 'waiting';
+  captureMode: 'real' | 'simulated' | 'zeek' | 'netflow' | 'unknown' | 'waiting';
   captureInterface: string;
 }
 
