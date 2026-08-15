@@ -10,14 +10,43 @@ type Tab = 'network' | 'physics';
 const WifiIcon = FiWifi as React.ElementType;
 const SlidersIcon = FiSliders as React.ElementType;
 
+export type NetFlowHostAddress = {
+  ip: string;
+  interface: string;
+  family: string;
+};
+
+export type NetFlowListenerStatus = {
+  state: string;
+  bind_ip: string;
+  port: number;
+  listen_addr: string;
+  templates: number;
+  datagrams_ok: number;
+  datagrams_bad: number;
+  flows_ok: number;
+  last_error?: string;
+  last_packet_at?: string;
+  subscribers: number;
+};
+
 export const SettingsPanel: React.FC<{
-  captureMode: 'simulated' | 'real' | 'zeek' | 'waiting';
-  onCaptureModeChange: (mode: 'simulated' | 'real' | 'zeek') => void;
+  captureMode: 'simulated' | 'real' | 'zeek' | 'netflow' | 'waiting';
+  onCaptureModeChange: (mode: 'simulated' | 'real' | 'zeek' | 'netflow') => void;
   interfaces: Array<{ name: string; description: string }>;
   selectedInterface: string;
   onInterfaceSelect: (iface: string) => void;
   zeekTcpAddr: string;
   onZeekTcpAddrChange: (addr: string) => void;
+  netflowAddresses: NetFlowHostAddress[];
+  netflowBindIP: string;
+  onNetflowBindIPChange: (ip: string) => void;
+  netflowPort: number;
+  onNetflowPortChange: (port: number) => void;
+  netflowStatus: NetFlowListenerStatus | null;
+  netflowBusy: boolean;
+  onNetflowStart: () => void;
+  onNetflowStop: () => void;
   /** Current frontend WebSocket URL (updates when mode / Zeek address changes). */
   wsPreviewUrl: string | null;
   onMinimize: () => void;
@@ -29,6 +58,15 @@ export const SettingsPanel: React.FC<{
   onInterfaceSelect,
   zeekTcpAddr,
   onZeekTcpAddrChange,
+  netflowAddresses,
+  netflowBindIP,
+  onNetflowBindIPChange,
+  netflowPort,
+  onNetflowPortChange,
+  netflowStatus,
+  netflowBusy,
+  onNetflowStart,
+  onNetflowStop,
   wsPreviewUrl,
   onMinimize
 }) => {
@@ -183,6 +221,13 @@ export const SettingsPanel: React.FC<{
               >
                 Zeek (TCP)
               </button>
+              <button
+                className={captureMode === 'netflow' ? 'active' : ''}
+                onClick={() => onCaptureModeChange('netflow')}
+                title="NetFlow v9 UDP collector"
+              >
+                NetFlow
+              </button>
             </div>
 
             {captureMode === 'zeek' && (
@@ -206,6 +251,146 @@ export const SettingsPanel: React.FC<{
                     font: 'var(--type-mono)',
                   }}
                 />
+              </div>
+            )}
+
+            {captureMode === 'netflow' && (
+              <div style={{ marginTop: '16px' }}>
+                <h3>NetFlow v9 collector</h3>
+                <p style={{ fontSize: '11px', opacity: 0.8, marginBottom: '10px', color: 'var(--text-muted)' }}>
+                  Point a third-party NetFlow v9 exporter at this host. Start the listener, then flows appear on the graph (slower than a span).
+                </p>
+
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Listen IP
+                </label>
+                <select
+                  value={netflowBindIP}
+                  onChange={(e) => onNetflowBindIPChange(e.target.value)}
+                  disabled={netflowStatus?.state === 'listening' || netflowBusy}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    marginBottom: '10px',
+                    background: 'var(--card, #141414)',
+                    border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    color: 'var(--text-hi, #fff)',
+                    font: 'var(--type-mono)',
+                  }}
+                >
+                  {netflowAddresses.length === 0 && (
+                    <option value={netflowBindIP || '0.0.0.0'}>{netflowBindIP || '0.0.0.0'}</option>
+                  )}
+                  {netflowAddresses.map((a) => (
+                    <option key={`${a.ip}-${a.interface}`} value={a.ip}>
+                      {a.ip === '0.0.0.0'
+                        ? '0.0.0.0 — all interfaces'
+                        : `${a.ip} (${a.interface})`}
+                    </option>
+                  ))}
+                </select>
+
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  UDP port
+                </label>
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  value={netflowPort}
+                  onChange={(e) => onNetflowPortChange(Number(e.target.value) || 2055)}
+                  disabled={netflowStatus?.state === 'listening' || netflowBusy}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    marginBottom: '12px',
+                    background: 'var(--card, #141414)',
+                    border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    color: 'var(--text-hi, #fff)',
+                    font: 'var(--type-mono)',
+                  }}
+                />
+
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={onNetflowStart}
+                    disabled={netflowBusy || netflowStatus?.state === 'listening'}
+                    style={{
+                      flex: 1,
+                      padding: '8px 10px',
+                      background: netflowStatus?.state === 'listening' ? 'var(--wash-ok, rgba(34,197,94,0.15))' : 'var(--card, #141414)',
+                      border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      color: 'var(--text-hi, #fff)',
+                      cursor: netflowBusy || netflowStatus?.state === 'listening' ? 'not-allowed' : 'pointer',
+                      opacity: netflowBusy || netflowStatus?.state === 'listening' ? 0.6 : 1,
+                    }}
+                  >
+                    Start listener
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNetflowStop}
+                    disabled={netflowBusy || netflowStatus?.state === 'stopped' || !netflowStatus}
+                    style={{
+                      flex: 1,
+                      padding: '8px 10px',
+                      background: 'var(--card, #141414)',
+                      border: 'var(--border-control, 1px solid rgba(255, 255, 255, 0.15))',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      color: 'var(--text-hi, #fff)',
+                      cursor: netflowBusy || netflowStatus?.state === 'stopped' || !netflowStatus ? 'not-allowed' : 'pointer',
+                      opacity: netflowBusy || netflowStatus?.state === 'stopped' || !netflowStatus ? 0.6 : 1,
+                    }}
+                  >
+                    Stop listener
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    background: 'var(--surface-card, rgba(255,255,255,0.03))',
+                    border: 'var(--border-card, 1px solid rgba(255, 255, 255, 0.1))',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    font: 'var(--type-mono)',
+                    fontSize: '11px',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  <div style={{ marginBottom: '4px' }}>
+                    Status:{' '}
+                    <span style={{
+                      color:
+                        netflowStatus?.state === 'listening'
+                          ? 'var(--signal-teal, #2dd4bf)'
+                          : netflowStatus?.state === 'error'
+                            ? 'var(--signal-red, #f87171)'
+                            : 'var(--text-hi, #fff)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                    }}>
+                      {netflowStatus?.state || 'stopped'}
+                    </span>
+                  </div>
+                  {netflowStatus?.listen_addr && (
+                    <div style={{ marginBottom: '4px' }}>Bind: {netflowStatus.listen_addr}</div>
+                  )}
+                  {netflowStatus && (
+                    <div style={{ marginBottom: '4px' }}>
+                      Flows: {netflowStatus.flows_ok} · Templates: {netflowStatus.templates} · Datagrams: {netflowStatus.datagrams_ok}
+                    </div>
+                  )}
+                  {netflowStatus?.last_packet_at && (
+                    <div style={{ marginBottom: '4px' }}>Last packet: {netflowStatus.last_packet_at}</div>
+                  )}
+                  {netflowStatus?.last_error && (
+                    <div style={{ color: 'var(--signal-red, #f87171)' }}>Error: {netflowStatus.last_error}</div>
+                  )}
+                </div>
               </div>
             )}
 

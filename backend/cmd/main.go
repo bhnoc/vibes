@@ -280,6 +280,9 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	netflowParam := r.URL.Query().Get("netflow")
+	wantNetflow := netflowParam == "1" || netflowParam == "true" || strings.EqualFold(netflowParam, "v9")
+
 	if selectedPcapFile != "" {
 		config := capture.PCAPReplayConfig{
 			FilePath:    selectedPcapFile,
@@ -290,6 +293,9 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 	} else if zeekAddr != "" {
 		captureSystem = capture.NewZeekConnJSONCapture(zeekAddr)
 		captureMode = "zeek_conn"
+	} else if wantNetflow {
+		captureSystem = capture.NewNetFlowV9Capture()
+		captureMode = "netflow_v9"
 	} else if *useDumpcap {
 		captureSystem = capture.NewDumpcapTailer(*dumpcapDir)
 		captureMode = "dumpcap"
@@ -337,6 +343,9 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			log.Printf("*** 🔥 PCAP REPLAY ACTIVE: %s (%.2fx speed) ***", selectedPcapFile, selectedReplaySpeed)
 		case "zeek_conn":
 			log.Printf("*** 🦅 ZEEK CONN JSON (TCP) ACTIVE: ingest %s ***", zeekAddr)
+		case "netflow_v9":
+			st := capture.GetNetFlowManager().Status()
+			log.Printf("*** 🌊 NETFLOW V9 ACTIVE (listener %s on %s) ***", st.State, st.ListenAddr)
 		case "simulated":
 			log.Printf("*** 🎮 SIMULATION ACTIVE (synthetic traffic) ***")
 		}
@@ -360,6 +369,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 
 	// Send mode information to the client
 	var modeMessage []byte
+	nfStatus := capture.GetNetFlowManager().Status()
 	if captureFailed {
 		// Send error message with fallback info
 		modeMessage, _ = json.Marshal(map[string]interface{}{
@@ -369,6 +379,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			"pcapFile": selectedPcapFile,
 			"replaySpeed": selectedReplaySpeed,
 			"zeek_tcp": zeekAddr,
+			"netflow": nfStatus,
 			"error": true,
 			"errorMsg": captureErrorMsg,
 			"requestedMode": originalMode,
@@ -382,6 +393,7 @@ func (manager *ClientManager) HandleWebSocket(w http.ResponseWriter, r *http.Req
 			"pcapFile": selectedPcapFile,
 			"replaySpeed": selectedReplaySpeed,
 			"zeek_tcp": zeekAddr,
+			"netflow": nfStatus,
 		})
 	}
 	client.send <- modeMessage
@@ -823,6 +835,90 @@ func main() {
 		json.NewEncoder(w).Encode(interfaces)
 	})
 
+	writeCORS := func(w http.ResponseWriter) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	}
+
+	http.HandleFunc("/api/netflow/addresses", func(w http.ResponseWriter, r *http.Request) {
+		writeCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		addrs, err := capture.ListHostAddresses()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(addrs)
+	})
+
+	http.HandleFunc("/api/netflow/status", func(w http.ResponseWriter, r *http.Request) {
+		writeCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		json.NewEncoder(w).Encode(capture.GetNetFlowManager().Status())
+	})
+
+	http.HandleFunc("/api/netflow/start", func(w http.ResponseWriter, r *http.Request) {
+		writeCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			IP   string `json:"ip"`
+			Port int    `json:"port"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON body (need ip, port)", http.StatusBadRequest)
+			return
+		}
+		if req.Port == 0 {
+			req.Port = 2055
+		}
+		if err := capture.GetNetFlowManager().Start(req.IP, req.Port); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":  err.Error(),
+				"status": capture.GetNetFlowManager().Status(),
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(capture.GetNetFlowManager().Status())
+	})
+
+	http.HandleFunc("/api/netflow/stop", func(w http.ResponseWriter, r *http.Request) {
+		writeCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = capture.GetNetFlowManager().Stop()
+		json.NewEncoder(w).Encode(capture.GetNetFlowManager().Status())
+	})
+
 	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		dumpcapStatus := map[string]interface{}{
@@ -838,6 +934,7 @@ func main() {
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"dumpcap": dumpcapStatus,
+			"netflow": capture.GetNetFlowManager().Status(),
 		})
 	})
 
@@ -889,6 +986,8 @@ func main() {
 		manager.timeWindowProcessor.Stop()
 	}
 	manager.stateMutex.Unlock()
+
+	_ = capture.GetNetFlowManager().Stop()
 
 	log.Println("Server exited cleanly")
 }

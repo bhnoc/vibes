@@ -5,7 +5,7 @@ import { getWebSocketUrl } from '../utils/websocketUtils';
 import { logger } from '../utils/logger';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'waiting';
-type CaptureMode = 'real' | 'simulated' | 'zeek_conn' | 'unknown' | 'waiting';
+type CaptureMode = 'real' | 'simulated' | 'zeek_conn' | 'netflow_v9' | 'unknown' | 'waiting';
 
 interface WebSocketState {
   status: ConnectionStatus;
@@ -95,6 +95,8 @@ export const useWebSocket = (url: string | null): WebSocketState => {
           let guess: CaptureMode = 'simulated';
           if (url.includes('zeek_tcp')) {
             guess = 'zeek_conn';
+          } else if (url.includes('netflow')) {
+            guess = 'netflow_v9';
           } else if (url.includes('interface=')) {
             guess = 'real';
           }

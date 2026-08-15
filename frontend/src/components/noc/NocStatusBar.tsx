@@ -14,6 +14,7 @@ const CAPTURE_SOURCE_LABELS: Record<string, { label: string; level: 'ok' | 'info
   real: { label: 'LIVE INTERFACE', level: 'ok' },
   simulated: { label: 'SIMULATION GENERATOR', level: 'info' },
   zeek: { label: 'ZEEK SENSOR STREAM', level: 'info' },
+  netflow: { label: 'NETFLOW V9 COLLECTOR', level: 'info' },
   pcap_replay: { label: 'PCAP REPLAY', level: 'info' },
 };
 
